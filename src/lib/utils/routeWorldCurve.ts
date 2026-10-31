@@ -115,3 +115,24 @@ export const routeCurvePoints = (
     return [meters.x * sceneScale, 0, -meters.y * sceneScale] as [number, number, number];
   });
 };
+
+/**
+ * Project one OSM ring (lat/lng) into scene XZ metres against the route's
+ * local origin (its first coordinate) — the same frame
+ * {@link routeCurvePoints} already uses, so a polygon drawn through this
+ * sits over the water strip rather than kilometres away. #493 Phase 3b.
+ *
+ * The ring is open: the caller does not need to repeat the first vertex
+ * at the end. Returns `[]` for fewer than three input vertices.
+ */
+export const ringToSceneXZ = (
+  ring: Coordinate[],
+  origin: Coordinate,
+  sceneScale: number = SCENE_SCALE,
+): { x: number; z: number }[] => {
+  if (!ring || ring.length < 3) return [];
+  return ring.map((coord) => {
+    const meters = latLngToMeters(coord.lat, coord.lng, origin.lat, origin.lng);
+    return { x: meters.x * sceneScale, z: -meters.y * sceneScale };
+  });
+};

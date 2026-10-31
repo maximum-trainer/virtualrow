@@ -37,7 +37,7 @@ import {
 import { distanceBetweenLatLng, latLngToMeters } from '../utils/geoUtils';
 import type { OsmBuilding } from '../services/routeEnrichmentService';
 import { SCENE_SCALE } from '../utils/worldScale';
-import { routeCurvePoints } from '../utils/routeWorldCurve';
+import { routeCurvePoints, ringToSceneXZ } from '../utils/routeWorldCurve';
 import { RouteCurve } from '../renderer/math/curve';
 import { vec3 } from '../renderer/math/vec3';
 import type { PoolInput } from '../renderer/plan/instancePools';
@@ -135,6 +135,14 @@ export interface EngineRoute {
    * route for now; the per-segment React approach is a follow-up.
    */
   dominantProfile?: SceneryProfile;
+  /**
+   * Lake / open-water polygons projected into scene XZ (#493 Phase 3b). Each
+   * polygon's outer ring and any islands are already in metres relative to
+   * the route's local origin, so the renderer only has to tessellate +
+   * disc-clip. Omitted when the route has no polygon water (a river) or when
+   * the polygon-water flag is off.
+   */
+  lakePolygons?: Array<{ outer: { x: number; z: number }[]; holes: { x: number; z: number }[][] }>;
 }
 
 /** Default OSM building height when the tags carry neither `height` nor levels. */
@@ -325,6 +333,21 @@ export const toEngineRoute = (
   const routeProfiles = distinctProfiles(enrichment ?? null, getRouteSceneryTrack(route.id));
   const dominantProfile: SceneryProfile = routeProfiles[0] ?? 'fallback';
 
+  // #493 Phase 3b — project the enrichment's lake polygons into scene XZ
+  // against the route's local origin (its first coordinate), same frame
+  // the water strip uses. The engine disc-clips + tessellates per-attach;
+  // simplification already ran in enrichment via `lakePolygonsForTier`.
+  let lakePolygons: Array<{ outer: { x: number; z: number }[]; holes: { x: number; z: number }[][] }> = [];
+  const originCoord = route.coordinates && route.coordinates.length > 0 ? route.coordinates[0] : null;
+  if (enrichment?.lakes?.polygons && originCoord) {
+    lakePolygons = enrichment.lakes.polygons
+      .map((lake) => ({
+        outer: ringToSceneXZ(lake.outer, originCoord),
+        holes: (lake.inner ?? []).map((hole) => ringToSceneXZ(hole, originCoord)).filter((h) => h.length >= 3),
+      }))
+      .filter((p) => p.outer.length >= 3);
+  }
+
   return {
     pools,
     ...(buildings.length > 0 ? { buildings } : {}),
@@ -332,6 +355,7 @@ export const toEngineRoute = (
     ...(curvePoints.length >= 2 ? { curvePoints } : {}),
     ...(totalDistanceMeters !== undefined ? { totalDistanceMeters } : {}),
     ...(isClosedLoop ? { isClosedLoop } : {}),
+    ...(lakePolygons.length > 0 ? { lakePolygons } : {}),
     waterEdgesForProgress,
     dominantProfile,
   };

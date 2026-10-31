@@ -40,6 +40,8 @@ import { createOarSplashPass } from '../passes/oarSplashParticles';
 import { createOarSplashState, updateOarSplash } from './oarSplashParticles';
 import { createSkyPass } from '../passes/sky';
 import { createWaterPass } from '../passes/water';
+import { createWaterPolygonPass } from '../passes/waterPolygon';
+import { isPolygonWaterEnabled } from './polygonWater';
 import { createSceneryMeshPass } from '../passes/sceneryMesh';
 import { loadGlb } from '../../scenery/glbLoader';
 import {
@@ -141,6 +143,14 @@ export interface SceneryRoute {
     id: string;
     instances: Array<{ position: [number, number, number]; rotationY: number; scale: number }>;
   }>;
+  /**
+   * Lake/open-water polygons in scene XZ (#493 Phase 3b). Omitted on
+   * river routes and on routes where the polygon-water flag is off.
+   * Each polygon's outer ring and islands are already projected via
+   * `ringToSceneXZ` against the route's local origin; the engine
+   * tessellates and disc-clips at attach time.
+   */
+  lakePolygons?: Array<{ outer: { x: number; z: number }[]; holes: { x: number; z: number }[][] }>;
   /**
    * Per-progress shore widths (scene units) so the water strip bends with
    * the OSM-measured river. Called once per vertex column at build time, not
@@ -559,14 +569,34 @@ export const createRideScene = async (
     edgesForProgress: waterEdgesForProgress,
     grass: { profile: bankGrassProfile, strength: bankGrassStrength },
   });
-  const waterPass = createWaterPass({
-    device,
-    format,
-    frameUniforms,
-    shadow: shadowResources,
-    curve: waterCurve,
-    edgesForProgress: waterEdgesForProgress,
-  });
+  // #493 Phase 3b — if the enrichment carried lake polygons AND the kill
+  // switch isn't disabled, draw polygon water in place of the strip. The
+  // strip stays wired so a route whose enrichment lacks polygons (rivers,
+  // offline fallbacks) renders exactly as before.
+  const polygonLakes =
+    isSceneryRoute(opts.route) && opts.route.lakePolygons ? opts.route.lakePolygons : [];
+  const useLakePolygonWater = isPolygonWaterEnabled() && polygonLakes.length > 0;
+  const polygonWaterPass = useLakePolygonWater
+    ? createWaterPolygonPass({
+        device,
+        format,
+        frameUniforms,
+        shadow: shadowResources,
+        polygons: polygonLakes,
+      })
+    : null;
+  // Polygon tessellation can be empty (all rings clipped away or
+  // malformed); fall back to the strip rather than drop water entirely.
+  const waterPass =
+    polygonWaterPass ??
+    createWaterPass({
+      device,
+      format,
+      frameUniforms,
+      shadow: shadowResources,
+      curve: waterCurve,
+      edgesForProgress: waterEdgesForProgress,
+    });
   const buildingsPass = createBuildingsPass({
     device,
     format,
