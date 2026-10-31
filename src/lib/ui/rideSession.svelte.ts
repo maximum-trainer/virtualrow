@@ -178,11 +178,13 @@ export class RideSessionStore {
       ? paceGhost(this.#session.ghostChoice.paceSPer500)
       : null,
   );
-  readonly #ghostLabel = $derived.by(() =>
-    this.#session.ghostChoice.kind === 'pace'
-      ? `a ${formatSplit(this.#session.ghostChoice.paceSPer500)} pace`
-      : 'your best',
-  );
+  readonly #ghostLabel = $derived.by(() => {
+    const choice = this.#session.ghostChoice;
+    if (choice.kind !== 'pace') return 'your best';
+    // #415 AC4.4 — chasing a leaderboard time names who set it, not the
+    // pace. Picker-set paces (no name) fall through to the #338 wording.
+    return choice.displayName ?? `a ${formatSplit(choice.paceSPer500)} pace`;
+  });
 
   /**
    * The gap to the ghost for the HUD (#338). Null until the row has actually

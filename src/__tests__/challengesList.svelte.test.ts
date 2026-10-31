@@ -31,12 +31,13 @@ function challenge(partial: Partial<Challenge>): Challenge {
 
 function stubServices(
   listChallenges: ReturnType<typeof vi.fn>,
+  challengeResults: ReturnType<typeof vi.fn> = vi.fn(async () => []),
   overrides?: Partial<Services>,
 ): Partial<Services> {
   return {
     challengesService: {
       listChallenges,
-      challengeResults: vi.fn(async () => []),
+      challengeResults,
     } as unknown as Services['challengesService'],
     ...overrides,
   };
@@ -152,5 +153,153 @@ describe('ChallengesList.svelte', () => {
     await fireEvent.click(container.querySelector('[data-testid="challenge-row-button"]')!);
     expect(onRowChallenge).toHaveBeenCalledTimes(1);
     expect(onRowChallenge.mock.calls[0][0]).toMatchObject({ id: 'row-me' });
+  });
+});
+
+describe('ChallengesList leaderboard panel (#415 Phase 3)', () => {
+  it('fetches the leaderboard once when a card is expanded and lists its rows (AC4.2/4.3)', async () => {
+    const list = [challenge({ id: 'enschede', distanceMeters: 1044 })];
+    const results = [
+      {
+        rank: 1,
+        displayName: 'Sander Roosendaal',
+        rawTimeSeconds: 278.0,
+        correctedTimeSeconds: null,
+        points: 100,
+        boatType: null,
+        workoutDate: null,
+        validationStatus: 'valid',
+      },
+      {
+        rank: 2,
+        displayName: 'Pending Peter',
+        rawTimeSeconds: 290.0,
+        correctedTimeSeconds: null,
+        points: null,
+        boatType: null,
+        workoutDate: null,
+        validationStatus: 'pending',
+      },
+    ];
+    const challengeResults = vi.fn().mockResolvedValue(results);
+    const { container } = render(ChallengesListHarness, {
+      overrides: stubServices(vi.fn().mockResolvedValue(list), challengeResults),
+      onRaceResult: vi.fn(),
+    });
+    await waitFor(() =>
+      expect(container.querySelector('[data-testid="challenge-leaderboard-toggle"]')).not.toBeNull(),
+    );
+
+    await fireEvent.click(
+      container.querySelector('[data-testid="challenge-leaderboard-toggle"]')!,
+    );
+
+    await waitFor(() =>
+      expect(container.querySelectorAll('[data-testid="leaderboard-row"]')).toHaveLength(2),
+    );
+    expect(challengeResults).toHaveBeenCalledTimes(1);
+    expect(challengeResults).toHaveBeenCalledWith('enschede');
+
+    const rows = container.querySelectorAll('[data-testid="leaderboard-row"]');
+    // AC4.2: raceable flag drives presentation; the pending row has no Race button.
+    expect(rows[0].getAttribute('data-raceable')).toBe('true');
+    expect(rows[0].querySelector('[data-testid="leaderboard-race-button"]')).not.toBeNull();
+    expect(rows[1].getAttribute('data-raceable')).toBe('false');
+    expect(rows[1].querySelector('[data-testid="leaderboard-race-button"]')).toBeNull();
+    expect(rows[1].querySelector('[data-testid="leaderboard-row-status"]')?.textContent)
+      .toContain('pending');
+  });
+
+  it('shows "No results on this leaderboard yet" when the API returns [] (AC4.5)', async () => {
+    const list = [challenge({ id: 'empty' })];
+    const { container } = render(ChallengesListHarness, {
+      overrides: stubServices(vi.fn().mockResolvedValue(list), vi.fn().mockResolvedValue([])),
+      onRowChallenge: vi.fn(),
+    });
+    await waitFor(() =>
+      expect(container.querySelector('[data-testid="challenge-leaderboard-toggle"]')).not.toBeNull(),
+    );
+
+    await fireEvent.click(
+      container.querySelector('[data-testid="challenge-leaderboard-toggle"]')!,
+    );
+
+    await waitFor(() =>
+      expect(container.querySelector('[data-testid="leaderboard-empty"]')).not.toBeNull(),
+    );
+    // Row-the-course is still available: the top-level Row button is unchanged.
+    expect(container.querySelector('[data-testid="challenge-row-button"]')).not.toBeNull();
+  });
+
+  it('shows the corrected time but no Race button is tied to it (AC4.3)', async () => {
+    const list = [challenge({ id: 'hcap', hasHandicap: true, distanceMeters: 1000 })];
+    const results = [
+      {
+        rank: 1,
+        displayName: 'Rower',
+        rawTimeSeconds: 220.0,
+        correctedTimeSeconds: 210.0,
+        points: 100,
+        boatType: '1x',
+        workoutDate: null,
+        validationStatus: 'valid',
+      },
+    ];
+    const { container } = render(ChallengesListHarness, {
+      overrides: stubServices(vi.fn().mockResolvedValue(list), vi.fn().mockResolvedValue(results)),
+      onRaceResult: vi.fn(),
+    });
+    await waitFor(() =>
+      expect(container.querySelector('[data-testid="challenge-leaderboard-toggle"]')).not.toBeNull(),
+    );
+    await fireEvent.click(
+      container.querySelector('[data-testid="challenge-leaderboard-toggle"]')!,
+    );
+
+    await waitFor(() =>
+      expect(container.querySelector('[data-testid="leaderboard-corrected"]')).not.toBeNull(),
+    );
+    const button = container.querySelector('[data-testid="leaderboard-race-button"]')!;
+    // The button's title names the pace it will set — a function of raw
+    // time, not corrected: 220s over 1000m → 110s/500m → 1:50.0 pace.
+    expect(button.getAttribute('title')).toContain('1:50');
+  });
+
+  it('invokes onRaceResult with the challenge and the clicked row', async () => {
+    const list = [challenge({ id: 'enschede', distanceMeters: 1044 })];
+    const results = [
+      {
+        rank: 1,
+        displayName: 'Sander Roosendaal',
+        rawTimeSeconds: 278.0,
+        correctedTimeSeconds: null,
+        points: null,
+        boatType: null,
+        workoutDate: null,
+        validationStatus: 'valid',
+      },
+    ];
+    const onRaceResult = vi.fn();
+    const { container } = render(ChallengesListHarness, {
+      overrides: stubServices(vi.fn().mockResolvedValue(list), vi.fn().mockResolvedValue(results)),
+      onRaceResult,
+    });
+    await waitFor(() =>
+      expect(container.querySelector('[data-testid="challenge-leaderboard-toggle"]')).not.toBeNull(),
+    );
+    await fireEvent.click(
+      container.querySelector('[data-testid="challenge-leaderboard-toggle"]')!,
+    );
+    await waitFor(() =>
+      expect(container.querySelector('[data-testid="leaderboard-race-button"]')).not.toBeNull(),
+    );
+
+    await fireEvent.click(
+      container.querySelector('[data-testid="leaderboard-race-button"]')!,
+    );
+
+    expect(onRaceResult).toHaveBeenCalledTimes(1);
+    expect(onRaceResult.mock.calls[0][0]).toMatchObject({ id: 'enschede' });
+    expect(onRaceResult.mock.calls[0][1]).toMatchObject({ displayName: 'Sander Roosendaal' });
   });
 });

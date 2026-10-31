@@ -9,11 +9,13 @@
   import { base } from '$app/paths';
   import ChallengesList from '$lib/ui/ChallengesList.svelte';
   import { getRoutesStore } from '$lib/ui/routesContext';
+  import { getRideSession } from '$lib/ui/rideSessionContext';
   import { getServices } from '$lib/ui/servicesContext';
-  import type { Challenge } from '$lib/services/challengesService';
+  import { paceOf, type Challenge, type ChallengeResult } from '$lib/services/challengesService';
 
   const services = getServices();
   const routes = getRoutesStore();
+  const ride = getRideSession();
 
   /**
    * AC3.1 / AC3.2 / AC3.3 — "Row this course" imports the course the
@@ -22,22 +24,43 @@
    * next to the card; the rest of the challenge stays readable (AC3.3).
    * The window is never a gate on rowing (AC3.4): we don't check it here.
    */
-  async function rowChallenge(challenge: Challenge) {
+  async function selectCourseFor(challenge: Challenge): Promise<boolean> {
     const existing = services.routeService.findRouteByRownativeId(challenge.courseId);
     if (existing) {
       routes.selectRoute(existing);
-      void goto(`${base}/`);
-      return;
+      return true;
     }
     try {
       const route = await services.rownativeService.importCourseById(challenge.courseId);
       routes.routeImported(route);
-      void goto(`${base}/`);
+      return true;
     } catch {
-      // Phase 3 adds inline per-card error messaging; for now the Row
-      // button is a no-op when the mirror lacks the course, and the card
-      // stays readable (AC3.3).
+      // The mirror lacks the course. The card above stays readable (AC3.3);
+      // the Row/Race button just does nothing.
+      return false;
     }
+  }
+
+  async function rowChallenge(challenge: Challenge) {
+    // Rowing without a ghost: clear any prior pace-with-name so the HUD
+    // doesn't still read "on Sander Roosendaal" for a free row.
+    ride.ghostChoice = { kind: 'none' };
+    const ok = await selectCourseFor(challenge);
+    if (ok) void goto(`${base}/`);
+  }
+
+  /**
+   * #415 Phase 3 — race a leaderboard time as a pace ghost (#338). The
+   * raw time is what is raced (AC4.3): a corrected time is a scoring
+   * adjustment for a boat class, never the ghost. The HUD label names the
+   * athlete (AC4.4) via `displayName` on the GhostChoice.
+   */
+  async function raceResult(challenge: Challenge, result: ChallengeResult) {
+    const pace = paceOf(result, challenge.distanceMeters);
+    if (pace === null) return;
+    ride.ghostChoice = { kind: 'pace', paceSPer500: pace, displayName: result.displayName };
+    const ok = await selectCourseFor(challenge);
+    if (ok) void goto(`${base}/`);
   }
 </script>
 
@@ -45,4 +68,4 @@
   <title>Challenges · VirtualRow</title>
 </svelte:head>
 
-<ChallengesList onRowChallenge={rowChallenge} />
+<ChallengesList onRowChallenge={rowChallenge} onRaceResult={raceResult} />

@@ -10,13 +10,19 @@
   import type { Challenge } from '../../lib/services/challengesService';
   import ChallengesList from '../../lib/ui/ChallengesList.svelte';
 
+  import type { ChallengeResult } from '../../lib/services/challengesService';
+
   const props: {
     overrides: Partial<Services>;
     onRowChallenge?: (challenge: Challenge) => void;
+    onRaceResult?: (challenge: Challenge, result: ChallengeResult) => void;
   } = $props();
 
   // svelte-ignore state_referenced_locally
   setServices(props.overrides);
 </script>
 
-<ChallengesList onRowChallenge={props.onRowChallenge} />
+<ChallengesList
+  onRowChallenge={props.onRowChallenge}
+  onRaceResult={props.onRaceResult}
+/>

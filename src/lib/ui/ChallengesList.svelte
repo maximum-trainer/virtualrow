@@ -23,21 +23,34 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { getServices } from './servicesContext';
-  import type { Challenge, ChallengeStatus } from '../services/challengesService';
+  import {
+    isRaceable,
+    paceOf,
+    type Challenge,
+    type ChallengeResult,
+    type ChallengeStatus,
+  } from '../services/challengesService';
+  import { formatSplit } from '../utils/formatters';
   import { challengeStatusLabel, formatChallengeWindow } from './challengeStatus';
 
   interface Props {
-    /** Called when "Row this course" is clicked; Phase 3 wires the import. */
+    /** Called when "Row this course" is clicked (no ghost). */
     onRowChallenge?: (challenge: Challenge) => void;
+    /** Called when "Race this time" is clicked on a leaderboard row (#415 Phase 3). */
+    onRaceResult?: (challenge: Challenge, result: ChallengeResult) => void;
   }
 
-  let { onRowChallenge }: Props = $props();
+  let { onRowChallenge, onRaceResult }: Props = $props();
 
   const services = getServices();
 
   let status: ChallengeStatus = $state('active');
   let challenges: Challenge[] | null = $state(null);
   let fetchError = $state(false);
+  /** Which challenge card has its leaderboard panel open, by id. */
+  let openId: string | null = $state(null);
+  /** Fetched leaderboards, keyed by challenge id. `undefined` = not fetched. */
+  const resultsByChallenge = $state<Record<string, ChallengeResult[] | null>>({});
 
   async function load(next: ChallengeStatus) {
     status = next;
@@ -65,6 +78,27 @@
 
   function fmtKm(meters: number): string {
     return meters >= 1000 ? `${(meters / 1000).toFixed(1)} km` : `${Math.round(meters)} m`;
+  }
+
+  async function toggleLeaderboard(challenge: Challenge) {
+    if (openId === challenge.id) {
+      openId = null;
+      return;
+    }
+    openId = challenge.id;
+    if (resultsByChallenge[challenge.id] !== undefined) return;
+    // null while in-flight so the panel can show a loading state.
+    resultsByChallenge[challenge.id] = null;
+    resultsByChallenge[challenge.id] = await services.challengesService.challengeResults(
+      challenge.id,
+    );
+  }
+
+  function fmtSeconds(s: number): string {
+    const mins = Math.floor(s / 60);
+    const secs = s - mins * 60;
+    const secStr = secs < 10 ? `0${secs.toFixed(1)}` : secs.toFixed(1);
+    return `${mins}:${secStr}`;
   }
 </script>
 
@@ -150,15 +184,105 @@
             </p>
           {/if}
 
-          {#if onRowChallenge}
+          <div class="challenge-card__actions">
+            {#if onRowChallenge}
+              <button
+                type="button"
+                class="challenge-card__row-button"
+                data-testid="challenge-row-button"
+                onclick={() => onRowChallenge?.(challenge)}
+              >
+                Row this course
+              </button>
+            {/if}
             <button
               type="button"
-              class="challenge-card__row-button"
-              data-testid="challenge-row-button"
-              onclick={() => onRowChallenge?.(challenge)}
+              class="challenge-card__leaderboard-toggle"
+              data-testid="challenge-leaderboard-toggle"
+              aria-expanded={openId === challenge.id}
+              aria-controls={`leaderboard-${challenge.id}`}
+              onclick={() => void toggleLeaderboard(challenge)}
             >
-              Row this course
+              {openId === challenge.id ? 'Hide leaderboard' : 'Show leaderboard'}
             </button>
+          </div>
+
+          {#if openId === challenge.id}
+            {@const results = resultsByChallenge[challenge.id]}
+            <div
+              class="challenge-card__leaderboard"
+              id={`leaderboard-${challenge.id}`}
+              data-testid="challenge-leaderboard"
+            >
+              {#if results === null || results === undefined}
+                <p class="challenge-card__loading" data-testid="leaderboard-loading">
+                  Loading leaderboard…
+                </p>
+              {:else if results.length === 0}
+                <p class="challenge-card__empty" data-testid="leaderboard-empty">
+                  No results on this leaderboard yet.
+                </p>
+                <!--
+                  AC4.5 — a challenge with no raceable results still offers
+                  the course without a ghost. "Row this course" is already
+                  above, so no second button here.
+                -->
+              {:else}
+                <ol class="challenge-card__results-list" data-testid="leaderboard-results">
+                  {#each results as result (`${challenge.id}-${result.rank}-${result.displayName}`)}
+                    {@const raceable = isRaceable(result)}
+                    {@const pace = paceOf(result, challenge.distanceMeters)}
+                    <li
+                      class="leaderboard-row"
+                      data-testid="leaderboard-row"
+                      data-raceable={raceable ? 'true' : 'false'}
+                    >
+                      <span class="leaderboard-row__rank">{result.rank}</span>
+                      <span class="leaderboard-row__name">{result.displayName}</span>
+                      <span class="leaderboard-row__time">{fmtSeconds(result.rawTimeSeconds)}</span>
+                      <!--
+                        AC4.3 — corrected time + points are shown but never
+                        the ghost. Where handicap applies, the raw time is
+                        what is raced.
+                      -->
+                      {#if result.correctedTimeSeconds !== null}
+                        <span
+                          class="leaderboard-row__corrected"
+                          data-testid="leaderboard-corrected"
+                          title="Corrected time (handicap). Shown, never raced."
+                        >
+                          corr {fmtSeconds(result.correctedTimeSeconds)}
+                        </span>
+                      {/if}
+                      {#if result.points !== null}
+                        <span class="leaderboard-row__points">
+                          {result.points} pts
+                        </span>
+                      {/if}
+                      {#if raceable && pace !== null && onRaceResult}
+                        <button
+                          type="button"
+                          class="leaderboard-row__race"
+                          data-testid="leaderboard-race-button"
+                          title={`Row at ${formatSplit(pace)}/500m`}
+                          onclick={() => onRaceResult?.(challenge, result)}
+                        >
+                          Race this time
+                        </button>
+                      {:else if !raceable}
+                        <span
+                          class="leaderboard-row__status"
+                          data-testid="leaderboard-row-status"
+                          aria-label={`Status: ${result.validationStatus}`}
+                        >
+                          {result.validationStatus}
+                        </span>
+                      {/if}
+                    </li>
+                  {/each}
+                </ol>
+              {/if}
+            </div>
           {/if}
         </li>
       {/each}
@@ -292,5 +416,89 @@
   }
   .challenge-card__row-button:hover {
     background: #67a6e5;
+  }
+  .challenge-card__actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+    flex-wrap: wrap;
+  }
+  .challenge-card__leaderboard-toggle {
+    appearance: none;
+    background: transparent;
+    color: #cfd6e3;
+    border: 1px solid #2a3345;
+    border-radius: 0.5rem;
+    padding: 0.5rem 0.9rem;
+    font: inherit;
+    cursor: pointer;
+  }
+  .challenge-card__leaderboard {
+    margin-top: 0.8rem;
+    padding-top: 0.6rem;
+    border-top: 1px solid #22304a;
+  }
+  .challenge-card__loading,
+  .challenge-card__empty {
+    margin: 0.4rem 0;
+    color: #9aa6b8;
+  }
+  .challenge-card__results-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: grid;
+    gap: 0.3rem;
+  }
+  .leaderboard-row {
+    display: grid;
+    grid-template-columns: 2ch minmax(0, 1fr) auto auto auto auto;
+    gap: 0.5rem;
+    align-items: center;
+    padding: 0.35rem 0.4rem;
+    border-radius: 0.3rem;
+    background: #0a1120;
+  }
+  .leaderboard-row[data-raceable='false'] {
+    opacity: 0.6;
+  }
+  .leaderboard-row__rank {
+    color: #9aa6b8;
+    text-align: right;
+  }
+  .leaderboard-row__name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .leaderboard-row__time {
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+  }
+  .leaderboard-row__corrected,
+  .leaderboard-row__points {
+    font-size: 0.8rem;
+    color: #9aa6b8;
+    font-variant-numeric: tabular-nums;
+  }
+  .leaderboard-row__status {
+    font-size: 0.75rem;
+    color: #e39aa9;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .leaderboard-row__race {
+    appearance: none;
+    background: #163826;
+    color: #7ed9a3;
+    border: 1px solid #284d38;
+    border-radius: 0.3rem;
+    padding: 0.25rem 0.55rem;
+    font: inherit;
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+  .leaderboard-row__race:hover {
+    background: #1e4a30;
   }
 </style>
