@@ -41,6 +41,7 @@ import {
 import { StartSequenceStore, isStrokeReading } from './startSequence.svelte';
 import type { SessionState, RowerType } from './sessionStore.svelte';
 import type { GhostChoice } from './ghostChoice';
+import type { ChallengeResult } from '../services/challengesService';
 import type { RideFrame } from './rideCanvas';
 
 export type { RideFrame };
@@ -142,6 +143,19 @@ export class RideSessionStore {
   completedSession = $state<WorkoutSession | null>(null);
   guestCompletedSession = $state<WorkoutSession | null>(null);
   completedSessionWasDemo = $state(false);
+  /**
+   * The challenge this row is being rowed against (#415 Phase 4). Set by
+   * the Challenges screen's "Row this course" / "Race this time" buttons;
+   * read by the SessionSummary to render the "would have been Nth of M"
+   * line (AC5.1). Cleared on the next non-challenge selection and on
+   * `sessionDone`. The leaderboard snapshot is captured at pick time, so
+   * late submissions do not change what the summary says.
+   */
+  challengeInProgress = $state<{
+    challengeName: string;
+    courseDistanceMeters: number;
+    results: ChallengeResult[];
+  } | null>(null);
 
   readonly startSequence = new StartSequenceStore();
 
@@ -394,6 +408,7 @@ export class RideSessionStore {
   /** Dismiss the signed-in summary (App `handleSessionDone`); the shell is already on Routes. */
   sessionDone(): void {
     this.completedSession = null;
+    this.challengeInProgress = null;
   }
 
   /** Dismiss the guest summary (App `handleGuestRowAgain` / `handleGuestExit`). */

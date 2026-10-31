@@ -35,6 +35,10 @@
   import { RownativeDeepLinkRunner } from '$lib/ui/deepLink.svelte';
   import AuthButton from '$lib/ui/AuthButton.svelte';
   import SessionSummary from '$lib/ui/SessionSummary.svelte';
+  import {
+    computeChallengeStanding,
+    challengeStandingLine as formatChallengeStandingLine,
+  } from '$lib/ui/challengeStanding';
   import GuestSessionSummary from '$lib/ui/GuestSessionSummary.svelte';
   import SettingsPanel from '$lib/ui/SettingsPanel.svelte';
   import CrashReportedBanner from '$lib/ui/CrashReportedBanner.svelte';
@@ -200,6 +204,16 @@
   {/if}
 
   {#if ride.completedSession}
+    {@const challenge = ride.challengeInProgress}
+    {@const standing = challenge
+      ? computeChallengeStanding({
+          challengeName: challenge.challengeName,
+          courseDistanceMeters: challenge.courseDistanceMeters,
+          rowDistanceMeters: ride.completedSession.distance,
+          rowDurationSeconds: ride.completedSession.duration,
+          results: challenge.results,
+        })
+      : null}
     <SessionSummary
       session={ride.completedSession}
       onDone={() => ride.sessionDone()}
@@ -208,6 +222,7 @@
       personalBest={ride.completedSessionBest}
       ghost={ride.completedGhost}
       routeGeometrySource={routes.selectedRoute?.geometrySource}
+      challengeStandingLine={standing ? formatChallengeStandingLine(standing) : null}
     />
   {/if}
 

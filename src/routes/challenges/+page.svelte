@@ -41,10 +41,25 @@
     }
   }
 
+  /**
+   * Snapshot the leaderboard this row is being rowed against (#415 Phase 4
+   * / AC5.1), so the SessionSummary can rank the row against the field
+   * even if the leaderboard moves on while the rower is rowing.
+   */
+  async function markChallengeInProgress(challenge: Challenge) {
+    const results = await services.challengesService.challengeResults(challenge.id);
+    ride.challengeInProgress = {
+      challengeName: challenge.name,
+      courseDistanceMeters: challenge.distanceMeters,
+      results,
+    };
+  }
+
   async function rowChallenge(challenge: Challenge) {
     // Rowing without a ghost: clear any prior pace-with-name so the HUD
     // doesn't still read "on Sander Roosendaal" for a free row.
     ride.ghostChoice = { kind: 'none' };
+    await markChallengeInProgress(challenge);
     const ok = await selectCourseFor(challenge);
     if (ok) void goto(`${base}/`);
   }
@@ -59,6 +74,7 @@
     const pace = paceOf(result, challenge.distanceMeters);
     if (pace === null) return;
     ride.ghostChoice = { kind: 'pace', paceSPer500: pace, displayName: result.displayName };
+    await markChallengeInProgress(challenge);
     const ok = await selectCourseFor(challenge);
     if (ok) void goto(`${base}/`);
   }
