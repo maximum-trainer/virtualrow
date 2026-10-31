@@ -27,6 +27,7 @@ import { audioService } from '../services/audioService';
 import { crashReporterService } from '../services/crashReporterService';
 import { crashReportsPreferenceStore } from '../services/crashReportsPreferenceStore';
 import { demoWorkoutService } from '../services/demoWorkoutService';
+import { challengesService } from '../services/challengesService';
 
 /**
  * Pick the {@link RowerTargetPort} implementation for a given rower source
@@ -58,4 +59,5 @@ export const defaultServices: Services = {
   crashReporterService,
   crashReportsPreferenceStore,
   demoWorkoutService,
+  challengesService,
 };

@@ -32,6 +32,7 @@ import type { CrashReporterService } from '../services/crashReporterService';
 import type { CrashReportsPreferenceStore } from '../services/crashReportsPreferenceStore';
 import type { RowerAppearanceService } from '../services/rowerAppearanceService';
 import type { DemoWorkoutService } from '../services/demoWorkoutService';
+import type { ChallengesService } from '../services/challengesService';
 
 /** Port for the PM5 Bluetooth integration. */
 export type PM5BluetoothPort = Pick<
@@ -247,6 +248,17 @@ export type RowerAppearancePort = Pick<RowerAppearanceService, 'read' | 'write'>
 export type DemoWorkoutPort = Pick<DemoWorkoutService, 'getDemoWorkout'>;
 
 /**
+ * Port for the rownative Speed Orders API (#415).
+ *
+ * Read-only on purpose: submitting an erg time to an on-water speed order
+ * would put a row nobody rowed outside onto somebody else's leaderboard.
+ * The `Pick` lists exactly the two reads the feature needs — adding a
+ * `submit` is a deliberate act with a failing surface test attached (see
+ * `challengesService.test.ts`, "the port has no write method").
+ */
+export type ChallengesPort = Pick<ChallengesService, 'listChallenges' | 'challengeResults'>;
+
+/**
  * Aggregate of every port the app composition root needs. Consumed by the
  * React `ServicesProvider` and the `useServices()` hook.
  */
@@ -267,4 +279,5 @@ export interface Services {
   crashReporterService: CrashReporterPort;
   crashReportsPreferenceStore: CrashReportsPreferencePort;
   demoWorkoutService: DemoWorkoutPort;
+  challengesService: ChallengesPort;
 }
