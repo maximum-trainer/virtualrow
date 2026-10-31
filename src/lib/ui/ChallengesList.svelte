@@ -34,13 +34,34 @@
   import { challengeStatusLabel, formatChallengeWindow } from './challengeStatus';
 
   interface Props {
-    /** Called when "Row this course" is clicked (no ghost). */
-    onRowChallenge?: (challenge: Challenge) => void;
-    /** Called when "Race this time" is clicked on a leaderboard row (#415 Phase 3). */
-    onRaceResult?: (challenge: Challenge, result: ChallengeResult) => void;
+    /** Called when "Row this course" is clicked (no ghost). Returning
+     * `false` reports back that the mirror lacks the course, so the card
+     * shows the AC3.3 inline message. */
+    onRowChallenge?: (challenge: Challenge) => Promise<boolean> | boolean | void;
+    /** Called when "Race this time" is clicked on a leaderboard row (#415 Phase 3).
+     * Same return contract as `onRowChallenge` for the AC3.3 message. */
+    onRaceResult?: (
+      challenge: Challenge,
+      result: ChallengeResult,
+    ) => Promise<boolean> | boolean | void;
   }
 
   let { onRowChallenge, onRaceResult }: Props = $props();
+
+  /** Which card currently reports "the mirror lacks this course" (AC3.3). */
+  let missingCourseFor: string | null = $state(null);
+
+  async function handleRow(challenge: Challenge) {
+    missingCourseFor = null;
+    const result = await onRowChallenge?.(challenge);
+    if (result === false) missingCourseFor = challenge.id;
+  }
+
+  async function handleRace(challenge: Challenge, result: ChallengeResult) {
+    missingCourseFor = null;
+    const outcome = await onRaceResult?.(challenge, result);
+    if (outcome === false) missingCourseFor = challenge.id;
+  }
 
   const services = getServices();
 
@@ -184,13 +205,27 @@
             </p>
           {/if}
 
+          {#if missingCourseFor === challenge.id}
+            <!--
+              AC3.3 — a course the mirror does not carry says so and
+              leaves the rest of the challenge readable.
+            -->
+            <p
+              class="challenge-card__missing"
+              role="alert"
+              data-testid="challenge-missing-course"
+            >
+              This course isn't mirrored yet, so it can't be imported from here.
+            </p>
+          {/if}
+
           <div class="challenge-card__actions">
             {#if onRowChallenge}
               <button
                 type="button"
                 class="challenge-card__row-button"
                 data-testid="challenge-row-button"
-                onclick={() => onRowChallenge?.(challenge)}
+                onclick={() => void handleRow(challenge)}
               >
                 Row this course
               </button>
@@ -265,7 +300,7 @@
                           class="leaderboard-row__race"
                           data-testid="leaderboard-race-button"
                           title={`Row at ${formatSplit(pace)}/500m`}
-                          onclick={() => onRaceResult?.(challenge, result)}
+                          onclick={() => void handleRace(challenge, result)}
                         >
                           Race this time
                         </button>
@@ -416,6 +451,14 @@
   }
   .challenge-card__row-button:hover {
     background: #67a6e5;
+  }
+  .challenge-card__missing {
+    margin: 0.4rem 0 0;
+    padding: 0.5rem 0.7rem;
+    background: #3a2029;
+    color: #e39aa9;
+    border-radius: 0.4rem;
+    font-size: 0.9rem;
   }
   .challenge-card__actions {
     display: flex;

@@ -154,6 +154,29 @@ describe('ChallengesList.svelte', () => {
     expect(onRowChallenge).toHaveBeenCalledTimes(1);
     expect(onRowChallenge.mock.calls[0][0]).toMatchObject({ id: 'row-me' });
   });
+
+  it('shows an inline "course missing from mirror" message when Row returns false (AC3.3)', async () => {
+    const list = [challenge({ id: 'orphan' })];
+    const onRowChallenge = vi.fn().mockResolvedValue(false);
+    const { container } = render(ChallengesListHarness, {
+      overrides: stubServices(vi.fn().mockResolvedValue(list)),
+      onRowChallenge,
+    });
+
+    await waitFor(() =>
+      expect(container.querySelector('[data-testid="challenge-row-button"]')).not.toBeNull(),
+    );
+    // No message before the click.
+    expect(container.querySelector('[data-testid="challenge-missing-course"]')).toBeNull();
+
+    await fireEvent.click(container.querySelector('[data-testid="challenge-row-button"]')!);
+
+    await waitFor(() =>
+      expect(container.querySelector('[data-testid="challenge-missing-course"]')).not.toBeNull(),
+    );
+    // The rest of the card is still readable.
+    expect(container.querySelector('[data-testid="challenge-course"]')).not.toBeNull();
+  });
 });
 
 describe('ChallengesList leaderboard panel (#415 Phase 3)', () => {

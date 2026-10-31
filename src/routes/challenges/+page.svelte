@@ -55,13 +55,14 @@
     };
   }
 
-  async function rowChallenge(challenge: Challenge) {
+  async function rowChallenge(challenge: Challenge): Promise<boolean> {
     // Rowing without a ghost: clear any prior pace-with-name so the HUD
     // doesn't still read "on Sander Roosendaal" for a free row.
     ride.ghostChoice = { kind: 'none' };
     await markChallengeInProgress(challenge);
     const ok = await selectCourseFor(challenge);
     if (ok) void goto(`${base}/`);
+    return ok;
   }
 
   /**
@@ -70,13 +71,14 @@
    * adjustment for a boat class, never the ghost. The HUD label names the
    * athlete (AC4.4) via `displayName` on the GhostChoice.
    */
-  async function raceResult(challenge: Challenge, result: ChallengeResult) {
+  async function raceResult(challenge: Challenge, result: ChallengeResult): Promise<boolean> {
     const pace = paceOf(result, challenge.distanceMeters);
-    if (pace === null) return;
+    if (pace === null) return false;
     ride.ghostChoice = { kind: 'pace', paceSPer500: pace, displayName: result.displayName };
     await markChallengeInProgress(challenge);
     const ok = await selectCourseFor(challenge);
     if (ok) void goto(`${base}/`);
+    return ok;
   }
 </script>
 

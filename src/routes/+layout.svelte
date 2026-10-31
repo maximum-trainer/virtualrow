@@ -161,12 +161,14 @@
   const NAV_ITEMS = [
     { view: 'routes', label: 'Row', href: `${base}/` },
     { view: 'route-search', label: 'Routes', href: `${base}/search` },
+    { view: 'challenges', label: 'Challenges', href: `${base}/challenges` },
   ] as const;
 
   const view = $derived.by(() => {
     const path = page.url.pathname;
     if (path === `${base}/row` || path === `${base}/row/`) return 'workout';
     if (path === `${base}/search` || path === `${base}/search/`) return 'route-search';
+    if (path === `${base}/challenges` || path === `${base}/challenges/`) return 'challenges';
     return 'routes';
   });
 
