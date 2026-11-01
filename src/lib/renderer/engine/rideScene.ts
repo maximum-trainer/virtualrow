@@ -40,6 +40,15 @@ import { createOarSplashPass } from '../passes/oarSplashParticles';
 import { createOarSplashState, updateOarSplash } from './oarSplashParticles';
 import { createSkyPass } from '../passes/sky';
 import { createWaterPass } from '../passes/water';
+import { createWaterPolygonPass } from '../passes/waterPolygon';
+import { createWaterDebugPass } from '../passes/waterDebug';
+import { isPolygonWaterEnabled } from './polygonWater';
+import {
+  isWaterDebugEnabled,
+  publishWaterDetectionSummary,
+  EMPTY_WATER_DETECTION_SUMMARY,
+  type WaterDetectionSummary,
+} from './waterDetectionSummary';
 import { createSceneryMeshPass } from '../passes/sceneryMesh';
 import { loadGlb } from '../../scenery/glbLoader';
 import {
@@ -141,6 +150,23 @@ export interface SceneryRoute {
     id: string;
     instances: Array<{ position: [number, number, number]; rotationY: number; scale: number }>;
   }>;
+  /**
+   * Lake/open-water polygons in scene XZ (#493 Phase 3b). Omitted on
+   * river routes and on routes where the polygon-water flag is off.
+   * Each polygon's outer ring and islands are already projected via
+   * `ringToSceneXZ` against the route's local origin; the engine
+   * tessellates and disc-clips at attach time.
+   */
+  lakePolygons?: Array<{ outer: { x: number; z: number }[]; holes: { x: number; z: number }[][] }>;
+  /**
+   * On-land route samples in scene XZ (#493 Phase 3d / FR22). Drawn by
+   * the diagnostics overlay as plus-sign markers when the water-debug
+   * flag is on. Omitted when the route is fully on water or when the
+   * flag is off.
+   */
+  onLandSamples?: Array<{ x: number; z: number }>;
+  /** Detection summary for the debug HUD (#493 Phase 3d / AC23). */
+  waterDetectionSummary?: WaterDetectionSummary;
   /**
    * Per-progress shore widths (scene units) so the water strip bends with
    * the OSM-measured river. Called once per vertex column at build time, not
@@ -559,14 +585,61 @@ export const createRideScene = async (
     edgesForProgress: waterEdgesForProgress,
     grass: { profile: bankGrassProfile, strength: bankGrassStrength },
   });
-  const waterPass = createWaterPass({
-    device,
-    format,
-    frameUniforms,
-    shadow: shadowResources,
-    curve: waterCurve,
-    edgesForProgress: waterEdgesForProgress,
-  });
+  // #493 Phase 3b — if the enrichment carried lake polygons AND the kill
+  // switch isn't disabled, draw polygon water in place of the strip. The
+  // strip stays wired so a route whose enrichment lacks polygons (rivers,
+  // offline fallbacks) renders exactly as before.
+  const polygonLakes =
+    isSceneryRoute(opts.route) && opts.route.lakePolygons ? opts.route.lakePolygons : [];
+  const useLakePolygonWater = isPolygonWaterEnabled() && polygonLakes.length > 0;
+  const polygonWaterPass = useLakePolygonWater
+    ? createWaterPolygonPass({
+        device,
+        format,
+        frameUniforms,
+        shadow: shadowResources,
+        polygons: polygonLakes,
+      })
+    : null;
+  // #493 Phase 3d — debug overlay of the detected shoreline / islands /
+  // on-land samples, toggled from `DebugPanel.svelte` via the global
+  // `__VIRTUALROW_WATER_DEBUG` flag. The pass is only built when the
+  // flag is on AND there is something to draw.
+  const onLandSamples = isSceneryRoute(opts.route) && opts.route.onLandSamples
+    ? opts.route.onLandSamples
+    : [];
+  const waterDebugPass = isWaterDebugEnabled() && (polygonLakes.length > 0 || onLandSamples.length > 0)
+    ? createWaterDebugPass({
+        device,
+        format,
+        frameUniforms,
+        input: {
+          shorelines: polygonLakes.map((p) => p.outer),
+          islands: polygonLakes.flatMap((p) => p.holes),
+          onLandSamples,
+        },
+      })
+    : null;
+  // Publish the summary so the DebugPanel can render it (AC23). We use
+  // the enrichment-fed summary when the adapter provided one; otherwise
+  // publish zeros so the overlay still has a shape to read.
+  publishWaterDetectionSummary(
+    isSceneryRoute(opts.route) && opts.route.waterDetectionSummary
+      ? opts.route.waterDetectionSummary
+      : EMPTY_WATER_DETECTION_SUMMARY,
+  );
+  // Polygon tessellation can be empty (all rings clipped away or
+  // malformed); fall back to the strip rather than drop water entirely.
+  const waterPass =
+    polygonWaterPass ??
+    createWaterPass({
+      device,
+      format,
+      frameUniforms,
+      shadow: shadowResources,
+      curve: waterCurve,
+      edgesForProgress: waterEdgesForProgress,
+    });
   const buildingsPass = createBuildingsPass({
     device,
     format,
@@ -634,6 +707,7 @@ export const createRideScene = async (
     sceneryPass,
     floraSolidStage,
     waterPass,
+    ...(waterDebugPass ? [waterDebugPass] : []),
     boatPass,
     sceneryMeshPass,
     ...(rainPass ? [rainPass] : []),
