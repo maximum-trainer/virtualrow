@@ -58,7 +58,7 @@ export default defineConfig([
     },
   },
   {
-    files: ['src/lib/renderer/**/*.{ts,tsx}'],
+    files: ['src/**/*.{ts,tsx}'],
     rules: {
       'no-restricted-imports': [
         'error',
@@ -67,7 +67,7 @@ export default defineConfig([
             {
               name: 'three',
               message:
-                "The engine is framework-free (#550 NFR). Port the math you need into src/lib/renderer/math instead of importing three.",
+                "#588 FR1: three.js was dropped at the WebGPU cutover. Port the math you need into src/lib/renderer/math instead of importing three.",
             },
           ],
           patterns: ['three/*'],
