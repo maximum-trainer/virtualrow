@@ -42,12 +42,15 @@
   import CrewPicker from '$lib/ui/CrewPicker.svelte';
   import RowerAppearancePicker from '$lib/ui/RowerAppearancePicker.svelte';
   import LoadTodaysWorkoutButton from '$lib/ui/LoadTodaysWorkoutButton.svelte';
+  import LoopConfigPanel from '$lib/ui/LoopConfigPanel.svelte';
+  import { getRideSession } from '$lib/ui/rideSessionContext';
   import { decideAutoSeedAction } from '$lib/ui/demoWorkoutAutoSeed.svelte';
 
   const auth = getAuth();
   const services = getServices();
   const routes = getRoutesStore();
   const session = getSessionStore();
+  const ride = getRideSession();
   const deepLink = getDeepLink();
 
   // #472 FR3 + FR6: a guest on the demo route gets the bundled placeholder
@@ -228,6 +231,11 @@
               Loaded: {session.currentWorkout.current.name}
             </p>
           {/if}
+
+          <!-- #647 FR1/FR2 — pre-row loop configuration. Hidden on a challenge
+               row where looping is force-off (FR9); the leaderboard is defined
+               on the route's own distance. -->
+          <LoopConfigPanel {ride} />
 
           <button
             class="btn btn-start-workout"

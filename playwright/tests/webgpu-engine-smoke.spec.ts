@@ -1,5 +1,5 @@
 import { test, expect } from '../fixtures/crash-watch';
-import { assertCanvasNotBlank } from './helpers/assertCanvasNotBlank';
+import { assertCanvasNotBlank, samplePerRegion } from './helpers/assertCanvasNotBlank';
 
 // `--enable-unsafe-webgpu` so Chromium exposes `navigator.gpu`. On a runner
 // without a WebGPU backend the engine falls back to null and the spec
@@ -72,6 +72,14 @@ test('webgpu engine smoke', async ({ page }) => {
     // Guards the #549 black-canvas regression — pre-fix, every assertion
     // above still passed while every submitted command buffer was invalid.
     await assertCanvasNotBlank(page, canvas);
+
+    // #588 FR7 / AC7 — per-region probe: a scene that leaves water or the
+    // boat band empty must fail here even when the whole-canvas probe
+    // passes because sky alone saturates it. The engine smoke renders
+    // sky + bank + water + boat on a real GPU; the region thresholds in
+    // DEFAULT_CHASE_REGIONS are set so the smoke's framing passes while
+    // a seeded "clear to sky" scene fails on water and boat.
+    await samplePerRegion(page, canvas);
   } else {
     // Fallback: WebGPU isn't available on this runner. The engine refused to
     // attach and `__VIRTUALROW_WEBGPU_HEALTH` records the reason.

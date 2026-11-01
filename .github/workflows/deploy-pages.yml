@@ -13,6 +13,10 @@ on:
       - 'package*.json'
       - 'vite.config.ts'
       - '.github/workflows/deploy-pages.yml'
+      - '.github/workflows/regen-marketing-shots.yml'
+      - 'playwright/visual/marketing-shots.ts'
+      - 'playwright/tests/visual/marketing-screenshots.spec.ts'
+      - 'playwright/playwright.config.marketing.ts'
   workflow_dispatch:
 
 permissions:
@@ -27,9 +31,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # #648 FR1/FR2/AC1/AC4/AC7 — regenerate the published marketing screenshots
+  # on the real-GPU runner before every deploy. Gated by `GPU_RUNNER_DISABLED`
+  # so a fleet outage skips (not fails) the regen; the deploy job overlays
+  # fresh PNGs on top of the committed last-known-good fallback and keeps
+  # going when the regen artifact is missing (#648 FR8 / D5).
+  regen-marketing-shots:
+    name: Regenerate marketing screenshots (#648)
+    if: ${{ vars.GPU_RUNNER_DISABLED != 'true' }}
+    uses: ./.github/workflows/regen-marketing-shots.yml
+    with:
+      ref: ${{ github.sha }}
+      artifact-name: marketing-shots-${{ github.run_id }}
+    secrets: inherit
+
   deploy:
     name: Deploy to GitHub Pages
     runs-on: ubuntu-24.04
+    # `always()` so the deploy still runs when `regen-marketing-shots` is
+    # skipped (kill-switch set) or fails (#648 FR8 / AC7 / AC11). The deploy
+    # job itself decides what to publish: fresh regen PNGs if present, the
+    # committed fallback otherwise.
+    needs: [regen-marketing-shots]
+    if: always()
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url || steps.deployment_try_2.outputs.page_url || steps.deployment_try_1.outputs.page_url }}
@@ -73,6 +97,67 @@ jobs:
         run: |
           mkdir -p docs/app
           cp -r build/. docs/app/
+
+      # #648 FR5 / AC1 / AC9 — overlay the freshly regenerated screenshots on
+      # top of docs/ before the Pages artifact is packed. The committed PNGs
+      # under docs/ are the last-known-good fallback (#648 D2 = a): if the
+      # regen job skipped (GPU_RUNNER_DISABLED) or failed, nothing is
+      # downloaded and docs/ keeps those fallbacks (#648 D5 = b / AC7).
+      - name: Download regenerated marketing screenshots
+        id: regen_download
+        if: needs.regen-marketing-shots.result == 'success'
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: marketing-shots-${{ github.run_id }}
+          path: regen-marketing-shots
+
+      - name: Overlay regenerated marketing screenshots onto docs/
+        id: regen_overlay
+        if: steps.regen_download.outcome == 'success'
+        run: |
+          set -e
+          echo "regenerated artifact contents:"
+          ls -lh regen-marketing-shots/ || true
+          # Only overlay PNGs — report.json is published alongside as an
+          # artifact (#648 AC8), not as part of the Pages site. Count what
+          # was overlaid so `Report regen outcome` below can tell "fresh"
+          # from "fleet-VM gap, no PNGs produced" cleanly (#648 FR8 / D5).
+          OVERLAY_COUNT=$(find regen-marketing-shots -maxdepth 1 -name '*.png' | wc -l)
+          echo "overlay_count=$OVERLAY_COUNT" >> "$GITHUB_OUTPUT"
+          if [ "$OVERLAY_COUNT" -gt 0 ]; then
+            find regen-marketing-shots -maxdepth 1 -name '*.png' -print0 \
+              | xargs -0 -I{} cp {} docs/
+          fi
+          echo "docs/ after overlay:"
+          ls -lh docs/*.png
+
+      # #648 AC5 — structural sanity on the published hero + gallery. Runs
+      # against the actual files that will be published (whether fresh or
+      # fallback). A blank/undersized hero fails the deploy.
+      - name: Hero screenshot structural sanity (#648 AC5)
+        run: |
+          npx vitest run \
+            src/__tests__/heroScreenshot.test.ts \
+            src/__tests__/docsHeroDimensions.test.ts
+
+      - name: Report regen outcome
+        if: always()
+        run: |
+          REGEN="${{ needs.regen-marketing-shots.result }}"
+          OVERLAID="${{ steps.regen_overlay.outputs.overlay_count || '0' }}"
+          echo "regen-marketing-shots result: $REGEN"
+          echo "PNGs overlaid onto docs/: $OVERLAID"
+          if [ "$REGEN" = "success" ] && [ "$OVERLAID" -gt 0 ]; then
+            echo "::notice::Pages publishing $OVERLAID freshly regenerated marketing screenshot(s)."
+          elif [ "$REGEN" = "success" ]; then
+            # Regen job completed but produced no PNGs — the GPU runner landed
+            # on a fleet VM without the NVIDIA Vulkan ICD and every shot
+            # skipped. Site stays on the committed fallback (#648 FR8 / D5).
+            echo "::notice::Regen landed on a non-GPU fleet VM — Pages publishing committed fallback marketing screenshots."
+          else
+            echo "::notice::Pages publishing committed fallback marketing screenshots (regen=$REGEN)."
+          fi
 
       - name: Setup Pages
         uses: actions/configure-pages@v6

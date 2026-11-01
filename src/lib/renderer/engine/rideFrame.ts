@@ -27,4 +27,10 @@ export interface RideFrame {
    * no frame and the engine falls back to the chase camera.
    */
   view?: CameraView;
+  /**
+   * The route is being looped (#647). When true, boat placement wraps
+   * `distanceMeters` modulo the route length rather than clamping at the
+   * finish, so the boat keeps rowing past the end into another lap.
+   */
+  loop?: boolean;
 }

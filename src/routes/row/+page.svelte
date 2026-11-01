@@ -39,6 +39,8 @@
   import FinishBanner from '$lib/ui/FinishBanner.svelte';
   import RowHud from '$lib/ui/RowHud.svelte';
   import WebGpuUnsupported from '$lib/ui/WebGpuUnsupported.svelte';
+  import LoopConfigPanel from '$lib/ui/LoopConfigPanel.svelte';
+  import { currentLap } from '$lib/ui/rideLoop';
 
   const session = getSessionStore();
   const ride = getRideSession();
@@ -253,6 +255,15 @@
             onEnd={() => ride.endWorkout()}
             {fullscreen}
             ghost={ride.ghostGap}
+            lap={ride.effectiveLoop.enabled && routes.selectedRoute
+              ? {
+                  currentLap: currentLap(
+                    ride.currentSession.distance,
+                    routes.selectedRoute.distance * 1000,
+                  ),
+                  completed: ride.laps,
+                }
+              : null}
           />
         </div>
       </div>

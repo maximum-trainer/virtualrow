@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { WgslReflect } from 'wgsl_reflect/wgsl_reflect.module.js';
+import { FRAME_UNIFORMS_BYTES } from '../../engine/uniforms';
 
 // P2-AC7: a syntactically broken shader must fail the Vitest run, not
 // Playwright. `WgslReflect` throws on any parser-level problem, so parsing
@@ -58,6 +59,39 @@ describe('textureSampleLevel on depth textures uses an integer level (#592)', ()
         const isFloatLiteral = /^-?\d+\.\d+f?$/.test(level) || /^-?\.\d+f?$/.test(level);
         expect(isFloatLiteral, `${file}: textureSampleLevel level "${level}" must be an integer for depth textures`).toBe(false);
       }
+    });
+  }
+});
+
+/**
+ * #588 FR5 / AC5 — uniform-struct size contract.
+ *
+ * Walks every pass that declares a `Frame` uniform struct and asserts
+ * its WGSL-computed byte size matches the CPU-side `FRAME_UNIFORMS_BYTES`
+ * (= 272 B = 68 × 4). Pre-#549 the WGSL `Frame` struct grew to 272 B
+ * while the JS packer stayed at 256 B / 64 floats; every bind-group
+ * creation emitted a WebGPU validation error, every submitted command
+ * buffer was dropped, and the whole scene rendered black. This test
+ * flips red before any pixel renders when the two sides drift again.
+ */
+describe('uniform-struct size contract (#588 FR5 / AC5)', () => {
+  const framePasses = shaderFiles.filter((f) => /\bstruct\s+Frame\s*\{/.test(readFileSync(join(passesDir, f), 'utf8')));
+
+  it('finds at least one pass declaring the Frame struct', () => {
+    expect(framePasses.length).toBeGreaterThan(0);
+  });
+
+  for (const file of framePasses) {
+    it(`${file}: Frame struct size matches FRAME_UNIFORMS_BYTES (${FRAME_UNIFORMS_BYTES} B)`, () => {
+      const src = readFileSync(join(passesDir, file), 'utf8');
+      const reflect = new WgslReflect(src);
+      const structs = (reflect as unknown as { structs: Array<{ name: string; size: number }> }).structs;
+      const frameStruct = structs.find((s) => s.name === 'Frame');
+      expect(frameStruct, `${file}: expected a struct named Frame`).toBeDefined();
+      // `size` is the uniform-aligned struct size (what the engine
+      // allocates); the bind-group validation checks the uniform-
+      // aligned size against the buffer's minBindingSize.
+      expect(frameStruct?.size, `${file}: Frame WGSL size`).toBe(FRAME_UNIFORMS_BYTES);
     });
   }
 });

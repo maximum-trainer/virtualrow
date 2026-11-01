@@ -1,0 +1,129 @@
+name: Regenerate marketing screenshots
+
+# #648 — reusable workflow that renders every PNG under docs/*.png on the
+# real-GPU runner and uploads them as `artifact-name` for the caller. The
+# WebGPU engine declines SwiftShader (reason `software-adapter`), so this
+# only works on `linux-nvidia-gpu-runner` (#648 FR2 / AC4).
+#
+# The caller is responsible for honouring the fallback-on-outage path (#648
+# FR8 / D5 = b): if this workflow is skipped (GPU_RUNNER_DISABLED set) or
+# fails, the deploy publishes the committed `docs/*.png` unchanged.
+#
+# Also fires on-demand from a PR carrying the `regen-marketing-shots` label
+# (#648 D10 = c): the PR gets a workflow-artifact Dan can eyeball without
+# merging.
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Commit SHA (or ref) to check out and render against.
+        required: true
+        type: string
+      artifact-name:
+        description: Name for the uploaded artifact that holds the PNGs + report.json.
+        required: true
+        type: string
+      retention-days:
+        description: Days to keep the artifact. Default 14.
+        required: false
+        type: number
+        default: 14
+
+  pull_request:
+    types: [labeled]
+
+concurrency:
+  # One regen run per ref at a time; later triggers coalesce.
+  group: regen-marketing-shots-${{ inputs.ref || github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  render:
+    name: Render marketing screenshots on GPU runner
+    # Fires on workflow_call directly, or on a PR being labelled with
+    # `regen-marketing-shots` (#648 D10). Gated by the shared kill-switch so
+    # the job skips (rather than hangs) when the fleet GPU runner is offline.
+    if: >-
+      ${{ (github.event_name != 'pull_request'
+           || github.event.label.name == 'regen-marketing-shots')
+          && vars.GPU_RUNNER_DISABLED != 'true' }}
+    runs-on: linux-nvidia-gpu-runner
+    continue-on-error: false
+    timeout-minutes: 20
+    env:
+      CI: true
+      # #648 AC10 — budget is tracked via the per-shot gpuMs in report.json;
+      # this hard timeout is a safety net, not the budget itself.
+      MARKETING_OUT_DIR: ${{ github.workspace }}/playwright-report/marketing-shots
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.event.pull_request.head.sha }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Install Vulkan runtime for the NVIDIA GPU
+        # Same recipe as next-branch-ci.yml webgpu-engine: the AI/HPC image
+        # lacks the Vulkan userspace Chromium's WebGPU backend needs. Without
+        # it the engine declines (`software-adapter`) and every shot
+        # fast-fails (#648 AC4).
+        run: |
+          set -x
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libvulkan1 vulkan-tools libgl1 libegl1
+          DRV_MAJOR=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1 | cut -d. -f1)
+          if [ -n "$DRV_MAJOR" ]; then
+            sudo apt-get install -y --no-install-recommends "libnvidia-gl-$DRV_MAJOR" \
+              || echo "libnvidia-gl-$DRV_MAJOR not available via apt — relying on the image's own ICD"
+          fi
+
+      - name: Render marketing screenshots (#648 FR1 / AC1)
+        run: |
+          mkdir -p "$MARKETING_OUT_DIR"
+          npx playwright test --config=playwright/playwright.config.marketing.ts
+
+      - name: Summarise rendered shots
+        if: always()
+        run: |
+          echo "## Marketing screenshots" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "$MARKETING_OUT_DIR/report.json" ]; then
+            node -e '
+              const r = require(process.env.MARKETING_OUT_DIR + "/report.json");
+              const shots = r.shots || [];
+              const ready = shots.filter(s => s.outcome === "ready").length;
+              const fallback = shots.filter(s => s.outcome === "fallback").length;
+              const rows = shots.map(s => `| ${s.file} | ${s.outcome} | ${s.bytes} B | gpuMs=${s.gpuMs ?? "?"} | draws=${s.drawCalls ?? "?"} |`).join("\n");
+              const head = "| file | outcome | bytes | gpuMs | draws |\n| --- | --- | --- | --- | --- |";
+              const fs = require("fs");
+              if (ready === 0 && fallback > 0) {
+                fs.appendFileSync(
+                  process.env.GITHUB_STEP_SUMMARY,
+                  `_Runner landed on a non-GPU fleet VM — every shot skipped (software adapter). Site stays on the committed fallback PNGs._\n\n`,
+                );
+              }
+              fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, head + "\n" + rows + "\n");
+            '
+          else
+            echo "report.json was not produced" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload marketing-shots artifact (#648 AC8)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name || format('marketing-shots-pr{0}-{1}', github.event.pull_request.number, github.run_id) }}
+          path: ${{ env.MARKETING_OUT_DIR }}
+          retention-days: ${{ inputs.retention-days || 14 }}
+          if-no-files-found: warn
