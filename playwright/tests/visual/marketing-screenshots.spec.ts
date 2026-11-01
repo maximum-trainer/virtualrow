@@ -46,15 +46,20 @@ const REPORT_PATH = path.join(OUT_DIR, 'report.json');
 const LIGHTING_STORAGE_KEY = 'virtualrow:conditions';
 const CAMERA_VIEW_STORAGE_KEY = 'virtualrow:camera-view';
 
-// Mirror the webgpu-engine smoke's proven flag combo
-// (playwright/tests/webgpu-engine-smoke.spec.ts), not GPU_RIDE_LAUNCH_OPTIONS.
-// The ride-spec combo (`--enable-features=Vulkan` + no `--use-gl=swiftshader`)
-// made Chromium's GPU process open a hardware GL context on the display-less
-// fleet VM and crash it, bringing WebGPU down too, so Dawn fell back to the
-// SwiftShader adapter and the engine's `software-adapter` guard rejected
-// every shot. The engine smoke's combo keeps GL on software while leaving
-// Dawn's Vulkan backend reachable, which is what the T4 needs here.
+// Run against the full Chrome-for-Testing build, not Playwright's default
+// headless_shell. The headless_shell binary (installed by
+// `playwright install chromium` with no `channel`) does NOT expose
+// `navigator.gpu`, so WebGPU is unavailable regardless of Vulkan ICD state.
+// PR #671's probe confirmed this on linux-nvidia-gpu-runner-847: the T4
+// kernel driver was fully loaded, libGLX_nvidia resolved, but
+// `navigator.gpu` was `absent` inside the browser. `channel: 'chromium'`
+// swaps to the full Chrome-for-Testing build Playwright installs
+// alongside, which ships WebGPU.
+//
+// The regen-marketing-shots.yml workflow installs that build with
+// `npx playwright install chromium --channel chromium`.
 test.use({
+  channel: 'chrome',
   launchOptions: {
     ...(process.env.PW_LOCAL_CHROME ? { executablePath: process.env.PW_LOCAL_CHROME } : {}),
     args: [

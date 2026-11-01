@@ -86,8 +86,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install Playwright Chromium
-        run: npx playwright install --with-deps chromium
+      - name: Install Playwright Chromium + Google Chrome (for WebGPU)
+        # The default `playwright install chromium` lands Playwright's
+        # `chromium_headless_shell` binary, which does NOT expose
+        # `navigator.gpu` (confirmed on runner-847 via PR #671's diagnostic
+        # — kernel driver loaded, libGLX_nvidia resolved, navigator.gpu
+        # still `absent`). The marketing spec therefore runs with
+        # `channel: 'chrome'`, which Playwright serves from the system
+        # Google Chrome Stable it installs here.
+        run: |
+          npx playwright install --with-deps chromium
+          npx playwright install --with-deps chrome
 
       - name: Install Vulkan runtime for the NVIDIA GPU
         # Same recipe as next-branch-ci.yml webgpu-engine: the AI/HPC image
@@ -149,6 +158,7 @@ jobs:
             let browser;
             try {
               browser = await chromium.launch({
+                channel: 'chrome',
                 timeout: 30_000,
                 args: [
                   '--enable-unsafe-webgl',
