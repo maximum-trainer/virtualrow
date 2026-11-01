@@ -4,7 +4,6 @@ import { resolve } from 'node:path';
 import {
   resolveCrew,
   crewModelUrl,
-  effectiveCrewPreference,
   CREW_URL,
 } from '../components/rower3d/crewModel';
 import { genderFromSex } from '../lib/services/authService';
@@ -39,27 +38,17 @@ describe('resolveCrew', () => {
   });
 });
 
-describe('effectiveCrewPreference (issue #443)', () => {
-  it('ignores the stored preference when the athlete has a known intervals.icu sex', () => {
-    // FR2: a signed-in female athlete with `virtualrow:crew=male` still rows
-    // as the female model, because the profile is now the source of truth.
-    expect(effectiveCrewPreference('female', 'male')).toBe('auto');
-    expect(effectiveCrewPreference('male', 'female')).toBe('auto');
-    expect(effectiveCrewPreference('female', 'auto')).toBe('auto');
+describe('profile override (issue #672, reverses #443)', () => {
+  it('lets a signed-in athlete with a known sex pick the other rower', () => {
+    expect(resolveCrew('female', 'male')).toBe('male');
+    expect(resolveCrew('male', 'female')).toBe('female');
   });
 
-  it('keeps the stored preference for a signed-in athlete with no sex on record', () => {
-    // FR3 / D1(a): the picker still shows, and its stored choice still applies.
-    expect(effectiveCrewPreference(undefined, 'male')).toBe('male');
-    expect(effectiveCrewPreference(undefined, 'female')).toBe('female');
-    expect(effectiveCrewPreference(undefined, 'auto')).toBe('auto');
+  it('follows the profile on auto', () => {
+    expect(resolveCrew('female', 'auto')).toBe('female');
+    expect(resolveCrew('male', 'auto')).toBe('male');
   });
 
-  it('keeps the stored preference for a guest (no user, no gender)', () => {
-    // FR4: guests keep their control as it was before #443.
-    expect(effectiveCrewPreference(null, 'male')).toBe('male');
-    expect(effectiveCrewPreference(null, 'female')).toBe('female');
-  });
 });
 
 describe('crewModelUrl', () => {

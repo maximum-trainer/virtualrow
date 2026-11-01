@@ -2,10 +2,9 @@
  * Which rower the athlete wants in the boat (issue #232) — Svelte-runes port of
  * the React `useCrewPreference` hook.
  *
- * `auto` takes the gender from the intervals.icu profile. Since #443 the picker
- * only shows for guests, demo rows and profiles without a `sex` field; the
- * stored value is kept in `virtualrow:crew` regardless, so it still applies to
- * a guest / demo row in the same browser after a signed-in session.
+ * `auto` takes the gender from the intervals.icu profile; `male` / `female`
+ * override it for everyone, signed in or not (#672). Stored in
+ * `virtualrow:crew`.
  */
 import type { Crew } from '../../components/rower3d/crewModel';
 

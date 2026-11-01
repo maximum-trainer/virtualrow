@@ -25,10 +25,10 @@ export const CREW_URL: Record<Crew, string> = {
 /**
  * Resolve which crew model to show.
  *
- * A stated preference wins: a guest, a demo row, or an athlete whose profile
- * has no `sex` field should not be given a rower by default with no way to
- * change it (issue #232). Without a preference the profile decides, and with
- * neither the model falls back to `male` as it always has.
+ * A stated preference wins, for everyone: since #672 a signed-in athlete can
+ * pick the other rower even when their intervals.icu profile carries a `sex`
+ * (this reverses #443, which hid the choice from them). On `auto` the profile
+ * decides, and with neither the model falls back to `male` as it always has.
  */
 export const resolveCrew = (
   gender?: 'male' | 'female' | null,
@@ -37,20 +37,6 @@ export const resolveCrew = (
   if (preference !== 'auto') return preference;
   return gender === 'female' ? 'female' : 'male';
 };
-
-/**
- * The preference to feed `resolveCrew` for a given athlete (issue #443).
- *
- * A signed-in athlete whose intervals.icu profile carries a `sex` reads the
- * rower from that profile alone: the CrewPicker is hidden from them and any
- * older `virtualrow:crew` value is ignored while their gender is known. Guests,
- * demo rows and signed-in athletes without a `sex` field keep their stored
- * choice as before (that's still the fix from #232).
- */
-export const effectiveCrewPreference = (
-  gender?: 'male' | 'female' | null,
-  stored: 'auto' | Crew = 'auto',
-): 'auto' | Crew => (gender ? 'auto' : stored);
 
 /** The GLB URL for an athlete's gender. */
 export const crewModelUrl = (gender?: 'male' | 'female' | null): string =>

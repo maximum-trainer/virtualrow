@@ -49,4 +49,32 @@ describe('RowerAppearancePicker.svelte', () => {
     await fireEvent.click(swatches[index]);
     expect(onChange).toHaveBeenCalledWith('top', target.id);
   });
+
+  it('shows the Male / Female / Auto switch outside the collapsed disclosure (#672)', () => {
+    const { container, getByRole } = render(RowerAppearancePicker, {
+      appearance: DEFAULT_ROWER_APPEARANCE,
+      onChange: vi.fn(),
+      crew: 'female',
+      onCrewChange: vi.fn(),
+    });
+    const female = getByRole('radio', { name: 'Female' });
+    expect(female.getAttribute('aria-checked')).toBe('true');
+    expect(getByRole('radio', { name: 'Male' }).getAttribute('aria-checked')).toBe('false');
+    expect(getByRole('radio', { name: 'Auto' })).toBeTruthy();
+    // A closed <details> hides its content from role queries, so the switch
+    // must not live inside it.
+    expect(container.querySelector('details')?.contains(female)).toBe(false);
+  });
+
+  it('reports a rower change when Male is picked (#672)', async () => {
+    const onCrewChange = vi.fn();
+    const { getByRole } = render(RowerAppearancePicker, {
+      appearance: DEFAULT_ROWER_APPEARANCE,
+      onChange: vi.fn(),
+      crew: 'auto',
+      onCrewChange,
+    });
+    await fireEvent.click(getByRole('radio', { name: 'Male' }));
+    expect(onCrewChange).toHaveBeenCalledWith('male');
+  });
 });

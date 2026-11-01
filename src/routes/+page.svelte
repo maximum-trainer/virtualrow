@@ -39,7 +39,6 @@
   import GhostPicker from '$lib/ui/GhostPicker.svelte';
   import ConditionsPicker from '$lib/ui/ConditionsPicker.svelte';
   import SoundPicker from '$lib/ui/SoundPicker.svelte';
-  import CrewPicker from '$lib/ui/CrewPicker.svelte';
   import RowerAppearancePicker from '$lib/ui/RowerAppearancePicker.svelte';
   import LoadTodaysWorkoutButton from '$lib/ui/LoadTodaysWorkoutButton.svelte';
   import LoopConfigPanel from '$lib/ui/LoopConfigPanel.svelte';
@@ -293,28 +292,14 @@
             onVolume={(volume) => session.setSoundVolume(volume)}
           />
 
-          <!-- Signed-in athletes whose intervals.icu profile carries a sex read
-               the rower from that profile; the picker is for guests, demo rows
-               and profiles without the field (#443, keeps #232's fix). -->
-          {#if !auth.user?.gender}
-            <CrewPicker
-              preference={crew.preference}
-              onChange={(preference) => crew.setPreference(preference)}
-            />
-          {:else}
-            <p class="crew-profile-hint" data-testid="crew-profile-hint">
-              Rower matches your intervals.icu profile ·{' '}
-              <a href="https://intervals.icu/settings" target="_blank" rel="noopener noreferrer">
-                Update on intervals.icu ↗
-              </a>
-            </p>
-          {/if}
-
-          <!-- Clothing / hair colour picker (#474). intervals.icu does not carry
-               clothing, so it is visible to everyone. -->
+          <!-- Rower (Male / Female / Auto) and clothing / hair picker. Shown to
+               everyone: an explicit rower choice overrides the intervals.icu
+               profile's sex, Auto follows it (#672, reverses #443). -->
           <RowerAppearancePicker
             appearance={rowerAppearance.appearance}
             onChange={rowerAppearance.setSlot.bind(rowerAppearance)}
+            crew={crew.preference}
+            onCrewChange={(preference) => crew.setPreference(preference)}
           />
         </div>
       </div>
