@@ -342,3 +342,26 @@
 .row-hud-gap[data-lead='behind'] .row-hud-gap-value {
   color: #fca5a5;
 }
+
+/* #647 FR4 — looped-row lap badge. Same pill shape as the ghost gap, placed
+   just above it so a rower can see both at a glance. */
+.row-hud-lap {
+  margin: 0 auto 0.3rem;
+  padding: 0.25rem 0.9rem;
+  width: fit-content;
+  border-radius: 999px;
+  background: rgba(10, 14, 20, 0.7);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.row-hud-lap-value {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #e2e8f0;
+}
+
+.row-hud-lap-label {
+  font-size: 0.75rem;
+  color: #cbd5e1;
+}

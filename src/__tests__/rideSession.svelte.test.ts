@@ -282,6 +282,118 @@ describe('RideSessionStore', () => {
       stop();
       teardown();
     });
+
+    // #647 FR5 / AC2 — loop + distance target rows past route length, finishes on target.
+    it('loop + distance target: does not finish at route end, fires at target', () => {
+      const { ride, session, pm5, deps } = setup({ route: route(2) }); // 2 km route
+      const teardown = ride.init();
+      session.sessionActive = true;
+      ride.setLoop({ enabled: true, target: { kind: 'distance', value: 10_000 } });
+      const stop = $effect.root(() => {
+        pm5.emit('data', packet({ distance: 1999, elapsedTime: 500 }));
+        flushSync();
+        expect(ride.finish).toBeNull(); // past route end but target not reached
+        expect(ride.laps).toBe(0);
+
+        pm5.emit('data', packet({ distance: 2500, elapsedTime: 600 }));
+        flushSync();
+        expect(ride.finish).toBeNull();
+        expect(ride.laps).toBe(1);
+
+        pm5.emit('data', packet({ distance: 9950, elapsedTime: 2000 }));
+        flushSync();
+        expect(ride.finish).not.toBeNull();
+        expect(ride.finish?.distanceMeters).toBe(10_000);
+        vi.advanceTimersByTime(FINISH_BANNER_MS);
+        expect(deps.workoutService.endSession).toHaveBeenCalledOnce();
+      });
+      stop();
+      teardown();
+    });
+
+    // #647 FR5 / AC3 — loop + time target finishes on elapsed, keeps cumulative distance.
+    it('loop + time target: fires when elapsedTime reaches the chosen seconds', () => {
+      const { ride, session, pm5 } = setup({ route: route(2) });
+      const teardown = ride.init();
+      session.sessionActive = true;
+      ride.setLoop({ enabled: true, target: { kind: 'time', value: 1200 } });
+      const stop = $effect.root(() => {
+        pm5.emit('data', packet({ distance: 3000, elapsedTime: 900 }));
+        flushSync();
+        expect(ride.finish).toBeNull();
+
+        pm5.emit('data', packet({ distance: 4000, elapsedTime: 1210 }));
+        flushSync();
+        expect(ride.finish).not.toBeNull();
+        expect(ride.finish?.distanceMeters).toBe(4000);
+        expect(ride.finish?.elapsedMs).toBe(1210 * 1000);
+      });
+      stop();
+      teardown();
+    });
+
+    // #647 FR5 / AC4 — loop + free target never auto-finishes.
+    it('loop + free target: never auto-finishes however far / long the row is', () => {
+      const { ride, session, pm5 } = setup({ route: route(2) });
+      const teardown = ride.init();
+      session.sessionActive = true;
+      ride.setLoop({ enabled: true, target: { kind: 'free' } });
+      const stop = $effect.root(() => {
+        pm5.emit('data', packet({ distance: 20_000, elapsedTime: 7200 }));
+        flushSync();
+        expect(ride.finish).toBeNull();
+      });
+      stop();
+      teardown();
+    });
+
+    // #647 FR9 — a challenge forces loop off, finish fires on route length.
+    it('a challenge in progress forces loop off and finishes at route length', () => {
+      const { ride, session, pm5 } = setup({ route: route(2) });
+      const teardown = ride.init();
+      session.sessionActive = true;
+      ride.setLoop({ enabled: true, target: { kind: 'distance', value: 10_000 } });
+      ride.challengeInProgress = {
+        challengeName: 'Spring sprint',
+        courseDistanceMeters: 2000,
+        results: [],
+      };
+      expect(ride.loopLocked).toBe(true);
+      expect(ride.effectiveLoop.enabled).toBe(false);
+      const stop = $effect.root(() => {
+        pm5.emit('data', packet({ distance: 1999, elapsedTime: 500 }));
+        flushSync();
+        expect(ride.finish).not.toBeNull();
+        expect(ride.finish?.distanceMeters).toBe(2000);
+      });
+      stop();
+      teardown();
+    });
+  });
+
+  it('setLoop is a no-op while loopLocked is true', () => {
+    const { ride } = setup({ route: route(2) });
+    ride.challengeInProgress = {
+      challengeName: 'x',
+      courseDistanceMeters: 2000,
+      results: [],
+    };
+    ride.setLoop({ enabled: true, target: { kind: 'free' } });
+    expect(ride.loop.enabled).toBe(false);
+  });
+
+  it('frame() passes loop:true through the canvas seam when effectiveLoop is on', () => {
+    const { ride, session, pm5 } = setup({ route: route(2) });
+    const teardown = ride.init();
+    session.sessionActive = true;
+    ride.setLoop({ enabled: true, target: { kind: 'free' } });
+    const stop = $effect.root(() => {
+      pm5.emit('data', packet({ distance: 1500, elapsedTime: 400 }));
+      flushSync();
+      expect(ride.frame().loop).toBe(true);
+    });
+    stop();
+    teardown();
   });
 
   it('pause, resume and reset drive the service and the session state', () => {

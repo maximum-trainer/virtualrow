@@ -40,6 +40,13 @@
      * between them worth reading.
      */
     ghost?: { gapMeters: number | null; label: string } | null;
+    /**
+     * Lap tracking for a looped route (#647 FR4). `currentLap` is 1-indexed
+     * and `completed` is the floor of distance ÷ route length. When
+     * `completed` is 0 and the row is on its first lap, the badge is hidden
+     * so the HUD stays uncluttered on a non-looped row.
+     */
+    lap?: { currentLap: number; completed: number } | null;
   }
 
   let {
@@ -56,6 +63,7 @@
     onEnd,
     fullscreen,
     ghost = null,
+    lap = null,
   }: Props = $props();
 
   /**
@@ -145,6 +153,15 @@
       <span aria-hidden="true">{fullscreen.active ? '⤡' : '⛶'}</span>
     </button>
   </div>
+
+  {#if lap && lap.completed > 0}
+    <!-- #647 FR4 — lap badge on a looped row. Hidden on a non-looped row so
+         the HUD is unchanged for every row that doesn't opt in. -->
+    <p class="row-hud-lap" data-testid="row-hud-lap">
+      <span class="row-hud-lap-value">Lap {lap.currentLap}</span>{' '}
+      <span class="row-hud-lap-label">({lap.completed} completed)</span>
+    </p>
+  {/if}
 
   {#if ghost && ghost.gapMeters !== null}
     <!-- The lead is in the sign as well as in the colour (#344): a rower who

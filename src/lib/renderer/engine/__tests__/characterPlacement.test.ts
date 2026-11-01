@@ -113,6 +113,27 @@ describe('characterPlacement', () => {
     expect(out.progress).toBe(1);
   });
 
+  // #647 FR3 — looping wraps progress mod 1 rather than clamping at 1, so the
+  // boat continues from the start of the route into the next lap.
+  it('wraps progress when the frame is in loop mode', () => {
+    const curve = straightCurve();
+    const out = createPlacement();
+    // 2500 m along a 1000 m route is 2.5 laps → progress 0.5.
+    placeBoat(out, curve, makeFrame({ distanceMeters: 2500, loop: true }), 1000, 200);
+    expect(out.progress).toBeCloseTo(0.5, 5);
+    // The output distance stays cumulative (callers key history off it).
+    expect(out.distanceMeters).toBe(2500);
+  });
+
+  it('loop mode defers to holdBoat and finished', () => {
+    const curve = straightCurve();
+    const out = createPlacement();
+    placeBoat(out, curve, makeFrame({ distanceMeters: 2500, loop: true, holdBoat: true }), 1000, 200);
+    expect(out.progress).toBe(0);
+    placeBoat(out, curve, makeFrame({ distanceMeters: 2500, loop: true, finished: true }), 1000, 200);
+    expect(out.progress).toBe(1);
+  });
+
   it('places the ghost from ghostDistanceAt with a pace ghost', () => {
     const curve = straightCurve();
     const out = createPlacement();

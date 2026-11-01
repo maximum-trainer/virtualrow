@@ -43,6 +43,14 @@ import type { SessionState, RowerType } from './sessionStore.svelte';
 import type { GhostChoice } from './ghostChoice';
 import type { ChallengeResult } from '../services/challengesService';
 import type { RideFrame } from './rideCanvas';
+import {
+  defaultRideLoop,
+  finishDistanceMeters,
+  finishTimeSeconds,
+  lapsCompleted,
+  type RideLoop,
+  type RideLoopTarget,
+} from './rideLoop';
 
 export type { RideFrame };
 
@@ -157,6 +165,16 @@ export class RideSessionStore {
     results: ChallengeResult[];
   } | null>(null);
 
+  /**
+   * Loop policy for the ride (#647). When `enabled`, the boat wraps back to
+   * the start when it reaches the route finish, and the finish fires on the
+   * target (distance / time / free) rather than on route length. Default is
+   * off — today's route-length-finish behaviour is unchanged. A challenge or
+   * ghost race forces this off (FR9/FR10) because those rows are scored on the
+   * route's own distance.
+   */
+  loop = $state<RideLoop>(defaultRideLoop());
+
   readonly startSequence = new StartSequenceStore();
 
   // Plain (non-reactive) guards mirroring App's refs.
@@ -184,6 +202,35 @@ export class RideSessionStore {
     this.pm5Data && this.#routes.selectedRoute
       ? Math.min(100, (this.pm5Data.distance / 1000) / this.#routes.selectedRoute.distance * 100)
       : 0,
+  );
+
+  /**
+   * Laps completed on the selected route (#647 FR4). Floor of
+   * `distanceMeters / routeMeters`; 0 before the first seam. The HUD reads
+   * `laps + 1` as the current lap and `laps` as the completed count.
+   */
+  readonly laps = $derived.by(() => {
+    const route = this.#routes.selectedRoute;
+    if (!route || !this.pm5Data) return 0;
+    return lapsCompleted(this.pm5Data.distance, route.distance * 1000);
+  });
+
+  /**
+   * True while loop mode must be forced off — a challenge row is scored on the
+   * course's own distance (#647 FR9), so looping is not a user choice there.
+   * The UI reflects this by disabling the toggle; the finish logic reflects
+   * it by reading `effectiveLoop`, not `loop`, so a stale `loop.enabled` from
+   * before the challenge was picked still produces the leaderboard-defined
+   * finish.
+   */
+  readonly loopLocked = $derived.by(() => this.challengeInProgress !== null);
+
+  /**
+   * The loop policy the finish detector and the engine actually read. Falls
+   * back to the route-finish default when `loopLocked` is true.
+   */
+  readonly effectiveLoop = $derived.by<RideLoop>(() =>
+    this.loopLocked ? defaultRideLoop() : this.loop,
   );
 
   /** The ghost to race, resolved from the chosen option (App `ghostSource`). */
@@ -344,6 +391,28 @@ export class RideSessionStore {
     this.#handleData(data);
   }
 
+  /**
+   * Update the loop policy for the ride (#647 FR1/FR2). The pre-row panel
+   * calls this to turn looping on and pick a target. Ignored while the
+   * current row is challenge-gated (`loopLocked`), so a late pick cannot
+   * destabilise a challenge in progress.
+   */
+  setLoop(next: RideLoop | ((prev: RideLoop) => RideLoop)): void {
+    if (this.loopLocked) return;
+    const resolved = typeof next === 'function' ? next(this.loop) : next;
+    this.loop = resolved;
+  }
+
+  /** Convenience: flip the loop toggle without touching the target. */
+  setLoopEnabled(enabled: boolean): void {
+    this.setLoop((prev) => ({ ...prev, enabled }));
+  }
+
+  /** Convenience: pick a loop target (and leave `enabled` as-is). */
+  setLoopTarget(target: RideLoopTarget): void {
+    this.setLoop((prev) => ({ ...prev, target }));
+  }
+
   pauseWorkout(): void {
     this.#session.sessionState = 'paused';
     this.#deps.workoutService.pauseSession();
@@ -429,6 +498,7 @@ export class RideSessionStore {
       intensityFactor: this.#session.currentWorkout.speedFactor ?? 1,
       elapsedSeconds: this.workoutElapsedTimeMs / 1000,
       ghost: this.ghostSource,
+      loop: this.effectiveLoop.enabled,
     };
   }
 
@@ -471,24 +541,40 @@ export class RideSessionStore {
     });
   }
 
-  /** Finish when distance reaches the route length (App finish detection). */
+  /**
+   * Finish when the row reaches the loop target (#647 FR5). Target `route`
+   * (the default) keeps the historical "finish at route length" behaviour
+   * through the same 99.5 % threshold, so a loop-off row behaves exactly as
+   * before. A `distance` target fires at the chosen metres (also with a
+   * 99.5 % threshold so the PM5's sample grid lands cleanly on the cue);
+   * a `time` target fires on elapsed seconds; `free` never auto-finishes.
+   */
   #maybeFinish(latest: PM5Data, latestSession: WorkoutSession | null): void {
     const route = this.#routes.selectedRoute;
     if (!route || typeof window === 'undefined') return;
     if (window.__PLAYWRIGHT_TESTING && !window.__VIRTUALROW_AUTO_FINISH) return;
+    if (this.#finishing) return;
     const routeDistanceMeters = route.distance * 1000;
-    const threshold = routeDistanceMeters * 0.995;
-    if (latest.distance >= threshold && routeDistanceMeters > 0 && !this.#finishing) {
-      this.#finishing = true;
-      this.finish = {
-        distanceMeters: routeDistanceMeters,
-        elapsedMs: latest.elapsedTime
-          ? latest.elapsedTime * 1000
-          : (latestSession?.duration ?? 0) * 1000,
-      };
-      // The banner stays up, then the row ends and the summary opens.
-      this.#finishTimer = setTimeout(() => this.endWorkout(), FINISH_BANNER_MS);
-    }
+    const loop = this.effectiveLoop;
+
+    const targetMeters = finishDistanceMeters(loop, routeDistanceMeters);
+    const targetSeconds = finishTimeSeconds(loop);
+    const elapsedSeconds = latest.elapsedTime ?? (latestSession?.duration ?? 0);
+
+    const hitsDistance =
+      targetMeters !== null && targetMeters > 0 && latest.distance >= targetMeters * 0.995;
+    const hitsTime =
+      targetSeconds !== null && targetSeconds > 0 && elapsedSeconds >= targetSeconds;
+
+    if (!hitsDistance && !hitsTime) return;
+
+    this.#finishing = true;
+    const finalMeters = hitsDistance && targetMeters !== null ? targetMeters : latest.distance;
+    this.finish = {
+      distanceMeters: finalMeters,
+      elapsedMs: elapsedSeconds * 1000,
+    };
+    this.#finishTimer = setTimeout(() => this.endWorkout(), FINISH_BANNER_MS);
   }
 
   #stopActivityTimer(): void {

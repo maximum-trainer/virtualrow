@@ -56,6 +56,12 @@ export interface RideFrame {
    * cutover). Optional: the engine defaults to chase.
    */
   readonly view?: RideCameraView;
+  /**
+   * The route is being looped (#647). When true, boat placement wraps
+   * `distanceMeters` modulo the route length instead of clamping at the finish;
+   * optional and defaults to false so the engine's today-behaviour is kept.
+   */
+  readonly loop?: boolean;
 }
 
 /** Options the shell passes the engine when it starts a ride. */
