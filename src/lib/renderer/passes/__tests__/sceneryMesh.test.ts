@@ -196,6 +196,39 @@ describe('createSceneryMeshPass', () => {
     expect(p.meshCount).toBe(0);
   });
 
+  it('writeColors updates the colour buffer when the byte length matches (#578 FR2)', () => {
+    const { device, queue } = makeDevice();
+    const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+    p.register(makeInput({ id: 'crew-top', positions: new Float32Array(9), normals: new Float32Array(9), indices: new Uint16Array([0, 1, 2]), baseColor: [0.1, 0.2, 0.3, 1] }));
+    // Three vertices × 4 floats × 4 bytes = 48 bytes.
+    const writesBefore = (queue.writeBuffer as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
+    const next = new Float32Array(12);
+    for (let i = 0; i < 12; i += 1) next[i] = 0.5;
+    p.writeColors('crew-top', next);
+    const writesAfter = (queue.writeBuffer as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
+    expect(writesAfter - writesBefore).toBe(1);
+  });
+
+  it('writeColors is a no-op on byte-length mismatch (#578 safety)', () => {
+    const { device, queue } = makeDevice();
+    const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+    p.register(makeInput({ id: 'crew-top', positions: new Float32Array(9), normals: new Float32Array(9), indices: new Uint16Array([0, 1, 2]), baseColor: [0.1, 0.2, 0.3, 1] }));
+    const writesBefore = (queue.writeBuffer as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
+    // Wrong vertex count — 8 floats instead of 12.
+    p.writeColors('crew-top', new Float32Array(8));
+    const writesAfter = (queue.writeBuffer as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
+    expect(writesAfter).toBe(writesBefore);
+  });
+
+  it('writeColors on unknown ids is a no-op', () => {
+    const { device, queue } = makeDevice();
+    const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+    const writesBefore = (queue.writeBuffer as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
+    p.writeColors('nope', new Float32Array(4));
+    const writesAfter = (queue.writeBuffer as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
+    expect(writesAfter).toBe(writesBefore);
+  });
+
   it('encode is a no-op after dispose', () => {
     const { device } = makeDevice();
     const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });

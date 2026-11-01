@@ -83,12 +83,26 @@ export interface RideRendererOptions {
    * to `male` when omitted — the GLB the engine shipped with before the seam.
    */
   readonly crew?: 'male' | 'female';
+  /**
+   * #578 FR2 — initial per-athlete clothing / hair / hat palette, derived
+   * by the shell from `rowerAppearanceService`. Typed as `unknown` here
+   * so the seam stays framework-free; the engine casts to its `CrewPalette`
+   * in `plan/crewPalette.ts`.
+   */
+  readonly appearance?: unknown;
 }
 
 /** A running renderer. The host calls {@link dispose} when the ride unmounts. */
 export interface RideRenderer {
   /** Release GPU resources and listeners. Must be idempotent. */
   dispose(): void;
+  /**
+   * #578 FR5 — push a new per-athlete palette into the running scene.
+   * No-op before attach / after dispose. The next drawn frame reflects
+   * the new tint; no reattach. Optional at the seam so a lightweight
+   * test fake can skip it; the engine's own `attach` always supplies it.
+   */
+  setAppearance?(palette: unknown): void;
 }
 
 /**

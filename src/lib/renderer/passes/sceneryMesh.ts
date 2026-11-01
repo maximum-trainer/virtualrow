@@ -40,6 +40,7 @@ interface RegisteredMesh {
   positionBuffer: GPUBuffer;
   normalBuffer: GPUBuffer;
   colorBuffer: GPUBuffer;
+  colorByteLength: number;
   indexBuffer: GPUBuffer;
   indexFormat: 'uint16' | 'uint32';
   indexCount: number;
@@ -69,6 +70,14 @@ export interface SceneryMeshPass extends Pass {
   register(input: SceneryMeshInput): void;
   /** Write `instances.length` mat4s for `id`; clamps to the registered maxInstances. */
   setInstances(id: string, instances: readonly Mat4[]): void;
+  /**
+   * Overwrite the per-vertex colour buffer for an already-registered mesh
+   * (#578 FR2). The length must match the mesh's vertex count × 4; a
+   * mismatch is a no-op so a stale call cannot corrupt the GPU buffer.
+   * Used by the per-athlete rower-appearance seam to re-tint a scull
+   * primitive without reallocating or re-registering.
+   */
+  writeColors(id: string, colors: Float32Array): void;
   readonly meshCount: number;
   /**
    * Iterate every registered mesh with a non-zero instance count. The
@@ -176,6 +185,7 @@ export const createSceneryMeshPass = ({
       positionBuffer,
       normalBuffer,
       colorBuffer,
+      colorByteLength: colors.byteLength,
       indexBuffer,
       indexFormat: input.indices instanceof Uint32Array ? 'uint32' : 'uint16',
       indexCount: input.indices.length,
@@ -184,6 +194,13 @@ export const createSceneryMeshPass = ({
       instanceCount: 0,
       bindGroup,
     });
+  };
+
+  const writeColors = (id: string, colors: Float32Array): void => {
+    const mesh = registry.get(id);
+    if (!mesh) return;
+    if (colors.byteLength !== mesh.colorByteLength) return;
+    device.queue.writeBuffer(mesh.colorBuffer, 0, colors as BufferSource);
   };
 
   const setInstances = (id: string, instances: readonly Mat4[]): void => {
@@ -202,6 +219,7 @@ export const createSceneryMeshPass = ({
     name: 'sceneryMesh',
     register,
     setInstances,
+    writeColors,
     get meshCount() { return registry.size; },
     forEachActiveMesh(cb) {
       for (const mesh of registry.values()) {

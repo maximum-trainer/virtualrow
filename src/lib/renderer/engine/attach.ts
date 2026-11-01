@@ -37,6 +37,17 @@ import {
 
 export interface RideRenderer {
   dispose(): void;
+  /**
+   * Push a per-athlete appearance change to the active scene (#578 FR5).
+   * No-op before the scene has attached, no-op after dispose, no-op while
+   * the engine has fallen back to the UI placeholder. The scene re-tints
+   * the scull primitives on the next frame — no reattach, no extra draw
+   * calls. The palette shape is `CrewPalette` from
+   * `src/lib/renderer/plan/crewPalette.ts`; it's intentionally re-typed
+   * as `unknown` here so a shell import of this file doesn't drag the
+   * plan layer in. Optional so a lightweight test fake can skip it.
+   */
+  setAppearance?(palette: unknown): void;
 }
 
 export { isSceneryRoute, type SceneryRoute };
@@ -80,6 +91,15 @@ export type RideAttachOpts = {
    *  shell paint tint from `boatPaint.BOAT_PAINT_PALETTE`. Omitted =
    *  the pre-#571 off-white default. */
   athleteId?: string;
+  /**
+   * #578 FR2 — initial per-athlete clothing / hair / hat palette. The
+   * shell derives it from `rowerAppearanceService` through
+   * `plan/crewPalette.paletteFromPreference`. Omitted = the engine's
+   * baked default (navy unisuit, dark hair). Typed as `unknown` here so
+   * the engine's public attach surface doesn't export the plan type;
+   * callers hand it through as-is.
+   */
+  appearance?: unknown;
 };
 
 export type RideAttach = (
@@ -237,7 +257,12 @@ export const attach: RideAttach = async (canvas, opts = {}) => {
       }
       return null;
     }
-    const handle = await createRideScene(canvas, session.state.device, telemetry, opts, session);
+    // `opts.appearance` is `unknown` on the public attach surface so the
+    // seam type stays framework-free; the scene types it as `CrewPalette`.
+    // The cast lives here, at the one call site, instead of in every
+    // smoke page that passes a palette through.
+    const sceneOpts = opts as unknown as Parameters<typeof createRideScene>[3];
+    const handle = await createRideScene(canvas, session.state.device, telemetry, sceneOpts, session);
     return handle;
   };
 
@@ -273,6 +298,11 @@ export const attach: RideAttach = async (canvas, opts = {}) => {
     _telemetry: telemetry,
     get _liveDevice() {
       return scene?.device;
+    },
+    setAppearance(palette) {
+      // No-op when the scene is gone (dispose, device-lost second strike)
+      // or when a caller handed us a non-CrewPalette-shaped object.
+      scene?.setAppearance(palette as never);
     },
     dispose() {
       if (outerDisposed) return;
