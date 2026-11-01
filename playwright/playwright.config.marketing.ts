@@ -25,25 +25,11 @@ export default defineConfig({
     ...ci.use,
     launchOptions: {
       ...(process.env.PW_LOCAL_CHROME ? { executablePath: process.env.PW_LOCAL_CHROME } : {}),
-      // These args mirror the webgpu-engine smokes' proven combination on
-      // linux-nvidia-gpu-runner (see playwright/tests/webgpu-engine-smoke.spec.ts):
-      // `--use-gl=swiftshader` keeps Chromium's GL path on software (there is no
-      // display server on the VM), while `--enable-unsafe-webgpu` leaves Dawn's
-      // Vulkan path reachable so the T4 is picked. The earlier combination
-      // (`--enable-features=Vulkan` + no `--use-gl=swiftshader`) made Chromium
-      // try to open a hardware GL context, failed on the headless VM, and took
-      // the GPU process — and WebGPU with it — down with it, so every shot
-      // test.skip'd on `software-adapter`.
-      args: [
-        '--enable-unsafe-webgl',
-        '--use-gl=swiftshader',
-        '--enable-unsafe-swiftshader',
-        '--enable-unsafe-webgpu',
-        '--no-sandbox',
-        '--disable-gpu-rasterization',
-        '--disable-gpu-compositing',
-        '--disable-dev-shm-usage',
-      ],
+      // The spec itself pins the proven engine-smoke flag combo via its
+      // own `test.use({ launchOptions })` — see
+      // playwright/tests/visual/marketing-screenshots.spec.ts. Keep this
+      // list minimal so the override there always wins.
+      args: ['--no-sandbox', '--disable-dev-shm-usage'],
     },
     screenshot: 'off',
     video: 'off',

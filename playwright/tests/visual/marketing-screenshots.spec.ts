@@ -3,7 +3,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { assertCanvasNotBlank } from '../helpers/assertCanvasNotBlank';
 import {
-  GPU_RIDE_LAUNCH_OPTIONS,
   installRideHarness,
   pinTier,
   startDemoRide,
@@ -47,7 +46,29 @@ const REPORT_PATH = path.join(OUT_DIR, 'report.json');
 const LIGHTING_STORAGE_KEY = 'virtualrow:conditions';
 const CAMERA_VIEW_STORAGE_KEY = 'virtualrow:camera-view';
 
-test.use({ launchOptions: GPU_RIDE_LAUNCH_OPTIONS });
+// Mirror the webgpu-engine smoke's proven flag combo
+// (playwright/tests/webgpu-engine-smoke.spec.ts), not GPU_RIDE_LAUNCH_OPTIONS.
+// The ride-spec combo (`--enable-features=Vulkan` + no `--use-gl=swiftshader`)
+// made Chromium's GPU process open a hardware GL context on the display-less
+// fleet VM and crash it, bringing WebGPU down too, so Dawn fell back to the
+// SwiftShader adapter and the engine's `software-adapter` guard rejected
+// every shot. The engine smoke's combo keeps GL on software while leaving
+// Dawn's Vulkan backend reachable, which is what the T4 needs here.
+test.use({
+  launchOptions: {
+    ...(process.env.PW_LOCAL_CHROME ? { executablePath: process.env.PW_LOCAL_CHROME } : {}),
+    args: [
+      '--enable-unsafe-webgl',
+      '--use-gl=swiftshader',
+      '--enable-unsafe-swiftshader',
+      '--enable-unsafe-webgpu',
+      '--no-sandbox',
+      '--disable-gpu-rasterization',
+      '--disable-gpu-compositing',
+      '--disable-dev-shm-usage',
+    ],
+  },
+});
 
 // Each shot sets its own viewport before boot; drop the config-wide default.
 test.use({ viewport: null });
