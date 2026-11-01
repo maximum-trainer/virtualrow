@@ -1,16 +1,16 @@
 .rower-appearance {
   margin-top: 0.5rem;
   padding: 0.4rem 0.6rem;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--color-border);
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--color-bg-card);
 }
 
 .rower-appearance-summary {
   cursor: pointer;
   font-size: 0.9rem;
   font-weight: 500;
-  color: rgba(255, 255, 255, 0.78);
+  color: var(--color-text-primary);
   list-style: none;
   padding: 0.1rem 0;
 }
@@ -47,7 +47,7 @@
 .rower-appearance-label {
   flex: 0 0 3.5rem;
   font-size: 0.82rem;
-  color: rgba(255, 255, 255, 0.72);
+  color: var(--color-text-secondary);
 }
 
 .rower-appearance-swatches {
@@ -61,7 +61,7 @@
   min-width: 44px;
   height: 44px;
   min-height: 44px;
-  border: 2px solid rgba(255, 255, 255, 0.12);
+  border: 2px solid var(--color-border);
   border-radius: 6px;
   cursor: pointer;
   padding: 0;
@@ -70,7 +70,7 @@
 
 .rower-appearance-swatch:hover {
   transform: translateY(-1px);
-  border-color: rgba(255, 255, 255, 0.4);
+  border-color: var(--color-text-muted);
 }
 
 .rower-appearance-swatch:focus-visible {
@@ -93,10 +93,10 @@
   min-width: 44px;
   min-height: 44px;
   padding: 0 0.6rem;
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  border: 1px solid var(--color-border);
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.05);
-  color: rgba(255, 255, 255, 0.85);
+  background: var(--color-bg-card);
+  color: var(--color-text-secondary);
   font-size: 0.82rem;
   cursor: pointer;
   transition: border-color 120ms ease, background 120ms ease, transform 120ms ease;
@@ -104,7 +104,7 @@
 
 .rower-appearance-chip:hover {
   transform: translateY(-1px);
-  border-color: rgba(255, 255, 255, 0.42);
+  border-color: var(--color-text-muted);
 }
 
 .rower-appearance-chip:focus-visible {
