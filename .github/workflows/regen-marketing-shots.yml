@@ -106,7 +106,7 @@ jobs:
         run: |
           set -x
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libvulkan1 vulkan-tools libgl1 libegl1
+          sudo apt-get install -y --no-install-recommends libvulkan1 vulkan-tools libgl1 libegl1 xvfb xauth
           # nvidia-smi writes its "has failed" error to stdout, so a prior
           # 2>/dev/null doesn't suppress it and $DRV_MAJOR ended up holding
           # the whole error message. Keep only output that looks like a
@@ -230,7 +230,18 @@ jobs:
         # webgpu-engine-smoke combination.
         run: |
           mkdir -p "$MARKETING_OUT_DIR"
-          npx playwright test --config=playwright/playwright.config.marketing.ts
+          # Run Chrome under Xvfb so it's "headful" from Chrome's point of
+          # view (DISPLAY=:99). The marketing spec reads MARKETING_HEADFUL=1
+          # and launches with headless:false. Chrome Stable's headless path
+          # on Linux has a long-standing quirk where WebGPU canvas content
+          # does not land in page.screenshot (run 41361819039 confirmed:
+          # engine draws 9 commands at 8ms gpuMs on the real T4 adapter,
+          # zero Dawn validation errors, zero page errors — but the engine
+          # canvas region reads back as pure background slate). Xvfb +
+          # headful bypasses that path entirely.
+          export MARKETING_HEADFUL=1
+          xvfb-run -a --server-args="-screen 0 1920x1080x24" \
+            npx playwright test --config=playwright/playwright.config.marketing.ts
 
       - name: Summarise rendered shots
         if: always()

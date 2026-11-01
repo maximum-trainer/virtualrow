@@ -60,6 +60,13 @@ const CAMERA_VIEW_STORAGE_KEY = 'virtualrow:camera-view';
 // `npx playwright install chromium --channel chromium`.
 test.use({
   channel: 'chrome',
+  // MARKETING_HEADFUL=1 (set by the workflow when Xvfb wraps the run) flips
+  // Chrome into headful mode. Chrome Stable's headless path on Linux does
+  // NOT land WebGPU swap-chain content in page.screenshot (confirmed run
+  // 41361819039: engine draws 9 commands, zero Dawn errors, canvas region
+  // still reads background slate). With Xvfb + headful Chrome composites
+  // the real swap-chain into the frame screenshots see.
+  headless: process.env.MARKETING_HEADFUL === '1' ? false : undefined,
   launchOptions: {
     ...(process.env.PW_LOCAL_CHROME ? { executablePath: process.env.PW_LOCAL_CHROME } : {}),
     // Marketing shots need the HARDWARE WebGPU path, not SwiftShader. The
