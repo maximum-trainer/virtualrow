@@ -203,3 +203,78 @@ jobs:
         # the ride specs they launch with real WebGPU and branch to the
         # well-formed decline on a runner without a hardware adapter (#542 NFR5).
         run: npx playwright test --config=playwright/playwright.config.ts --project=default playwright/tests/webgpu-device-budget.spec.ts playwright/tests/webgpu-device-lost-recovery.spec.ts playwright/tests/webgpu-postfx.spec.ts playwright/tests/webgpu-scene-quality-match.spec.ts
+
+  visual:
+    # #588 FR9 / AC9 — engine visual baselines, on the real-GPU runner. The
+    # pre-#625 React/three.js visual spec compared SwiftShader PNGs; the
+    # WebGPU engine declines software adapters (#542 NFR5), so baselines
+    # must come from a GPU-attached runner. D8-a pins the chosen platform
+    # to `linux-nvidia-gpu-runner` for continuity with the engine smokes.
+    #
+    # Runs on every push to the gated branches and on PRs carrying the
+    # `visual-baseline` label — the label gates re-record pushes so a
+    # routine PR cannot accidentally overwrite committed baselines.
+    name: Visual baselines (#588 FR9)
+    needs: preflight
+    if: >-
+      ${{
+        vars.GPU_RUNNER_DISABLED != 'true' &&
+        (
+          github.event_name == 'push' ||
+          (github.event_name == 'pull_request' &&
+            contains(github.event.pull_request.labels.*.name, 'visual-baseline'))
+        )
+      }}
+    runs-on: linux-nvidia-gpu-runner
+    continue-on-error: false
+    env:
+      CI: true
+    steps:
+      - uses: actions/checkout@v7
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Install Vulkan runtime for the NVIDIA GPU
+        # Same shape as the webgpu-engine job: without the Vulkan userspace
+        # + the NVIDIA ICD matching the running driver, Chromium's WebGPU
+        # backend falls back to SwiftShader and the engine declines.
+        run: |
+          set -x
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libvulkan1 vulkan-tools libgl1 libegl1
+          DRV_MAJOR=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1 | cut -d. -f1)
+          if [ -n "$DRV_MAJOR" ]; then
+            sudo apt-get install -y --no-install-recommends "libnvidia-gl-$DRV_MAJOR" \
+              || echo "libnvidia-gl-$DRV_MAJOR not available via apt — relying on the image's own ICD"
+          fi
+      - name: Run visual baselines (engine)
+        # `scene.spec.ts` drives real /row via the demo path; on a VM without
+        # a hardware adapter each shot `test.skip`s with a well-formed decline
+        # so a routine fleet-VM gap doesn't read as a visual regression.
+        run: npx playwright test --config=playwright/playwright.config.visual.ts
+      - name: Upload baselines (recorded or diff)
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          # Carries the recorded PNGs on a `visual-baseline` label run
+          # (download, inspect, commit back) and the actual-vs-expected diff
+          # images on a red PR run (triage).
+          name: visual-baselines-${{ github.run_id }}
+          path: |
+            playwright/tests/visual/__snapshots__
+            playwright-report
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Record baselines (visual-baseline label only)
+        # Only on a `visual-baseline` label the engine's `__snapshots__/` is
+        # regenerated with `--update-snapshots`; a non-labelled PR cannot
+        # update them, so the committed baselines are only overwritten
+        # intentionally.
+        if: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'visual-baseline') }}
+        run: npx playwright test --config=playwright/playwright.config.visual.ts --update-snapshots

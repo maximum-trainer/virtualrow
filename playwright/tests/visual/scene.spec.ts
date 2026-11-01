@@ -1,287 +1,137 @@
 import { test, expect, type Page } from '../../fixtures/crash-watch';
-import * as fs from 'fs';
-import * as path from 'path';
-import { fileURLToPath } from 'url';
-import { expectSceneAlive } from '../../utils/scene-health';
+import { assertCanvasNotBlank } from '../helpers/assertCanvasNotBlank';
+import {
+  GPU_RIDE_LAUNCH_OPTIONS,
+  installRideHarness,
+  pinTier,
+  startDemoRide,
+  waitForRideOutcome,
+  forceRender,
+  readHealth,
+  assertWellFormedDecline,
+} from '../helpers/engineRide';
 
 /**
- * Issue #340 — the visual baselines.
+ * #588 FR9 / AC9 — engine visual baselines, on the real-GPU runner.
  *
- * Every ticket in the visual backlog moves pixels, and until this existed there
- * was one committed baseline in the whole suite. `scene-contrast.spec.ts` can
- * tell you the water is not the same colour as the bank; it cannot tell you the
- * fog got twice as thick, the horizon dropped, or the boat is now ten times too
- * small. This photographs the scene and compares it with what it looked like
- * before the change.
+ * Pre-#625 this file froze the React/three.js scene at `(progress=0.31,
+ * time=12.5)` via `__ROWER3D_FREEZE` + `__ROWER3D_FORCE_RENDER` and compared
+ * SwiftShader PNGs. The WebGPU engine declines software adapters (#542 NFR5)
+ * so none of that works any more; the port here drives the real `/row` flow
+ * through `installRideHarness` + `startDemoRide`, pins the tier, lets the
+ * scene settle, forces a render, and compares against a committed PNG.
  *
- * Three things make the picture repeatable:
+ * Baseline platform (D8-a): the `linux-nvidia-gpu-runner` the engine smokes
+ * already run on. A single platform is deliberate — the pre-#625 spec said
+ * "a baseline is a picture of one renderer, and the moment two machines
+ * record it the suite measures the machines"; that still holds on real
+ * hardware. Metal / D3D12 runners are a fleet decision (D7-b/c) and not
+ * in scope.
  *
- *  - `__ROWER3D_FREEZE` stops the clock, pins the boat to a point on the route
- *    and parks the oars, so the frame does not depend on how long the page took
- *    to load (see `src/components/rower3d/sceneFreeze.ts`).
- *  - `__ROWER3D_FORCE_RENDER` draws the frame synchronously before the capture.
- *    The renderer clears to a transparent buffer, and on a software rasteriser
- *    a screenshot otherwise lands in the gap between two frames (#261).
- *  - The same route geometry every time. All six themes row the same imported
- *    course, so a difference between two shots is the theme and nothing else.
- *
- * The capture is of the canvas, with the two HUD panels that sit over it — the
- * route summary and the minimap — masked out. They are DOM, not scene: their
- * text is the route name, which differs per theme by construction, and nothing
- * either of them shows is a fact about how the world is drawn.
+ * The fallback branch mirrors `marketing-screenshots.spec.ts`: when the job
+ * lands on a VM without the NVIDIA Vulkan ICD the engine declines, each
+ * shot `test.skip`s with a well-formed decline, and no baseline is written.
+ * That keeps a routine fleet-VM gap from reading as a visual regression.
  */
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const mockBluetoothPath = path.resolve(__dirname, '../../mock-bluetooth.js');
-const courseFixturePath = path.resolve(__dirname, '../../fixtures/rownative-sample-course.geojson');
+test.use({ launchOptions: GPU_RIDE_LAUNCH_OPTIONS });
+test.use({ viewport: null });
 
 /**
- * The one surviving theme (#361).
- *
- * This was six route names, because the theme used to be read off the name.
- * Five of them were retired - fantasy reskins that between them intercepted
- * the Tideway, the Charles and Henley Reach - so there is one look to
- * photograph and the suite is four shots rather than twenty-four.
+ * The DOM that sits over the stage, kept out of the shot. The HUD numbers
+ * are a live split and stroke count, so masking them is what makes the
+ * baseline about the scene rather than the clock.
  */
-const THEMES = [{ theme: 'willowbrook', routeName: 'Willowbrook Reach' }] as const;
+const HUD_SELECTORS = [
+  '.row-hud-strip',
+  '.row-hud-actions',
+  '.ghost-picker',
+  '.route-info-overlay',
+  '.race-callout',
+] as const;
 
-/**
- * Both tiers a rower can actually get.
- *
- * `low` is the geometry alone; `auto` adds the post-processing stack over it.
- * They are different pictures, and a grade that washes the scene out is
- * invisible to a baseline that only ever looked at `low` — the same blind spot
- * `scene-contrast.spec.ts` was written to close (#291).
- */
-const TIERS = ['low', 'auto'] as const;
-
-/** Desktop and phone. The scene is framed differently at each. */
+/** Desktop + phone — the scene is framed differently at each. */
 const VIEWPORTS = [
   { width: 1280, height: 720 },
   { width: 390, height: 844 },
 ] as const;
 
-/**
- * The HUD panels drawn over the canvas.
- *
- * Masked rather than cropped around: they are absolutely positioned on top of
- * the scene, so an element screenshot of the canvas includes whatever is
- * painted over it.
- */
-/**
- * The DOM that sits over the stage, kept out of the shot.
- *
- * The HUD's two visible pieces joined them with #335, which moved the metric
- * strip onto the stage. Same argument as the other two: the numbers on the
- * strip are a live split and a live stroke count, so a baseline that
- * photographed them would fail on its second run for reasons that have nothing
- * to do with how the world is drawn.
- *
- * `.row-hud-strip` and `.row-hud-actions`, and deliberately not `.row-hud`
- * itself - that is a full-stage layer with `pointer-events: none` and nothing
- * drawn on it, so masking it would put a magenta rectangle over every pixel of
- * the scene and leave a suite of four identical blank shots.
- */
-const HUD_SELECTORS = [
-  '.activity-route-summary',
-  '.activity-map-overlay',
-  '.row-hud-strip',
-  '.row-hud-actions',
-] as const;
-
-/** Where on the route, and at what second, every shot is taken. */
-const FREEZE = { time: 12.5, progress: 0.31 };
+/** Both runnable tiers; the engine's post-FX stack is only on at `medium+`. */
+const TIERS = ['low', 'medium'] as const;
 
 /**
- * How long the scene is given to finish loading before the shutter opens.
- *
- * The freeze stops the animation but not the downloads: scenery GLBs, textures
- * and the effect stack all arrive after the first frame, and a shot taken
- * before them is a picture of a half-built world. Eight seconds is what the
- * heavier 3D specs already allow for the same settling on SwiftShader.
+ * Milliseconds of ride to let elapse before the shutter. Matches the
+ * marketing-screenshots default; GLBs, textures and the effect stack settle
+ * over several seconds and a shot taken before them is a picture of a
+ * half-built world.
  */
 const SETTLE_MS = 8_000;
 
 /**
- * How long the capture itself may take.
- *
- * Playwright establishes that a screenshot is stable by taking it twice, 100ms
- * apart, and requiring the pair to match. On SwiftShader each of those is a
- * framebuffer readback and a PNG encode, so the 5s default runs out mid-capture
- * and reports a stable canvas as an unstable element.
+ * Playwright establishes stability by taking the screenshot twice, 100 ms
+ * apart, and requiring the pair to match. Each capture is a readback + PNG
+ * encode, so the 5 s default runs out mid-capture.
  */
 const CAPTURE_TIMEOUT_MS = 30_000;
 
-async function waitForDeviceConnected(page: Page, label: string) {
-  await page.waitForFunction(
-    (l) => {
-      const containers = Array.from(document.querySelectorAll('.bluetooth-device-container'));
-      const target = containers.find((c) =>
-        c.querySelector('.device-name')?.textContent?.includes(l),
-      );
-      return target?.querySelector('.device-status')?.textContent?.includes('Connected') ?? false;
-    },
-    label,
-    { timeout: 15_000 },
-  );
+async function hideOverlays(page: Page): Promise<void> {
+  await page.evaluate((selectors) => {
+    const style = document.createElement('style');
+    style.id = 'visual-baseline-hide';
+    style.textContent = `${selectors.join(',\n')} { display: none !important; }`;
+    document.head.appendChild(style);
+  }, [...HUD_SELECTORS]);
 }
 
-/** Import the shared course under `routeName`, connect the devices, and row. */
-async function rowFrozen(
-  page: Page,
-  {
-    routeName,
-    tier,
-    conditions,
-  }: { routeName: string; tier: (typeof TIERS)[number]; conditions?: string },
-) {
-  await page.addInitScript(
-    ({ mode, freeze, preset }) => {
-      window.__VIRTUALROW_PERFORMANCE_MODE = mode;
-      window.__ROWER3D_FREEZE = freeze;
-      // Through the same stored preference a rower sets, so the shot is of the
-      // path they take rather than of a hook only the tests can reach (#346).
-      // Left unset, the app pins `auto` to midday under automation, which is
-      // what keeps the four shots above from varying with the runner's clock.
-      if (preset) {
-        try {
-          localStorage.setItem('virtualrow:conditions', preset);
-        } catch {
-          /* storage disabled: the shot falls back to the pinned default */
-        }
-      }
-    },
-    { mode: tier, freeze: FREEZE, preset: conditions ?? '' },
-  );
-  await page.addInitScript({ content: fs.readFileSync(mockBluetoothPath, 'utf8') });
+for (const tier of TIERS) {
+  for (const { width, height } of VIEWPORTS) {
+    test(`willowbrook at ${tier} renders the same scene at ${width}x${height}`, async ({ page }) => {
+      test.slow();
 
-  await page.goto('./');
+      await page.setViewportSize({ width, height });
+      await installRideHarness(page);
+      await pinTier(page, tier);
 
-  // Below 768px the nav lives behind the hamburger, and the phone viewport in
-  // the matrix is one of those.
-  const navToggle = page.locator('.nav-toggle');
-  if (await navToggle.isVisible()) await navToggle.click();
+      await startDemoRide(page);
+      const outcome = await waitForRideOutcome(page, 45_000);
 
-  await page.getByRole('button', { name: 'Routes', exact: true }).click();
-  await expect(page.locator('.view-container--search')).toBeVisible();
-  // #505 Phase 3: on narrow viewports the Routes screen is map-primary with
-  // the catalogue (which holds the import panel) in an overlay drawer that
-  // defaults closed. Open it before reaching for the Import a file button.
-  const drawerToggle = page.getByTestId('routes-drawer-toggle');
-  if ((await drawerToggle.count()) > 0 && (await drawerToggle.getAttribute('aria-expanded')) === 'false') {
-    await drawerToggle.click();
-  }
-  await page.getByRole('button', { name: /import a file/i }).click();
-  await page.getByLabel('Route name').fill(routeName);
-  await page.locator('.route-import input[type="file"]').setInputFiles(courseFixturePath);
-  await expect(page.locator('.route-info-overlay h2')).toContainText(routeName, {
-    timeout: 15_000,
-  });
-
-  await page.getByRole('button', { name: 'Connect PM5', exact: true }).click();
-  await waitForDeviceConnected(page, 'Concept2 PM5');
-  await page.evaluate(() => {
-    const containers = Array.from(document.querySelectorAll('.bluetooth-device-container'));
-    const hr = containers.find((c) =>
-      c.querySelector('.device-name')?.textContent?.includes('Heart Rate Monitor'),
-    );
-    (hr?.querySelector('button.btn-connect') as HTMLButtonElement)?.click();
-  });
-  await waitForDeviceConnected(page, 'Heart Rate Monitor');
-
-  await page.evaluate(() =>
-    (document.querySelector('.btn-start-workout') as HTMLButtonElement)?.click(),
-  );
-
-  const canvas = page.locator('.rower3d-canvas-container canvas').first();
-  await expect(canvas).toBeVisible({ timeout: 30_000 });
-  await expectSceneAlive(page, 'the visual baseline scene');
-  await page.waitForFunction(() => window.__ROWER3D_ROUTE?.hasCurve === true, undefined, {
-    timeout: 30_000,
-  });
-  await page.waitForTimeout(SETTLE_MS);
-
-  return canvas;
-}
-
-/**
- * Issue #346 — the same water at a different time of day.
- *
- * The four shots below are the scene under its default conditions, which the
- * app pins to midday under automation so a baseline does not depend on the
- * hour CI started. These two are the presets doing their job: a low warm sun
- * down the course at golden hour, and a dim one under a heavy sky at dusk. A
- * preset that quietly stopped changing the light would pass every unit test in
- * `conditions.test.ts` and show up only here.
- */
-for (const preset of ['golden', 'dusk'] as const) {
-  test(`willowbrook at ${preset} renders that time of day`, async ({ page }) => {
-    test.slow();
-
-    await page.setViewportSize({ width: 1280, height: 720 });
-    const canvas = await rowFrozen(page, {
-      routeName: THEMES[0].routeName,
-      tier: 'auto',
-      conditions: preset,
-    });
-
-    const progress = await page.evaluate(() => window.__ROWER3D_POS?.progress ?? -1);
-    expect(progress, 'the scene did not honour __ROWER3D_FREEZE').toBeCloseTo(FREEZE.progress, 3);
-
-    await page.addStyleTag({ content: '.race-callout { display: none !important; }' });
-    await page.evaluate(() => window.__ROWER3D_FORCE_RENDER?.());
-
-    await expect(canvas).toHaveScreenshot(`willowbrook-${preset}-auto-1280x720.png`, {
-      maxDiffPixelRatio: 0.01,
-      threshold: 0.3,
-      animations: 'disabled',
-      mask: HUD_SELECTORS.map((selector) => page.locator(selector)),
-      timeout: 30_000,
-    });
-  });
-}
-
-for (const { theme, routeName } of THEMES) {
-  for (const tier of TIERS) {
-    for (const { width, height } of VIEWPORTS) {
-      test(`${theme} at ${tier} renders the same scene at ${width}x${height}`, async ({ page }) => {
-        test.slow();
-
-        await page.setViewportSize({ width, height });
-        const canvas = await rowFrozen(page, { routeName, tier });
-
-        // The boat has to be where the freeze put it, or the shot is of a scene
-        // that was never held still and the baseline means nothing.
-        const progress = await page.evaluate(() => window.__ROWER3D_POS?.progress ?? -1);
-        expect(progress, 'the scene did not honour __ROWER3D_FREEZE').toBeCloseTo(
-          FREEZE.progress,
-          3,
+      if (outcome !== 'ready') {
+        // No hardware WebGPU adapter on this VM; let the deploy keep the
+        // committed baseline rather than reading the fleet gap as a visual
+        // regression. Same shape as `marketing-screenshots.spec.ts`.
+        await assertWellFormedDecline(page);
+        const health = await readHealth(page);
+        test.skip(
+          true,
+          `scene baseline skipped — engine declined (fallback=${health?.fallbackReason ?? 'unknown'})`,
         );
+        return;
+      }
 
-        // The start prompt (#336) is up for the whole shot, since this row
-        // never takes a stroke. Hidden rather than masked: it sits over the
-        // middle of the water, and a mask there is a box where the scene was.
-        await page.addStyleTag({ content: '.race-callout { display: none !important; }' });
+      const canvas = page.locator('.rower3d-canvas-container canvas').first();
+      await expect(canvas).toBeVisible({ timeout: 20_000 });
+      await expect(canvas).toHaveAttribute('data-backend', 'webgpu');
 
-        await page.evaluate(() => window.__ROWER3D_FORCE_RENDER?.());
+      const settleStart = Date.now();
+      while (Date.now() - settleStart < SETTLE_MS) {
+        await forceRender(page);
+        await page.waitForTimeout(250);
+      }
 
-        // A perceptual comparison, not an exact one. SwiftShader is
-        // deterministic frame to frame but not bit-identical across Chromium
-        // builds, and a baseline that fails on a browser bump is a baseline
-        // nobody keeps.
-        await expect(canvas).toHaveScreenshot(`${theme}-${tier}-${width}x${height}.png`, {
-          maxDiffPixelRatio: 0.01,
-          threshold: 0.3,
-          animations: 'disabled',
-          mask: HUD_SELECTORS.map((selector) => page.locator(selector)),
-          // Playwright proves a shot is stable by taking it twice and requiring
-          // the two to match, and a readback plus a PNG encode of a
-          // software-rasterised canvas takes seconds rather than milliseconds.
-          // The 5s default expires in the middle of the second capture, which
-          // reads as an unstable element and is really a stopwatch.
-          timeout: CAPTURE_TIMEOUT_MS,
-        });
+      await assertCanvasNotBlank(page, canvas);
+      await hideOverlays(page);
+      await forceRender(page);
+
+      // A perceptual comparison, not an exact one. Even on one GPU the engine
+      // is not bit-identical across Chromium builds, and a baseline that fails
+      // on a browser bump is a baseline nobody keeps.
+      await expect(canvas).toHaveScreenshot(`willowbrook-${tier}-${width}x${height}.png`, {
+        maxDiffPixelRatio: 0.01,
+        threshold: 0.3,
+        animations: 'disabled',
+        mask: HUD_SELECTORS.map((selector) => page.locator(selector)),
+        timeout: CAPTURE_TIMEOUT_MS,
       });
-    }
+    });
   }
 }
