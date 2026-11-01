@@ -56,11 +56,13 @@ export const HEAVY_SPEC = '**/*.heavy.spec.ts';
 export const VISUAL_SPEC = '**/visual/*.spec.ts';
 
 /**
- * The published screenshots (#362), a visual spec whose baselines are the
- * files under `docs/` that the site serves. It matches VISUAL_SPEC too, so
- * every config that ignores the visual suite ignores this with it.
+ * The marketing-screenshots renderer (#648). Runs only in the GPU-runner
+ * regen workflow (`.github/workflows/regen-marketing-shots.yml`), never in
+ * the SwiftShader visual suite — the WebGPU engine declines software
+ * adapters, so a baseline from the visual suite would be a baseline of the
+ * fallback path.
  */
-export const DOCS_SCREENSHOTS_SPEC = '**/visual/docs-screenshots.spec.ts';
+export const MARKETING_SCREENSHOTS_SPEC = '**/visual/marketing-screenshots.spec.ts';
 
 /** The matrix as Playwright projects, plus a `default` project for every other spec. */
 export function responsiveProjects(): Project[] {

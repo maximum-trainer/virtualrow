@@ -413,41 +413,76 @@ https://<org>.github.io/virtualrow/
 
 Edit `docs/index.html` — it is a self-contained static file with no build step.
 
-### Updating the published screenshots
+### Published marketing screenshots (#648)
 
-The three screenshots the page publishes — `docs/screenshot-rower-3d.png` (the hero),
-`docs/screenshot-activity.png` and `docs/screenshot-route-selection.png` — are visual
-baselines (#362). `playwright/tests/visual/docs-screenshots.spec.ts` renders each one from
-the current build with the scene frozen, and compares it with the committed file. The
-comparison runs in the `visual` job of `playwright-e2e-clean.yml`, so a change that moves
-one of the pictures fails CI and names the file that drifted; the diff is in the job's
-Playwright artifacts. The baseline *is* the published file (the `docs` project in
-`playwright/playwright.config.visual.ts` points its snapshot path at `docs/`), so there is
-no copy to keep in step.
+The screenshots the landing page publishes — `screenshot-rower-3d-golden.png`
+(the hero), `screenshot-rower-3d-dawn.png`, `screenshot-rower-3d-midday.png`,
+`screenshot-activity.png` and `screenshot-route-selection.png` — are
+**regenerated on every `main` deploy** by the `regen-marketing-shots` job in
+`.github/workflows/deploy-pages.yml`. The job runs on `linux-nvidia-gpu-runner`
+(the WebGPU engine declines SwiftShader, so a software fallback is not an
+option) and uploads the fresh PNGs as an artifact; the deploy job overlays
+them onto `docs/` before the Pages artifact is packed.
 
-Do not overwrite them by hand, and do not commit a capture taken on your own machine. A
-screenshot is a picture of the rasteriser that drew it: your GPU and CI's SwiftShader draw
-the same scene differently, so a local capture fails the comparison on every pull request
-after it — and the published picture would be of a renderer nothing else checks against.
+The PNGs committed under `docs/` are the **last-known-good fallback**. When
+the GPU runner is unavailable — `GPU_RUNNER_DISABLED=true` or the fleet is
+offline — the regen job skips and the deploy publishes the committed PNGs
+unchanged, so a GPU-fleet outage never leaves the site without a gallery.
 
-To regenerate them, when a change is meant to alter what they show:
+Adding a new shot or changing an existing one is a two-step edit:
 
-1. Put the `visual-baseline` label on the pull request.
-2. The `visual` job re-records every visual baseline — the scene shots and these three — on
-   Linux/SwiftShader, compares the scene against what it just recorded, and uploads the
-   result as the `visual-baselines-<run id>` artifact. It fails while the branch still
-   carries the old files; nothing is written to the repository by CI.
-3. Download the artifact, unzip it at the repository root (it holds
-   `playwright/tests/visual/__snapshots__/` and `docs/`), commit the PNGs, and push.
+1. Add or edit the entry in `playwright/visual/marketing-shots.ts`.
+2. Add or update the `<img>` tag in `docs/index.html` to reference the new
+   filename.
 
-A regenerated hero is published only if it also passes `src/__tests__/heroScreenshot.test.ts`,
-which refuses a blank, low-contrast or structureless picture and says by how much. That
-refusal is a fault in the scene — framing, foliage, exposure — and is fixed there, never by
-lowering the thresholds.
+Both land in the same PR. The next `main` deploy regenerates against the new
+config, and the published site shows the new image.
 
-The gameplay E2E test (`captures gameplay visuals for rowing model and graphics validation`)
-still produces labeled canvas screenshots in `playwright/playwright-report/`, for looking at;
-they are not what the site publishes.
+#### Regenerating against a PR
+
+Put the `regen-marketing-shots` label on the pull request. The reusable
+workflow (`.github/workflows/regen-marketing-shots.yml`) fires on
+`pull_request: [labeled]`, renders every shot on the GPU runner, and uploads
+a `marketing-shots-pr<n>-<run>` artifact containing every PNG and a
+`report.json` with per-shot telemetry (`tier`, `lighting`, `view`,
+`viewport`, `outcome`, `bytes`, `nonZeroPixelRatio`, `gpuMs`, `drawCalls`).
+Download it to eyeball the renders before merge.
+
+#### Refreshing the committed fallback
+
+The fallback PNGs under `docs/` only need refreshing when the live-regen
+output has drifted far enough that a future outage would show visibly stale
+images. To refresh:
+
+1. Put the `regen-marketing-shots` label on a PR that touches those files.
+2. Download the `marketing-shots-pr…` artifact from the workflow run.
+3. Copy the PNGs over `docs/*.png` in the PR branch, commit, push.
+
+Hero publishability is still gated by `src/__tests__/heroScreenshot.test.ts`
+and `src/__tests__/docsHeroDimensions.test.ts`, which run against the files
+that will be published in `deploy-pages.yml`. A blank, low-contrast or
+wrong-aspect hero fails the deploy regardless of whether it came from the
+fresh regen or the committed fallback — the fix is always in the scene, not
+in the thresholds.
+
+#### Running locally
+
+The regen spec needs a real WebGPU adapter. On a GPU-equipped Linux box:
+
+```bash
+# Point PW_LOCAL_CHROME at a Chrome/Chromium with --enable-unsafe-webgpu if
+# the Playwright-bundled build does not launch cleanly on your box.
+MARKETING_OUT_DIR=./marketing-out npm run test:marketing
+```
+
+Rendered PNGs land in `./marketing-out/` with `report.json`. The spec
+fast-fails with a clear log line (`engine declined software adapter`) on a
+machine without a hardware WebGPU adapter — that is the same signal the
+deploy workflow treats as "keep the committed fallback".
+
+The retired `playwright/tests/visual/docs-screenshots.spec.ts` was built
+around React selectors and SwiftShader baselines, both gone with the #625
+cutover. Do not restore it.
 
 ### Local preview
 
