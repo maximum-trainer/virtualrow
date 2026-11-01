@@ -80,7 +80,16 @@ export const placeBoat = (
   let progress = frame.distanceMeters / total;
   if (frame.holdBoat) progress = 0;
   else if (frame.finished) progress = 1;
-  progress = Math.max(0, Math.min(1, progress));
+  else if (frame.loop) {
+    // #647 FR3: looping wraps the boat back to the start of the route when it
+    // reaches the finish, so the rower can keep going. The seam is a single
+    // `progress 1 → 0` boundary; `routeCurve.sample(0)` and `.sample(1)`
+    // agree for a closed route and are within a hair of each other otherwise.
+    const wrapped = progress - Math.floor(progress);
+    progress = wrapped < 0 ? wrapped + 1 : wrapped;
+  } else {
+    progress = Math.max(0, Math.min(1, progress));
+  }
 
   const point = curve.sample(progress);
   // Lateral offset in local-+X along the curve tangent (ghost sits to port).
