@@ -110,18 +110,12 @@ jobs:
           fi
 
       - name: Render marketing screenshots (#648 FR1 / AC1)
-        # Point Chromium's Vulkan loader at the image's pre-installed NVIDIA
-        # ICD only — the AI/HPC image ships five ICDs (asahi, gfxstream,
-        # nvidia, radeon, virtio) and `vulkaninfo --summary` sees two
-        # adapters on this VM (Tesla T4 + a software fallback). Without
-        # VK_ICD_FILENAMES Chromium's loader enumerates them all and the
-        # engine's `software-adapter` guard rejects whichever software one
-        # it picks first, so every shot `test.skip`s. Pinning to the NVIDIA
-        # ICD gives Chromium only the T4 and the engine renders. (See the
-        # diagnostic PR #671 for the ICD list + the `vulkaninfo` output
-        # that proved this is where the software-adapter was coming from.)
-        env:
-          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/nvidia_icd.json
+        # The Vulkan ICD selection isn't the problem on this runner — see the
+        # diagnostic output on PR #671's runner-782, where nvidia_icd.json,
+        # libGLX_nvidia and the T4 were all visible to `vulkaninfo` yet every
+        # shot still `test.skip`d. The real trap was the Chromium flag set:
+        # `playwright.config.marketing.ts` now mirrors the proven
+        # webgpu-engine-smoke combination.
         run: |
           mkdir -p "$MARKETING_OUT_DIR"
           npx playwright test --config=playwright/playwright.config.marketing.ts
