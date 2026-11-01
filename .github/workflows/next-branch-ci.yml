@@ -34,9 +34,18 @@ jobs:
     uses: ./.github/workflows/npm-preflight.yml
 
   smoke:
-    name: Scaffold smoke (SvelteKit boots at base path)
+    # #588 FR8 / AC8 — the SvelteKit scaffold boot runs on every supported
+    # SwiftShader-safe OS (Linux / Windows / macOS). The engine declines
+    # software adapters, so this job stays about the shell: the title and
+    # the base path. A Linux-only run would miss path-separator or
+    # process-environment bugs that only show up on Windows.
+    name: Scaffold smoke (SvelteKit boots at base path, ${{ matrix.os }})
     needs: preflight
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest, macos-latest]
     env:
       CI: true
     steps:
@@ -52,6 +61,8 @@ jobs:
         run: npm ci
 
       - name: Install Playwright Chromium
+        # `--with-deps` only installs system libs on Linux; it's a no-op on
+        # macOS/Windows, where Playwright ships the needed runtime bits.
         run: npx playwright install --with-deps chromium
 
       - name: Smoke — boot the scaffold
@@ -69,12 +80,19 @@ jobs:
   # tests through it (otherwise it still asks `playwright.config.ci.ts`,
   # which would include specs this branch cannot pass yet).
   e2e-shards:
-    name: e2e shards ${{ matrix.shard }}/2 (ubuntu, SwiftShader)
+    # #588 FR8 / AC8 — the SwiftShader-safe e2e matrix runs on Linux /
+    # Windows / macOS. Only the shell + non-WebGPU specs ride this (the
+    # engine declines software adapters), but every OS catches
+    # path-separator, process-environment, filesystem-case and font-metric
+    # bugs the others would miss. The real-GPU engine smokes stay on the
+    # single `linux-nvidia-gpu-runner` for continuity with its baseline.
+    name: e2e shards ${{ matrix.shard }}/2 (${{ matrix.os }}, SwiftShader)
     needs: preflight
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-24.04, windows-latest, macos-latest]
         shard: [1, 2]
     env:
       CI: true
@@ -84,7 +102,9 @@ jobs:
       # workflow (playwright-e2e-clean.yml) uses the same placeholder.
       VITE_INTERVALS_CLIENT_ID: playwright-e2e-client
       # SwiftShader fallback for WebGL contexts the UI still mounts (e.g. the
-      # route detail map's WebGL leaflet / MapLibre layer).
+      # route detail map's WebGL leaflet / MapLibre layer). Linux-only env
+      # var; harmless on macOS/Windows which pick their own software
+      # rasteriser when the engine declines.
       LIBGL_ALWAYS_SOFTWARE: '1'
     timeout-minutes: 20
     steps:
@@ -104,7 +124,10 @@ jobs:
         if: ${{ failure() }}
         uses: actions/upload-artifact@v4
         with:
-          name: next-branch-playwright-report-shard-${{ matrix.shard }}
+          # The matrix OS has to be in the name so each cell uploads to a
+          # distinct artifact (actions/upload-artifact@v4 refuses two
+          # uploads to the same name).
+          name: next-branch-playwright-report-${{ matrix.os }}-shard-${{ matrix.shard }}
           path: playwright-report
           retention-days: 7
 
