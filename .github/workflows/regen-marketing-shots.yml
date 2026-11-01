@@ -172,13 +172,10 @@ jobs:
                 channel: 'chrome',
                 timeout: 30_000,
                 args: [
-                  '--enable-unsafe-webgl',
-                  '--use-gl=swiftshader',
-                  '--enable-unsafe-swiftshader',
                   '--enable-unsafe-webgpu',
+                  '--enable-features=Vulkan',
+                  '--use-angle=vulkan',
                   '--no-sandbox',
-                  '--disable-gpu-rasterization',
-                  '--disable-gpu-compositing',
                   '--disable-dev-shm-usage',
                 ],
               });

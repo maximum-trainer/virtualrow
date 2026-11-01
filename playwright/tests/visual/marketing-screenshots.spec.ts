@@ -62,14 +62,23 @@ test.use({
   channel: 'chrome',
   launchOptions: {
     ...(process.env.PW_LOCAL_CHROME ? { executablePath: process.env.PW_LOCAL_CHROME } : {}),
+    // Marketing shots need the HARDWARE WebGPU path, not SwiftShader. The
+    // engine-smoke spec can mix `--use-gl=swiftshader` with
+    // `--enable-unsafe-webgpu` because its contract covers the fallback
+    // branch too; here we only care about the real-GPU render. Combining
+    // `--use-gl=swiftshader` + `--disable-gpu-{compositing,rasterization}`
+    // puts Chrome's GPU process into a software/off state that drops the
+    // WebGPU surface entirely (`navigator.gpu === undefined` — confirmed on
+    // runner-884, PR #671 run 41351188410, even with libGLX_nvidia and all
+    // the userspace NVIDIA libs resolved on disk).
+    //
+    // Instead: let Chrome's GPU process start with the real driver, point
+    // ANGLE at Vulkan, and keep only the stability flags that CI needs.
     args: [
-      '--enable-unsafe-webgl',
-      '--use-gl=swiftshader',
-      '--enable-unsafe-swiftshader',
       '--enable-unsafe-webgpu',
+      '--enable-features=Vulkan',
+      '--use-angle=vulkan',
       '--no-sandbox',
-      '--disable-gpu-rasterization',
-      '--disable-gpu-compositing',
       '--disable-dev-shm-usage',
     ],
   },
