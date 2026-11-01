@@ -15,6 +15,9 @@ export type WebGPUFallbackReason =
   | 'device-request-failed'
   | 'renderer-unavailable';
 
+/** #623 FR5 — surfaces of the boat mesh for the health telemetry. */
+export type BoatMeshSource = 'glb' | 'baked' | 'failed';
+
 export interface WebGPUHealth {
   adapter?: string;
   isSoftware?: boolean;
@@ -22,6 +25,16 @@ export interface WebGPUHealth {
   dispatchMs?: number;
   mappedReadMs?: number;
   fallbackReason?: WebGPUFallbackReason;
+  /**
+   * #623 FR5 — the source of the boat mesh the engine ended up drawing.
+   * - `'glb'`: a tier-E GLB (`scull*.glb`) loaded cleanly.
+   * - `'baked'`: the pre-decoded `/assets/boat/shell.bin` loaded cleanly.
+   * - `'failed'`: both failed; the engine surfaces `renderer-unavailable`
+   *   rather than draw the SSR/test-only procedural stub.
+   * The procedural fallback is never reported here on a user-facing path
+   * (D4-a) — it's only there for SSR + unit tests.
+   */
+  boatSource?: BoatMeshSource;
 }
 
 export const readWebGPUHealth = (): WebGPUHealth | undefined =>
@@ -55,4 +68,10 @@ export const publishDeviceLost = (): void => {
 export const publishFallback = (reason: WebGPUFallbackReason): void => {
   const health = ensure();
   health.fallbackReason = reason;
+};
+
+/** #623 FR5 — record the boat mesh source on the health global. */
+export const publishBoatSource = (source: BoatMeshSource): void => {
+  const health = ensure();
+  health.boatSource = source;
 };

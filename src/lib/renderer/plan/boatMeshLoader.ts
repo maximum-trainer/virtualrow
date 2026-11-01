@@ -21,11 +21,20 @@ import {
   type BoatMeshBuffers,
 } from './boatMesh';
 
-export type BoatMeshSource = 'baked' | 'procedural';
+/**
+ * #623 Phase 1 / D4-a — the procedural fallback is retained only for
+ * SSR + unit tests. A user-facing load failure must surface the
+ * `renderer-unavailable` banner instead of silently drawing the
+ * procedural hull: callers on the user-facing path set
+ * `allowProceduralFallback: false` and treat `source: 'failed'` as the
+ * cue to publish the banner.
+ */
+export type BoatMeshLoadSource = 'baked' | 'procedural' | 'failed';
 
 export interface BoatMeshHandle {
-  mesh: BoatMeshBuffers;
-  source: BoatMeshSource;
+  /** Null when `source: 'failed'` — the caller must not draw. */
+  mesh: BoatMeshBuffers | null;
+  source: BoatMeshLoadSource;
 }
 
 export const HEADER_BYTES = 8;
@@ -65,21 +74,39 @@ export interface LoadBoatMeshOptions {
   url: string;
   /** Overridable fetch for tests. Defaults to `globalThis.fetch`. */
   fetchFn?: typeof fetch;
+  /**
+   * #623 Phase 1 / D4-a — when `false`, a load failure returns
+   * `{ mesh: null, source: 'failed' }` and the caller is expected to
+   * surface the renderer-unavailable banner instead of drawing. SSR +
+   * unit tests leave this unset (default `true`) so they continue to
+   * get the procedural stub.
+   */
+  allowProceduralFallback?: boolean;
 }
 
 /**
- * Try the baked buffer, fall back to the procedural generator on any error.
- * Never rejects — the caller always gets a usable mesh.
+ * Try the baked buffer. On any error:
+ *   - with `allowProceduralFallback: true` (default; SSR + tests), fall
+ *     back to the procedural generator so the caller always has a mesh.
+ *   - with `allowProceduralFallback: false` (user-facing engine path),
+ *     return `{ mesh: null, source: 'failed' }`; the caller is then
+ *     expected to publish the `renderer-unavailable` fallback and
+ *     refuse to draw rather than silently use the procedural hull.
+ *
+ * Never rejects.
  */
 export const loadBoatMesh = async (opts: LoadBoatMeshOptions): Promise<BoatMeshHandle> => {
+  const allowProcedural = opts.allowProceduralFallback ?? true;
+  const failed = (): BoatMeshHandle =>
+    allowProcedural ? { mesh: buildBoatMesh(), source: 'procedural' } : { mesh: null, source: 'failed' };
   const fetchFn = opts.fetchFn ?? (globalThis as { fetch?: typeof fetch }).fetch;
-  if (!fetchFn) return { mesh: buildBoatMesh(), source: 'procedural' };
+  if (!fetchFn) return failed();
   try {
     const res = await fetchFn(opts.url);
-    if (!res.ok) return { mesh: buildBoatMesh(), source: 'procedural' };
+    if (!res.ok) return failed();
     const buf = await res.arrayBuffer();
     return { mesh: decodeBoatMesh(buf), source: 'baked' };
   } catch {
-    return { mesh: buildBoatMesh(), source: 'procedural' };
+    return failed();
   }
 };

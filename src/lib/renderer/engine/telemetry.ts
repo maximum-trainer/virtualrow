@@ -187,8 +187,10 @@ export interface Rower3DBoat {
   holding: boolean;
   finished: boolean;
   isPlaying: boolean;
-  /** Which boat-mesh buffer the engine is drawing (#570 D1-b). */
-  meshSource: 'baked' | 'procedural';
+  /** Which boat-mesh buffer the engine is drawing (#570 D1-b, extended
+   *  in #623 Phase 1 so the user-facing path can report `'failed'`
+   *  instead of silently drawing the procedural stub — see D4-a). */
+  meshSource: 'baked' | 'procedural' | 'failed';
 }
 
 /**

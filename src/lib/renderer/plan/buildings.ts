@@ -1,5 +1,6 @@
 /**
- * Procedural-building GPU plan (#566 FR1 / D1-b).
+ * OSM building extrusion GPU plan (#566 FR1 / D1-b; #623 D3-a kept as a
+ * deliberate stylisation).
  *
  * One pool per route holds every building's instance data as four f32 slots:
  *   `(x, z, height, bitcast<f32>(packedPaletteIndex))`
@@ -9,6 +10,15 @@
  * (`x`, 0, `z`) with the per-instance height. Keeping the vertex buffer the
  * same twelve-triangle prism for every building keeps the pass to one
  * `drawIndexed` call per route, matching the P3 pool model (#566 D2-a).
+ *
+ * #623 D3-a — this pass is **kept** at runtime extrusion rather than swapped
+ * for a GLB kit because an OSM dataset can carry thousands of buildings per
+ * route; a per-footprint GLB would need its own authored model for every
+ * region, which is out of scope here. If a generic OSM building kit arrives
+ * (filed as a #623 D3-b follow-up), swap this to `sceneryMeshPass` instanced
+ * draws. Until then the prism is **not** a placeholder; it is the OSM
+ * extrusion by design, exempt from the "no runtime triangles for scene
+ * objects that have an authored kit entry" rule in CLAUDE.md.
  *
  * The fourth lane carries a packed index into a palette of base/wall/roof
  * colour trios (D3-a). Four trios are enough to carry the three mapped OSM
