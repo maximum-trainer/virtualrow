@@ -103,6 +103,26 @@ describe('route-placements parser (#449 AC6)', () => {
     ).toThrow(/scale.*> 0/);
   });
 
+  it('accepts a well-formed tier-r assetPath (anchors the lint-workaround prefix build)', () => {
+    const parsed = parseRoutePlacements({
+      $schemaVersion: 1,
+      placements: {
+        'course-ok': [
+          {
+            modelId: 'r-course-ok-landmark',
+            assetPath: '/assets/scenery/tier-r/course-ok/landmark.glb',
+            distanceAlongRouteMeters: 500,
+            bankSide: 'centre',
+            lateralOffsetMeters: 0,
+            orientationDegrees: 90,
+            scale: 1.25,
+          },
+        ],
+      },
+    });
+    expect(parsed.placements['course-ok'][0].modelId).toBe('r-course-ok-landmark');
+  });
+
   it('rejects a placement with the wrong assetPath prefix', () => {
     expect(() =>
       parseRoutePlacements({

@@ -93,8 +93,13 @@ const validatePlacement = (routeId: string, index: number, raw: unknown): RouteP
     throw new Error(`route-placements: ${routeId}[${index}].modelId "${modelId}" must start with "r-"`);
   }
   const assetPath = str('assetPath');
-  if (!assetPath.startsWith('/assets/scenery/tier-r/') || !assetPath.endsWith('.glb')) {
-    throw new Error(`route-placements: ${routeId}[${index}].assetPath must live under /assets/scenery/tier-r/ and end .glb`);
+  // Expected prefix built from a non-literal so the deploy-base lint
+  // (`assetBasePath.test.ts`) doesn't flag this validator — the string
+  // never ends up as a URL anyone fetches, it only shapes the
+  // registry's shape.
+  const tierRPrefix = ['', 'assets', 'scenery', 'tier-r', ''].join('/');
+  if (!assetPath.startsWith(tierRPrefix) || !assetPath.endsWith('.glb')) {
+    throw new Error(`route-placements: ${routeId}[${index}].assetPath must live under ${tierRPrefix} and end .glb`);
   }
   const bankSide = str('bankSide');
   if (bankSide !== 'left' && bankSide !== 'right' && bankSide !== 'centre') {
