@@ -424,10 +424,19 @@ The screenshots the landing page publishes — `screenshot-rower-3d-golden.png`
 option) and uploads the fresh PNGs as an artifact; the deploy job overlays
 them onto `docs/` before the Pages artifact is packed.
 
-The PNGs committed under `docs/` are the **last-known-good fallback**. When
-the GPU runner is unavailable — `GPU_RUNNER_DISABLED=true` or the fleet is
-offline — the regen job skips and the deploy publishes the committed PNGs
-unchanged, so a GPU-fleet outage never leaves the site without a gallery.
+The PNGs committed under `docs/` are a **self-updating fallback**. On a
+successful real-GPU run the regen job pushes the fresh PNGs back to `main`
+with `[skip ci]`, so the committed files always reflect the most recent
+successful render. When the GPU runner is unavailable —
+`GPU_RUNNER_DISABLED=true`, the fleet VM lacks the NVIDIA Vulkan ICD, or
+every shot otherwise skips — the regen job commits nothing and the deploy
+publishes the previously-committed PNGs unchanged, so neither a fleet-VM
+gap nor a full outage leaves the site without a gallery.
+
+The commit-back path is only wired for the deploy-pages caller (branch
+`main`). The PR-label trigger below leaves `commit-back-branch` empty, so
+a label-only regen never writes to the branch — it only uploads an
+artifact.
 
 Adding a new shot or changing an existing one is a two-step edit:
 
@@ -450,11 +459,11 @@ Download it to eyeball the renders before merge.
 
 #### Refreshing the committed fallback
 
-The fallback PNGs under `docs/` only need refreshing when the live-regen
-output has drifted far enough that a future outage would show visibly stale
-images. To refresh:
+The fallback refreshes itself on every successful real-GPU deploy, so no
+manual action is normally needed. If you want to force-refresh them from
+a specific PR (for example to seed a new shot's baseline before merge):
 
-1. Put the `regen-marketing-shots` label on a PR that touches those files.
+1. Put the `regen-marketing-shots` label on the PR.
 2. Download the `marketing-shots-pr…` artifact from the workflow run.
 3. Copy the PNGs over `docs/*.png` in the PR branch, commit, push.
 

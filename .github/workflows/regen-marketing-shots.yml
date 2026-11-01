@@ -29,6 +29,15 @@ on:
         required: false
         type: number
         default: 14
+      commit-back-branch:
+        description: >-
+          Branch to push regenerated PNGs back to on a successful real-GPU run.
+          Empty string disables commit-back. Only the deploy-pages caller sets
+          this (to `main`) — the PR-label path leaves it empty so a label-only
+          regen never writes to the branch.
+        required: false
+        type: string
+        default: ''
 
   pull_request:
     types: [labeled]
@@ -51,6 +60,12 @@ jobs:
     runs-on: linux-nvidia-gpu-runner
     continue-on-error: false
     timeout-minutes: 20
+    # #648 follow-up: the commit-back step pushes regenerated PNGs back to
+    # the caller's branch (main) so a later deploy that lands on a non-GPU
+    # fleet VM still ships recent images via the fallback path. The PR-label
+    # trigger passes an empty `commit-back-branch`, so no write happens there.
+    permissions:
+      contents: write
     env:
       CI: true
       # #648 AC10 — budget is tracked via the per-shot gpuMs in report.json;
@@ -127,3 +142,80 @@ jobs:
           path: ${{ env.MARKETING_OUT_DIR }}
           retention-days: ${{ inputs.retention-days || 14 }}
           if-no-files-found: warn
+
+      # #648 follow-up — commit fresh PNGs back to `commit-back-branch` so
+      # the next deploy that lands on a non-GPU fleet VM ships recent
+      # images via the fallback path. Guarded on:
+      #   * `commit-back-branch` set (only the deploy-pages caller does)
+      #   * the ref the regen ran against matches that branch (never cross-
+      #     branch commits)
+      #   * at least one shot came back `outcome === 'ready'` — a run that
+      #     all-skipped on software adapter contributes nothing
+      #   * at least one PNG exists in MARKETING_OUT_DIR
+      # The commit message carries `[skip ci]` so the push does not trigger
+      # another deploy-pages run.
+      - name: Commit regenerated PNGs back to ${{ inputs.commit-back-branch }}
+        if: inputs.commit-back-branch != ''
+        env:
+          COMMIT_BACK_BRANCH: ${{ inputs.commit-back-branch }}
+          COMMIT_REF: ${{ inputs.ref }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -e
+          if [ ! -f "$MARKETING_OUT_DIR/report.json" ]; then
+            echo "No report.json; nothing to commit."
+            exit 0
+          fi
+          READY=$(node -e '
+            const r = require(process.env.MARKETING_OUT_DIR + "/report.json");
+            console.log((r.shots || []).filter(s => s.outcome === "ready").length);
+          ')
+          echo "Shots with outcome=ready: $READY"
+          if [ "$READY" = "0" ]; then
+            echo "::notice::Nothing to commit — every shot skipped (non-GPU fleet VM)."
+            exit 0
+          fi
+          FRESH=$(find "$MARKETING_OUT_DIR" -maxdepth 1 -name '*.png' | wc -l)
+          if [ "$FRESH" = "0" ]; then
+            echo "::notice::report.json reports $READY ready, but no PNG files landed in $MARKETING_OUT_DIR. Skipping commit."
+            exit 0
+          fi
+
+          echo "Overlaying $FRESH fresh PNG(s) onto docs/ and committing to $COMMIT_BACK_BRANCH."
+          cp "$MARKETING_OUT_DIR"/*.png docs/
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          # Only touch marketing PNGs — nothing else from the checkout.
+          git add docs/*.png
+          if git diff --cached --quiet; then
+            echo "::notice::Fresh PNGs match the committed fallback bit-for-bit; nothing to commit."
+            exit 0
+          fi
+
+          # `[skip ci]` keeps the push from triggering another deploy-pages
+          # run — the images we just committed are the ones that would be
+          # regenerated next time anyway.
+          git commit -m "chore(docs): refresh marketing screenshots from ${COMMIT_REF:0:7} [skip ci]" \
+                     -m "Rendered by $RUN_URL on linux-nvidia-gpu-runner. Ready: $READY."
+
+          # Rebase onto the current branch tip so a concurrent push doesn't
+          # fail us; retry a few times on contention. A permanent failure
+          # here is a notice, not a job red — the Pages artifact already
+          # shipped the fresh images for THIS deploy, and the next
+          # successful commit-back will catch us up.
+          for attempt in 1 2 3; do
+            git fetch origin "$COMMIT_BACK_BRANCH"
+            if git rebase "origin/$COMMIT_BACK_BRANCH"; then
+              if git push "origin" "HEAD:$COMMIT_BACK_BRANCH"; then
+                echo "::notice::Committed refreshed marketing PNGs to $COMMIT_BACK_BRANCH (attempt $attempt)."
+                exit 0
+              fi
+            else
+              git rebase --abort || true
+            fi
+            echo "Attempt $attempt failed; retrying in a moment."
+            sleep 3
+          done
+          echo "::warning::Could not commit refreshed PNGs after 3 attempts. The Pages artifact for THIS deploy still shipped the fresh images; the next successful commit-back will catch up the committed fallback."
