@@ -149,6 +149,23 @@ for (const shot of MARKETING_SHOTS) {
 
     await page.setViewportSize(shot.viewport);
 
+    // #648 black-canvas debug: capture every console message and page error
+    // the browser emits during the run — WebGPU validation errors land on
+    // `page.on('console')` with type 'error', and uncaught throws land on
+    // `page.on('pageerror')`. Both are attached to the report entry so a
+    // blank-frame failure carries the Chromium-side reason.
+    const consoleLines: string[] = [];
+    const pageErrors: string[] = [];
+    page.on('console', (msg) => {
+      const type = msg.type();
+      if (type === 'error' || type === 'warning') {
+        consoleLines.push(`[${type}] ${msg.text()}`);
+      }
+    });
+    page.on('pageerror', (err) => {
+      pageErrors.push(err instanceof Error ? `${err.name}: ${err.message}` : String(err));
+    });
+
     await installRideHarness(page);
     await pinTier(page, shot.tier);
     await pinLightingAndView(page, shot.lighting, shot.view);
@@ -290,7 +307,7 @@ for (const shot of MARKETING_SHOTS) {
         readback: { nonBlank: readback.nonBlank, total: readback.total },
         error:
           readback.nonBlank === 0
-            ? `blank frame (0/${readback.total} non-black); adapter=${health?.adapter ?? '?'} isSoftware=${health?.isSoftware ?? '?'}; draws=${renderStats?.draws ?? '?'} gpuMs=${telemetry.frame?.gpuMs ?? '?'}`
+            ? `blank frame (0/${readback.total} non-black); adapter=${health?.adapter ?? '?'} isSoftware=${health?.isSoftware ?? '?'}; draws=${renderStats?.draws ?? '?'} gpuMs=${telemetry.frame?.gpuMs ?? '?'}; consoleErrors=${consoleLines.length} pageErrors=${pageErrors.length}\n--- console (${consoleLines.length}) ---\n${consoleLines.slice(0, 80).join('\n')}\n--- pageerror (${pageErrors.length}) ---\n${pageErrors.slice(0, 20).join('\n')}`
             : undefined,
       });
       reported = true;
@@ -347,7 +364,9 @@ for (const shot of MARKETING_SHOTS) {
           outcome: 'error',
           bytes: 0,
           nonZeroPixelRatio: 0,
-          error: message,
+          error:
+            `${message}\n--- console (${consoleLines.length}) ---\n${consoleLines.slice(0, 80).join('\n')}` +
+            `\n--- pageerror (${pageErrors.length}) ---\n${pageErrors.slice(0, 20).join('\n')}`,
         });
       }
       throw err;
