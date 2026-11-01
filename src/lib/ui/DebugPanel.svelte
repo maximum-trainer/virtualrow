@@ -68,6 +68,17 @@
   );
   // Lake outlines (#493 NFR7), persisted like the demo override.
   let lakeOutlines = $state(debugPreferencesStore.getLakeOutlines());
+  // Water-detection diagnostics overlay (#493 FR22 / AC23). The engine reads
+  // `__VIRTUALROW_WATER_DEBUG`; the preference mirrors it on reload.
+  let waterDebug = $state(debugPreferencesStore.getWaterDebug());
+  $effect(() => {
+    // Mirror the restored preference onto the window flag at mount so the
+    // overlay turns on without a toggle, same contract as the setter.
+    if (typeof window !== 'undefined') {
+      (window as unknown as { __VIRTUALROW_WATER_DEBUG?: boolean }).__VIRTUALROW_WATER_DEBUG =
+        waterDebug;
+    }
+  });
 
   // Only polled while the panel is open (#232).
   const renderStore = new RenderStatsReadingStore();
@@ -188,6 +199,18 @@
           }}
         />
         <span>Lake outlines</span>
+      </label>
+      <label class="debug-toggle-row">
+        <input
+          type="checkbox"
+          checked={waterDebug}
+          onchange={(e) => {
+            const next = e.currentTarget.checked;
+            waterDebug = next;
+            debugPreferencesStore.setWaterDebug(next);
+          }}
+        />
+        <span>Water detection overlay (#493 FR22)</span>
       </label>
     </div>
 

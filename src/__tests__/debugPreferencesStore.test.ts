@@ -3,6 +3,7 @@ import {
   debugPreferencesStore,
   SHOW_DEMO_CTA_KEY,
   LAKE_OUTLINES_KEY,
+  WATER_DEBUG_KEY,
 } from '../lib/services/debugPreferencesStore';
 
 /**
@@ -74,5 +75,33 @@ describe('debugPreferencesStore lake outlines (#493)', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     expect(debugPreferencesStore.getLakeOutlines()).toBe(false);
     vi.restoreAllMocks();
+  });
+});
+
+describe('debugPreferencesStore water debug overlay (#493 AC23)', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    delete (window as unknown as { __VIRTUALROW_WATER_DEBUG?: boolean }).__VIRTUALROW_WATER_DEBUG;
+  });
+
+  it('defaults to off and leaves the window flag unset', () => {
+    expect(debugPreferencesStore.getWaterDebug()).toBe(false);
+    expect(
+      (window as unknown as { __VIRTUALROW_WATER_DEBUG?: boolean }).__VIRTUALROW_WATER_DEBUG,
+    ).toBeUndefined();
+  });
+
+  it('round-trips and mirrors the preference onto the window flag', () => {
+    debugPreferencesStore.setWaterDebug(true);
+    expect(localStorage.getItem(WATER_DEBUG_KEY)).toBe('true');
+    expect(
+      (window as unknown as { __VIRTUALROW_WATER_DEBUG?: boolean }).__VIRTUALROW_WATER_DEBUG,
+    ).toBe(true);
+    expect(debugPreferencesStore.getWaterDebug()).toBe(true);
+
+    debugPreferencesStore.setWaterDebug(false);
+    expect(
+      (window as unknown as { __VIRTUALROW_WATER_DEBUG?: boolean }).__VIRTUALROW_WATER_DEBUG,
+    ).toBe(false);
   });
 });

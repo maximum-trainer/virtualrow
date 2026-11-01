@@ -41,6 +41,7 @@ import { createOarSplashState, updateOarSplash } from './oarSplashParticles';
 import { createSkyPass } from '../passes/sky';
 import { createWaterPass } from '../passes/water';
 import { createWaterPolygonPass } from '../passes/waterPolygon';
+import { simplifyPolygons } from '../plan/polygonSimplify';
 import { createWaterDebugPass } from '../passes/waterDebug';
 import { isPolygonWaterEnabled } from './polygonWater';
 import {
@@ -603,8 +604,13 @@ export const createRideScene = async (
   // switch isn't disabled, draw polygon water in place of the strip. The
   // strip stays wired so a route whose enrichment lacks polygons (rivers,
   // offline fallbacks) renders exactly as before.
-  const polygonLakes =
+  const polygonLakesRaw =
     isSceneryRoute(opts.route) && opts.route.lakePolygons ? opts.route.lakePolygons : [];
+  // #493 Phase 5 / FR9 / AC7 — decimate each outer ring to the tier's
+  // vertex budget before the pass tessellates. Deterministic + area-
+  // preserving (polygonSimplify.ts); a ring already under the cap is
+  // returned by reference, so a small lake pays nothing.
+  const polygonLakes = simplifyPolygons(polygonLakesRaw, tierCaps.polygonWaterMaxVertices);
   const useLakePolygonWater = isPolygonWaterEnabled() && polygonLakes.length > 0;
   const polygonWaterPass = useLakePolygonWater
     ? createWaterPolygonPass({

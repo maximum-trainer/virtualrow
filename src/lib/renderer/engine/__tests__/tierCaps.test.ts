@@ -21,6 +21,7 @@ const basic = {
   drawRainOverlay: false,
   drawWakeParticles: false,
   drawOarSplash: false,
+  polygonWaterMaxVertices: 256,
 };
 const low = {
   drawBuildings: true,
@@ -40,6 +41,7 @@ const low = {
   drawRainOverlay: true,
   drawWakeParticles: true,
   drawOarSplash: true,
+  polygonWaterMaxVertices: 512,
 };
 const medium = {
   drawBuildings: true,
@@ -59,6 +61,7 @@ const medium = {
   drawRainOverlay: true,
   drawWakeParticles: true,
   drawOarSplash: true,
+  polygonWaterMaxVertices: 1024,
 };
 const high = {
   drawBuildings: true,
@@ -78,6 +81,7 @@ const high = {
   drawRainOverlay: true,
   drawWakeParticles: true,
   drawOarSplash: true,
+  polygonWaterMaxVertices: 2048,
 };
 const extraHigh = {
   drawBuildings: true,
@@ -97,6 +101,7 @@ const extraHigh = {
   drawRainOverlay: true,
   drawWakeParticles: true,
   drawOarSplash: true,
+  polygonWaterMaxVertices: 4096,
 };
 
 describe('tierCaps (P6 D8 + P7 D9 + P8 D8)', () => {

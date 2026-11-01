@@ -68,11 +68,42 @@ function setLakeOutlines(value: boolean): void {
   }
 }
 
+export const WATER_DEBUG_KEY = 'virtualrow:debug:waterDebug';
+
+/**
+ * Whether the OSM water-detection diagnostics overlay (#493 FR22) is on. The
+ * overlay draws detected shorelines, island outlines and on-land samples
+ * through `src/lib/renderer/passes/waterDebug.ts`, which reads
+ * `window.__VIRTUALROW_WATER_DEBUG`. The toggle mirrors the preference onto
+ * that window flag so a reload keeps the overlay as the tester left it.
+ */
+function getWaterDebug(): boolean {
+  try {
+    return localStorage.getItem(WATER_DEBUG_KEY) === 'true';
+  } catch (err) {
+    console.warn('[DebugPreferencesStore] Failed to read waterDebug:', err);
+    return false;
+  }
+}
+
+function setWaterDebug(value: boolean): void {
+  try {
+    localStorage.setItem(WATER_DEBUG_KEY, value ? 'true' : 'false');
+  } catch (err) {
+    console.warn('[DebugPreferencesStore] Failed to save waterDebug:', err);
+  }
+  if (typeof window !== 'undefined') {
+    (window as unknown as { __VIRTUALROW_WATER_DEBUG?: boolean }).__VIRTUALROW_WATER_DEBUG = value;
+  }
+}
+
 export class DebugPreferencesStore {
   getShowDemoCtaOverride = getShowDemoCtaOverride;
   setShowDemoCtaOverride = setShowDemoCtaOverride;
   getLakeOutlines = getLakeOutlines;
   setLakeOutlines = setLakeOutlines;
+  getWaterDebug = getWaterDebug;
+  setWaterDebug = setWaterDebug;
 }
 
 export const debugPreferencesStore = new DebugPreferencesStore();
