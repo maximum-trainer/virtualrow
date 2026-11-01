@@ -12,6 +12,12 @@ struct Frame {
   sunDir: vec4<f32>,
   fog: vec4<f32>,
   time: f32,
+  // #588 FR5 — mirror the canonical layout in `uniforms.ts` so the
+  // `Frame` struct's WGSL size matches `FRAME_UNIFORMS_BYTES` (272 B)
+  // across every pass. Boat shader doesn't read `_pad2`; the field
+  // only exists so the shared uniform buffer binds without a
+  // minimum-binding-size mismatch.
+  _pad2: vec3<f32>,
 };
 
 struct BoatUniforms {
