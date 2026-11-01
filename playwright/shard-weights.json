@@ -32,6 +32,7 @@
     "default:rower-stroke.spec.ts": 125,
     "default:rownative-course-import.spec.ts": 9,
     "default:rownative-track-attach.spec.ts": 7,
+    "default:rownative-challenges-flow.spec.ts": 20,
     "default:rownative-track-geometry.spec.ts": 28,
     "default:scene-context-endurance.spec.ts": 66,
     "default:scene-contrast.spec.ts": 63,
