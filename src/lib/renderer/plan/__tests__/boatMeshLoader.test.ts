@@ -61,25 +61,44 @@ describe('boatMeshLoader', () => {
     })) as unknown as typeof fetch;
     const handle = await loadBoatMesh({ url: '/assets/boat/shell.bin', fetchFn });
     expect(handle.source).toBe('baked');
-    expect(handle.mesh.vertexCount).toBe(buildBoatMesh().vertexCount);
+    expect(handle.mesh?.vertexCount).toBe(buildBoatMesh().vertexCount);
   });
 
-  it('falls back to procedural on 404', async () => {
+  it('falls back to procedural on 404 (SSR/test default)', async () => {
     const fetchFn = (async () => ({
       ok: false,
       arrayBuffer: async () => new ArrayBuffer(0),
     })) as unknown as typeof fetch;
     const handle = await loadBoatMesh({ url: '/x', fetchFn });
     expect(handle.source).toBe('procedural');
-    expect(handle.mesh.vertexCount).toBe(buildBoatMesh().vertexCount);
+    expect(handle.mesh?.vertexCount).toBe(buildBoatMesh().vertexCount);
   });
 
-  it('falls back to procedural on fetch throw', async () => {
+  it('falls back to procedural on fetch throw (SSR/test default)', async () => {
     const fetchFn = (async () => {
       throw new Error('offline');
     }) as unknown as typeof fetch;
     const handle = await loadBoatMesh({ url: '/x', fetchFn });
     expect(handle.source).toBe('procedural');
+  });
+
+  it('returns { mesh: null, source: "failed" } on 404 when allowProceduralFallback is false (#623 D4-a)', async () => {
+    const fetchFn = (async () => ({
+      ok: false,
+      arrayBuffer: async () => new ArrayBuffer(0),
+    })) as unknown as typeof fetch;
+    const handle = await loadBoatMesh({ url: '/x', fetchFn, allowProceduralFallback: false });
+    expect(handle.source).toBe('failed');
+    expect(handle.mesh).toBeNull();
+  });
+
+  it('returns { mesh: null, source: "failed" } on throw when allowProceduralFallback is false (#623 D4-a)', async () => {
+    const fetchFn = (async () => {
+      throw new Error('offline');
+    }) as unknown as typeof fetch;
+    const handle = await loadBoatMesh({ url: '/x', fetchFn, allowProceduralFallback: false });
+    expect(handle.source).toBe('failed');
+    expect(handle.mesh).toBeNull();
   });
 
   it('falls back to procedural when fetch is unavailable', async () => {

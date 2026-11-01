@@ -66,6 +66,7 @@ import {
   BOAT_BONE_TORSO,
 } from '../plan/boatMesh';
 import { loadBoatMesh } from '../plan/boatMeshLoader';
+import { publishBoatSource, publishFallback } from './health';
 import { computeCascades } from './cascadedShadows';
 import { createPlacement, placeBoat, placeGhost, strokePhase, strokeAmplitude } from './characterPlacement';
 import { createDistanceSmoother } from './distanceSmoother';
@@ -81,8 +82,6 @@ import {
   type CurveDistanceSample,
 } from './sceneryStreamPlan';
 import { paintFoliage, FOLIAGE_SHAPES } from '../../scenery/foliageTexture';
-import { createSceneryCuller } from '../passes/sceneryCull';
-import { createFloraSolidStage } from './floraSolidStage';
 import { loadFloraAtlas } from './textureLoader';
 import { textureBytes } from './textures';
 import { createFrameGraph, type FrameGraph, type FrameUniforms, type Pass } from './frameGraph';
@@ -200,6 +199,15 @@ export interface RideSceneOpts {
    *  paint tint via `boatPaint.boatTintFromAthlete`. Omitted / empty =
    *  the pre-#571 off-white default. */
   athleteId?: string;
+  /**
+   * #623 Phase 1 — the attach test harness (`attach({testMode: true})`)
+   * sets this so the SSR/test boat fallback keeps working: a mocked
+   * canvas cannot fetch `shell.bin`, so without this flag the user-
+   * facing path (D4-a) would throw `renderer-unavailable` and every
+   * test would need to stub the fetch. Default false; production
+   * attach never sets it.
+   */
+  testMode?: boolean;
 }
 
 export interface RideSceneHandle {
@@ -383,20 +391,13 @@ export const createRideScene = async (
     foliageSampler,
   });
 
-  // Solid flora stage (#562 FR4 / FR5). Builds a low-poly 3D crown+trunk per
-  // foliage pool and renders it alongside the sprite pass with its own cull
-  // + indirect, cross-fading via `sproutUniforms`.
-  const floraSolidCuller = createSceneryCuller(device);
-  const floraSolidStage = createFloraSolidStage({
-    device,
-    format,
-    frameUniforms,
-    sproutUniforms,
-    culler: floraSolidCuller,
-    poolInputs: sceneryPoolInputs,
-    spritePools: scenePools,
-    telemetry: telemetry.scenery,
-  });
+  // #623 Phase 1 — the solid-flora stage (procedural low-poly tree pool)
+  // is retired. Near-camera trees now draw from the tier-E GLB kit via
+  // `sceneryMeshPass`, enabled on every tier that renders trees (basic
+  // and low included). `sproutUniforms` still drives the sprite fade in
+  // the scenery sprite pass; no replacement for the solid near-pool
+  // fade-out is wired — distance culling removes the GLBs beyond
+  // `sceneryMeshPass`'s view distance.
   for (const pool of scenePools) {
     telemetry.scenery.pools.push({
       kind: pool.kind,
@@ -407,14 +408,28 @@ export const createRideScene = async (
     });
   }
 
-  // #570 P7 D1-b — prefer the baked `shell.bin` buffer from
-  // `scripts/build-boat-mesh.mjs`; the procedural generator in `boatMesh.ts`
-  // is the deterministic fallback for SSR, tests, and fetch failures so the
-  // smoke silhouette is identical either way. Telemetry carries which path
-  // won on `__ROWER3D_BOAT.meshSource`.
-  const boatMeshHandle = await loadBoatMesh({ url: assetUrl('/assets/boat/shell.bin') });
+  // #570 P7 D1-b + #623 Phase 1 D4-a — prefer the baked `shell.bin`
+  // buffer from `scripts/build-boat-mesh.mjs`. The procedural generator
+  // in `boatMesh.ts` is retained ONLY for SSR + unit tests; a
+  // user-facing load failure publishes `renderer-unavailable` and
+  // throws instead of silently drawing the procedural hull. Telemetry
+  // carries which path won on `__ROWER3D_BOAT.meshSource` and the
+  // webgpu-health global reports `boatSource` for the DebugPanel.
+  const boatMeshHandle = await loadBoatMesh({
+    url: assetUrl('/assets/boat/shell.bin'),
+    allowProceduralFallback: opts.testMode === true,
+  });
+  if (!boatMeshHandle.mesh) {
+    telemetry.boat.meshSource = 'failed';
+    publishBoatSource('failed');
+    publishFallback('renderer-unavailable');
+    throw new Error(
+      'boat mesh load failed (shell.bin unreachable or malformed); surfacing renderer-unavailable',
+    );
+  }
   const boatMesh = boatMeshHandle.mesh;
   telemetry.boat.meshSource = boatMeshHandle.source;
+  publishBoatSource(boatMeshHandle.source === 'baked' ? 'baked' : 'failed');
   const boatPass = createBoatPass({ device, format, frameUniforms, mesh: boatMesh });
   const charactersMesh = tierCaps.castCharacterShadows ? boatMesh : null;
 
@@ -556,10 +571,9 @@ export const createRideScene = async (
     // basic/low; at medium+ the stage picks up every solid-flora pool
     // and every registered GLB mesh (populated asynchronously as scenery
     // GLBs load) and renders their depth into the cascade atlas.
-    floraSolidResources: tierCaps.castFloraShadows ? floraSolidStage.resources : null,
-    floraLeafAtlas: tierCaps.castFloraShadows
-      ? { view: floraSolidStage.signature.leafAtlasView, sampler: floraSolidStage.signature.leafSampler }
-      : null,
+    // #623 Phase 1 — the procedural solid-flora pool is retired, so
+    // the kit-tree GLB path (gated by `castSceneryShadows`) is the only
+    // scenery depth caster.
     sceneryMeshPass: tierCaps.castSceneryShadows ? sceneryMeshPass : null,
   });
 
@@ -705,7 +719,6 @@ export const createRideScene = async (
     bankPass,
     buildingsPass,
     sceneryPass,
-    floraSolidStage,
     waterPass,
     ...(waterDebugPass ? [waterDebugPass] : []),
     boatPass,
@@ -1257,7 +1270,6 @@ export const createRideScene = async (
       gpuTimer?.dispose();
       for (const pool of scenePools) pool.dispose();
       buildingsPool?.dispose();
-      floraSolidCuller.dispose();
       postFx.dispose();
       sceneTexture.destroy();
       depthTexture.destroy();

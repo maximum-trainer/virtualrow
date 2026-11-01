@@ -65,6 +65,14 @@ BLE characteristic notification
 
 ### 3D scene composition
 
+Since the #542 cutover the live app is a hand-written WebGPU engine on SvelteKit; the React/three.js scene described below is retained as historical reference but no longer ships. The engine composes passes in `src/lib/renderer/engine/rideScene.ts` and reads route data from `src/lib/ui/sceneryRoute.ts`.
+
+#### Scenery is GLB-kit only (#623, Phase 1)
+
+Every scene object with an authored counterpart in `public/assets/scenery/tier-*/*.glb` or `public/assets/boat/*.glb` is drawn from that GLB via `sceneryMeshPass`. No module under `src/lib/renderer/plan` or `src/lib/renderer/passes` synthesises triangles at runtime for a model that has, or could have, a kit entry — add one through `scripts/build_scenery.py` (#449) instead. The retained exceptions are **geographic strips** (`bankStrip`, `waterStrip`, `skyDome`, `waterPolygon`/`islandLand`/`ringBankStrip`), the **OSM building extrusion** in `plan/buildings.ts` (deliberate stylisation, #623 D3-a), and the **SSR/test-only boat fallback** in `boatMesh.ts` — never user-facing: a load failure publishes `renderer-unavailable` on `__VIRTUALROW_WEBGPU_HEALTH` instead.
+
+#### Historical: React scene (pre-#542)
+
 `Rower3D.tsx` lazy-loads a React Three Fiber `<Canvas>` with Rapier physics. The scene graph includes: water surface (Gerstner waves), curved water channel and riverbanks following the route curve, procedural terrain with elevation-driven relief, instanced vegetation (PineTrees, GroundCover) offset by terrain Y, the rowing scull model, wake/splash particle effects, and post-processing (bloom, color grading, vignette). There is one route theme since #361; `themeConfig` is still the scene's art direction, read by the bank, sky, clouds, horizon, water, vegetation, colour grading and exposure alike.
 
 Route coordinates → `createRouteCurve()` → Three.js CatmullRomCurve3. Enrichment segment profiles drive scenery placement, water width, and terrain relief per 50m segment.

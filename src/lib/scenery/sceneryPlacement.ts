@@ -133,7 +133,15 @@ const SCENERY_BUDGET: Record<PerformanceMode, number> = {
   basic: 0.4, low: 0.5, medium: 0.7, high: 0.85, 'extra-high': 1,
 };
 export const budgetFor = (mode: PerformanceMode): number => SCENERY_BUDGET[mode] ?? SCENERY_BUDGET.medium;
-export const keepsKitTrees = (mode: PerformanceMode): boolean => mode === 'high' || mode === 'extra-high';
+/**
+ * #623 D2-a (Phase 1) — the kit-tree flora pass is now wired on every
+ * tier that draws trees (basic/low included). The old procedural
+ * `floraSolidPool` is retired; per-species density on basic/low falls
+ * out of `budgetFor` (0.4 / 0.5 of medium) and shadow casting stays
+ * gated by `tierCaps.castSceneryShadows` so basic/low kit trees still
+ * don't cast.
+ */
+export const keepsKitTrees = (_mode: PerformanceMode): boolean => true;
 
 export const distinctProfiles = (
   enrichment?: RouteEnrichmentData | null,

@@ -31,18 +31,11 @@ import {
 } from '../passes/buildingsDepth';
 import { createCharactersDepthPipeline, type CharactersDepthPipeline } from '../passes/charactersDepth';
 import {
-  createFloraSolidDepthPipeline,
-  createFloraSolidDepthCascadeBindGroup,
-  createFloraSolidDepthPoolBindGroup,
-  type FloraSolidDepthPipeline,
-} from '../passes/floraSolidDepth';
-import {
   createSceneryMeshDepthPipeline,
   createSceneryMeshDepthCascadeBindGroup,
   createSceneryMeshDepthMeshBindGroup,
   type SceneryMeshDepthPipeline,
 } from '../passes/sceneryMeshDepth';
-import type { FloraSolidPoolResources } from '../plan/floraSolidPool';
 import type { SceneryMeshPass } from '../passes/sceneryMesh';
 import type { BoatPass } from '../passes/boat';
 import type { InstancePool } from '../plan/instancePools';
@@ -74,7 +67,6 @@ export interface ShadowStage extends Pass {
   readonly scenery: SceneryDepthPipeline;
   readonly buildings: BuildingsDepthPipeline;
   readonly characters: CharactersDepthPipeline | null;
-  readonly floraSolid: FloraSolidDepthPipeline | null;
   readonly sceneryMesh: SceneryMeshDepthPipeline | null;
   readonly payload: ShadowFramePayload;
   readonly telemetry: ShadowTelemetry;
@@ -106,19 +98,6 @@ export interface ShadowStageOptions {
   /** Same per-progress shore widths the lit bank pass uses. */
   bankEdgesForProgress?: (progress: number) => WaterEdges;
   /**
-   * #591-fu P1c flora depth cast. When provided and the tier allows it,
-   * the shadow stage renders a depth-only variant of each solid-flora
-   * pool so near trees cast leafy shadows on the bank. `null` or omit
-   * skips the pass (basic/low tiers).
-   */
-  floraSolidResources?: readonly FloraSolidPoolResources[] | null;
-  /**
-   * Leaf atlas texture + sampler the flora depth FS samples for alpha
-   * discard — same atlas the lit `floraSolid` pass uses. Required when
-   * `floraSolidResources` is given.
-   */
-  floraLeafAtlas?: { view: GPUTextureView; sampler: GPUSampler } | null;
-  /**
    * #591-fu P1c GLB-kit depth cast. When provided and the tier allows,
    * the shadow stage iterates each active registered mesh with
    * `forEachActiveMesh` and runs a depth-only pass over the same
@@ -140,13 +119,9 @@ export const createShadowStage = (
   const scenery = createSceneryDepthPipeline(device);
   const buildings = createBuildingsDepthPipeline(device);
   const characters = charactersMesh ? createCharactersDepthPipeline(device, charactersMesh) : null;
-  // #591-fu P1c: flora + GLB-scenery depth passes. Each stays null when the
-  // tier caps / inputs don't opt in, so the encode loop can skip cleanly.
-  const floraSolidResources = opts.floraSolidResources ?? null;
-  const floraLeafAtlas = opts.floraLeafAtlas ?? null;
-  const floraSolid = floraSolidResources && floraLeafAtlas
-    ? createFloraSolidDepthPipeline(device)
-    : null;
+  // #591-fu P1c (updated for #623 Phase 1): the procedural flora depth
+  // pass is retired. Scenery depth comes exclusively from registered
+  // GLB meshes, iterated per-cascade via `forEachActiveMesh`.
   const sceneryMeshPass = opts.sceneryMeshPass ?? null;
   const sceneryMesh = sceneryMeshPass
     ? createSceneryMeshDepthPipeline(device)
@@ -160,9 +135,8 @@ export const createShadowStage = (
   const buildingsCascadeBindGroups: GPUBindGroup[] = [];
   const charactersCascadeBuffers: GPUBuffer[] = [];
   const charactersCascadeBindGroups: GPUBindGroup[] = [];
-  // #591-fu P1c: cascade uniforms for the two new depth paths.
-  const floraCascadeBuffers: GPUBuffer[] = [];
-  const floraCascadeBindGroups: GPUBindGroup[] = [];
+  // #591-fu P1c: cascade uniforms for the GLB depth path (the procedural
+  // flora depth path is retired in #623 Phase 1).
   const sceneryMeshCascadeBuffers: GPUBuffer[] = [];
   const sceneryMeshCascadeBindGroups: GPUBindGroup[] = [];
   for (let i = 0; i < atlas.cascades; i++) {
@@ -220,24 +194,6 @@ export const createShadowStage = (
         }),
       );
     }
-    if (floraSolid && floraLeafAtlas) {
-      const buf = device.createBuffer({
-        label: `floraSolidDepth-cascade:${i}`,
-        size: CASCADE_UNIFORM_BYTES,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-      });
-      floraCascadeBuffers.push(buf);
-      floraCascadeBindGroups.push(
-        createFloraSolidDepthCascadeBindGroup(
-          device,
-          floraSolid.cascadeLayout,
-          buf,
-          floraLeafAtlas.view,
-          floraLeafAtlas.sampler,
-          `floraSolidDepth-cascade:${i}:bg`,
-        ),
-      );
-    }
     if (sceneryMesh) {
       const buf = device.createBuffer({
         label: `sceneryMeshDepth-cascade:${i}`,
@@ -255,17 +211,6 @@ export const createShadowStage = (
       );
     }
   }
-  // Per-pool bind groups for the flora depth pass — centres only.
-  const floraPoolBindGroups: GPUBindGroup[] = floraSolid && floraSolidResources
-    ? floraSolidResources.map((r) =>
-        createFloraSolidDepthPoolBindGroup(
-          device,
-          floraSolid.poolLayout,
-          r.pool.centresBuffer,
-          `floraSolidDepth:${r.pool.speciesIndex}`,
-        ),
-      )
-    : [];
   // Lazy per-mesh bind groups for the sceneryMesh depth pass — meshes
   // register asynchronously (GLBs load after attach), so the cache is
   // keyed by the instance-buffer identity and filled on first iteration.
@@ -321,7 +266,6 @@ export const createShadowStage = (
     scenery,
     buildings,
     characters,
-    floraSolid,
     sceneryMesh,
     payload,
     telemetry,
@@ -354,13 +298,6 @@ export const createShadowStage = (
         if (characters && charactersCascadeBuffers[i]) {
           ctx.device.queue.writeBuffer(
             charactersCascadeBuffers[i],
-            0,
-            uniformScratch as BufferSource,
-          );
-        }
-        if (floraSolid && floraCascadeBuffers[i]) {
-          ctx.device.queue.writeBuffer(
-            floraCascadeBuffers[i],
             0,
             uniformScratch as BufferSource,
           );
@@ -419,27 +356,10 @@ export const createShadowStage = (
           triangleCount += (BUILDINGS_VERTEX_COUNT / 3) * buildingsPool.instanceCount;
         }
 
-        // #591-fu P1c: flora depth. Each flora pool draws its cone-stack
-        // mesh at `instanceCount` instances using the shared leaf atlas
-        // for alpha discard. Pools with zero instances are skipped so
-        // reed/rock pools with density thinned to zero cost nothing.
-        if (floraSolid && floraSolidResources && floraCascadeBindGroups[i]) {
-          pass.setPipeline(floraSolid.pipeline);
-          pass.setBindGroup(0, floraCascadeBindGroups[i]);
-          for (let p = 0; p < floraSolidResources.length; p += 1) {
-            const r = floraSolidResources[p];
-            if (r.pool.instanceCount === 0) continue;
-            pass.setBindGroup(1, floraPoolBindGroups[p]);
-            pass.setVertexBuffer(0, r.positionBuffer);
-            pass.setVertexBuffer(1, r.mixBuffer);
-            pass.setIndexBuffer(r.indexBuffer, 'uint16');
-            pass.drawIndexed(r.mesh.indices.length, r.pool.instanceCount);
-            drawCount += 1;
-            triangleCount += r.mesh.triangleCount * r.pool.instanceCount;
-          }
-        }
-
-        // #591-fu P1c: GLB-kit scenery depth. One draw per registered,
+        // #591-fu P1c (updated for #623 Phase 1): GLB-kit scenery depth.
+        // The procedural flora depth path is retired; near trees now
+        // depth-cast through the same registered-GLB loop below. One
+        // draw per registered,
         // active mesh. Per-mesh instance-buffer bind groups are cached
         // lazily since GLBs register asynchronously after `attach`.
         if (sceneryMesh && sceneryMeshPass && sceneryMeshCascadeBindGroups[i]) {
@@ -501,13 +421,11 @@ export const createShadowStage = (
       for (const b of sceneryCascadeBuffers) b.destroy();
       for (const b of buildingsCascadeBuffers) b.destroy();
       for (const b of charactersCascadeBuffers) b.destroy();
-      for (const b of floraCascadeBuffers) b.destroy();
       for (const b of sceneryMeshCascadeBuffers) b.destroy();
       bank.dispose();
       scenery.dispose();
       buildings.dispose();
       characters?.dispose();
-      floraSolid?.dispose();
       sceneryMesh?.dispose();
     },
   };

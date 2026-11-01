@@ -74,13 +74,14 @@ describe('attach', () => {
     const renderer = (await attach(canvas, { testMode: true })) as unknown as WithTest;
     expect(renderer).not.toBeNull();
     renderer._frameOnce();
-    // sky, clouds, bank, buildings, scenery, floraSolid, water, boat,
-    // sceneryMesh, wake, oarSplash (#566 added clouds + buildings on medium+;
-    // #570 added boat; #549 scenery slice added sceneryMesh for GLB course
+    // sky, clouds, bank, buildings, scenery, water, boat, sceneryMesh,
+    // wake, oarSplash (#566 added clouds + buildings on medium+; #570
+    // added boat; #549 scenery slice added sceneryMesh for GLB course
     // furniture / structures; #571 added wake foam particles + oar-blade
-    // splash, both at low+). Rain overlay is opt-in (default off) so it is
-    // not counted here.
-    expect(renderer._telemetry.renderStats.draws).toBe(11);
+    // splash, both at low+; #623 Phase 1 retired the procedural
+    // floraSolid pass — near trees now draw through sceneryMesh). Rain
+    // overlay is opt-in (default off) so it is not counted here.
+    expect(renderer._telemetry.renderStats.draws).toBe(10);
     renderer.dispose();
   });
 
