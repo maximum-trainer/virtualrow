@@ -72,12 +72,18 @@ test.use({
     // runner-884, PR #671 run 41351188410, even with libGLX_nvidia and all
     // the userspace NVIDIA libs resolved on disk).
     //
-    // Instead: let Chrome's GPU process start with the real driver, point
-    // ANGLE at Vulkan, and keep only the stability flags that CI needs.
+    // Keep this list MINIMAL — Dan's Windows laptop runs with just
+    // `--enable-unsafe-webgpu` and the engine renders fully (parity-shots
+    // 672-hd-rower). On Linux headless we also need --no-sandbox and
+    // --disable-dev-shm-usage for container stability, but DROP
+    // --use-angle=vulkan (that's a WebGL flag; Dawn uses Vulkan directly
+    // without ANGLE) and --enable-features=Vulkan (they force a swap-chain
+    // path that comes out dark grey on Chrome 156 headless Linux, confirmed
+    // in run 41357256131: `drawCalls=9, gpuMs~8ms`, but the canvas region
+    // in the PNG was pure background slate — the engine thought it was
+    // rendering but nothing reached Chrome's compositor).
     args: [
       '--enable-unsafe-webgpu',
-      '--enable-features=Vulkan',
-      '--use-angle=vulkan',
       '--no-sandbox',
       '--disable-dev-shm-usage',
     ],
