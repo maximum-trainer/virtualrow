@@ -60,6 +60,13 @@ export interface BuildingTierCaps {
    *  stroke. Pairs with the hull wake pass. Off on `basic`, on from
    *  `low` upward — the sim is tiny (~16 particles per second). */
   drawOarSplash: boolean;
+  /** #493 Phase 5 / FR9 / AC7 — per-tier polygon-water vertex cap.
+   *  OSM lake rings can carry tens of thousands of vertices; this is
+   *  the budget `simplifyRing` (polygonSimplify.ts) decimates each
+   *  outer ring down to before the pass tessellates. Holes stay
+   *  verbatim (islands are already small). Caps are generous: the
+   *  cost is the ear-clip, not the GPU draw. */
+  polygonWaterMaxVertices: number;
 }
 
 const CAPS: Record<PerformanceTier, BuildingTierCaps> = {
@@ -81,6 +88,7 @@ const CAPS: Record<PerformanceTier, BuildingTierCaps> = {
     drawRainOverlay: false,
     drawWakeParticles: false,
     drawOarSplash: false,
+    polygonWaterMaxVertices: 256,
   },
   low: {
     drawBuildings: true,
@@ -100,6 +108,7 @@ const CAPS: Record<PerformanceTier, BuildingTierCaps> = {
     drawRainOverlay: true,
     drawWakeParticles: true,
     drawOarSplash: true,
+    polygonWaterMaxVertices: 512,
   },
   medium: {
     drawBuildings: true,
@@ -119,6 +128,7 @@ const CAPS: Record<PerformanceTier, BuildingTierCaps> = {
     drawRainOverlay: true,
     drawWakeParticles: true,
     drawOarSplash: true,
+    polygonWaterMaxVertices: 1024,
   },
   high: {
     drawBuildings: true,
@@ -138,6 +148,7 @@ const CAPS: Record<PerformanceTier, BuildingTierCaps> = {
     drawRainOverlay: true,
     drawWakeParticles: true,
     drawOarSplash: true,
+    polygonWaterMaxVertices: 2048,
   },
   'extra-high': {
     drawBuildings: true,
@@ -157,6 +168,7 @@ const CAPS: Record<PerformanceTier, BuildingTierCaps> = {
     drawRainOverlay: true,
     drawWakeParticles: true,
     drawOarSplash: true,
+    polygonWaterMaxVertices: 4096,
   },
 };
 
