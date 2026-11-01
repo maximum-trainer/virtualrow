@@ -280,7 +280,17 @@ export const createRideScene = async (
 
   const outputFormat: GPUTextureFormat =
     (navigator as unknown as { gpu?: GPU }).gpu?.getPreferredCanvasFormat?.() ?? 'bgra8unorm';
-  context.configure({ device, format: outputFormat, alphaMode: 'opaque' });
+  // alphaMode: 'premultiplied' — not 'opaque'. The WebGPU spec allows both,
+  // and 'opaque' is a mild optimisation hint (lets the compositor skip
+  // alpha blending), but Chrome 156 headless Linux Vulkan has a swap-chain
+  // regression where an 'opaque' canvas never lands content in the
+  // presented frame — engine telemetry shows real GPU work (draws > 0,
+  // gpuMs > 0, scenery instance count correct) but page.screenshot and
+  // drawImage both read zero (#648 run 41357256131 on T4). 'premultiplied'
+  // keeps the swap-chain path headless Chrome actually drives. Windows
+  // D3D12 and Linux non-headless render identically to 'opaque' because
+  // every lit pass clears to opaque alpha anyway.
+  context.configure({ device, format: outputFormat, alphaMode: 'premultiplied' });
   // #573 P8 — the lit passes render into an HDR offscreen target; PostFxPass
   // composites to the real swap-chain. The `format` prop every lit pass takes
   // is this HDR format; `outputFormat` is only used by the composite + DOF
