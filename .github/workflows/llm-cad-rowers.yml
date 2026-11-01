@@ -1,0 +1,108 @@
+name: llm-cad rowers (monthly)
+
+# Monthly regenerate of the placeholder rower bodies (#590 FR7 / AC7).
+#
+# The CadQuery scaffold in `scripts/build_crew.py` and the box-baker in
+# `scripts/build-boat-mesh.mjs` are deterministic — the LLM step is scoped
+# to proportion tuning (per `prompts/rower-generation/README.md`), bounded
+# by the baker's inline min/max asserts. On a run with the API key set,
+# this workflow regenerates both bins, diffs them, and opens a PR via
+# `peter-evans/create-pull-request` with the `rower-generation` label.
+# Without the key the step emits a note to the step summary and the
+# workflow succeeds — the convention from the project's other optional
+# jobs so a scheduled run never reddens main.
+
+on:
+  schedule:
+    - cron: '0 7 1 * *' # 07:00 UTC on the 1st of each month
+  workflow_dispatch:
+    inputs:
+      style:
+        description: Reference style brief to prefer (biketerra | exr-game | mywhoosh)
+        type: choice
+        options:
+          - biketerra
+          - exr-game
+          - mywhoosh
+        default: biketerra
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  regenerate:
+    name: Regenerate rower bodies
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Guard: skip when LLM_CAD_MODEL_API_KEY is absent
+        id: guard
+        env:
+          LLM_CAD_MODEL_API_KEY: ${{ secrets.LLM_CAD_MODEL_API_KEY }}
+        run: |
+          if [ -z "${LLM_CAD_MODEL_API_KEY}" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "### Skipped" >> "$GITHUB_STEP_SUMMARY"
+            echo "LLM_CAD_MODEL_API_KEY is not set in this environment. The rower-regeneration workflow is a no-op until the secret is configured. This matches the convention from the project's other optional jobs so a scheduled run never reddens \`main\`." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Node
+        if: steps.guard.outputs.skip != 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install deps
+        if: steps.guard.outputs.skip != 'true'
+        run: npm ci
+
+      - name: Rebake rower bins
+        if: steps.guard.outputs.skip != 'true'
+        env:
+          REFERENCE_STYLE: ${{ inputs.style || 'biketerra' }}
+        run: |
+          echo "Reference style: ${REFERENCE_STYLE}"
+          npm run build:crew
+
+      - name: Describe generated bins
+        if: steps.guard.outputs.skip != 'true'
+        id: describe
+        run: |
+          {
+            echo "### Rower bodies"
+            echo ''
+            echo '| File | Bytes |'
+            echo '| --- | --- |'
+            for f in public/assets/boat/shell.bin public/assets/boat/shell-male.bin public/assets/boat/shell-female.bin; do
+              if [ -f "$f" ]; then
+                echo "| \`$f\` | $(stat -c%s "$f") |"
+              fi
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Open PR with regenerated bins
+        if: steps.guard.outputs.skip != 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          commit-message: "chore(crew): regenerate rower bodies"
+          title: "chore(crew): regenerate rower bodies"
+          branch: crew/regenerate-${{ github.run_id }}
+          delete-branch: true
+          labels: rower-generation
+          body: |
+            Automated monthly regenerate of the placeholder rower bodies (#590 FR7 / AC7).
+
+            Reference style: `${{ inputs.style || 'biketerra' }}`.
+            Baker: `npm run build:crew` (`scripts/build-boat-mesh.mjs`).
+            Prompt bundle: `prompts/rower-generation/`.
+
+            The engine's contract test (`src/__tests__/engineCrewMeshContract.test.ts`)
+            gates the regenerate against the AC3 width ratio and the NFR2 size cap;
+            if either fails, this PR is red and the regenerate run surfaces the diff
+            in the step summary.

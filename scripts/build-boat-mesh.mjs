@@ -85,7 +85,23 @@ const addBox = (verts, indices, cx, cy, cz, sx, sy, sz, bone) => {
   for (const quad of faces) writeFace(verts, indices, bone, 1, quad, corners);
 };
 
-export const buildBoatMesh = () => {
+/**
+ * #590 FR3 — per-variant body proportions. The engine today ships one
+ * procedural rower made of 4 oriented boxes; a baked `shell-male.bin` /
+ * `shell-female.bin` must read as distinct silhouettes at the /row
+ * camera. The authored CadQuery dims in `scripts/build_crew.py` give
+ * MALE torso=0.62 vs FEMALE torso=0.56 — a 10.7 % width ratio. Mirror
+ * the same relative widths on the box baker's torso and arms so the
+ * AC3 bounding-box ratio stays ≥ 1.05 by a healthy margin.
+ */
+export const CREW_VARIANTS = {
+  default: { torsoX: 0.18, armsX: 0.26, hipScale: 1.0 },
+  male: { torsoX: 0.195, armsX: 0.28, hipScale: 1.06 },
+  female: { torsoX: 0.165, armsX: 0.235, hipScale: 0.93 },
+};
+
+export const buildBoatMesh = (variant = 'default') => {
+  const dims = CREW_VARIANTS[variant] ?? CREW_VARIANTS.default;
   const hL = BOAT_LENGTH / 2;
   const bW = BOAT_BEAM / 2;
   const bD = BOAT_DEPTH / 2;
@@ -118,8 +134,13 @@ export const buildBoatMesh = () => {
   const verts = [];
   const indices = [];
   for (const quad of hullFaces) writeFace(verts, indices, BONE_HULL, 1, quad, hullCorners);
-  addBox(verts, indices, 0, 0.42, 0.0, 0.18, 0.26, 0.14, BONE_TORSO);
-  addBox(verts, indices, 0, 0.52, 0.14, 0.26, 0.06, 0.08, BONE_ARMS);
+  // Torso + arms carry the variant proportions (#590 FR3). The hull and
+  // head stay fixed so no variant drifts the oar pivot or the camera
+  // look-at Y, and the hip scale rides on the torso's Y half-size so a
+  // narrower female body also sits a hair taller for the same shoulder
+  // line — matching the biketerra reference brief.
+  addBox(verts, indices, 0, 0.42, 0.0, dims.torsoX, 0.26 * dims.hipScale, 0.14, BONE_TORSO);
+  addBox(verts, indices, 0, 0.52, 0.14, dims.armsX, 0.06, 0.08, BONE_ARMS);
   addBox(verts, indices, 0, 0.78, 0.0, 0.09, 0.09, 0.09, BONE_HEAD);
   return {
     vertices: new Float32Array(verts),
@@ -144,11 +165,24 @@ export const packBoatMesh = ({ vertices, indices, vertexCount, indexCount }) => 
 
 const main = async () => {
   const here = dirname(fileURLToPath(import.meta.url));
-  const outPath = join(here, '..', 'public', 'assets', 'boat', 'shell.bin');
-  const mesh = buildBoatMesh();
-  const packed = packBoatMesh(mesh);
-  await writeFile(outPath, packed);
-  console.log(`wrote ${outPath} (${packed.byteLength} B, ${mesh.vertexCount} verts, ${mesh.indexCount / 3} tris)`);
+  const outDir = join(here, '..', 'public', 'assets', 'boat');
+  // #590 FR2 / AC1 — one invocation bakes the default plus the two
+  // crew variants. Byte-stable: given the same source + variant table
+  // the three bins have deterministic SHA-256 digests (checked by
+  // NFR4's parity test). Running the script twice is a no-op in
+  // `git status`.
+  const targets = [
+    { variant: 'default', file: 'shell.bin' },
+    { variant: 'male', file: 'shell-male.bin' },
+    { variant: 'female', file: 'shell-female.bin' },
+  ];
+  for (const { variant, file } of targets) {
+    const mesh = buildBoatMesh(variant);
+    const packed = packBoatMesh(mesh);
+    const outPath = join(outDir, file);
+    await writeFile(outPath, packed);
+    console.log(`wrote ${outPath} (${packed.byteLength} B, ${mesh.vertexCount} verts, ${mesh.indexCount / 3} tris)`);
+  }
 };
 
 if (import.meta.url === `file://${process.argv[1]}`) {
