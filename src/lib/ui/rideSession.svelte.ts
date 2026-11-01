@@ -104,6 +104,7 @@ export interface RideSessionDeps {
     | 'pauseSession'
     | 'resumeSession'
     | 'endSession'
+    | 'setLoopActive'
   >;
   bluetoothService: RowerEventSource;
   ftmsBluetoothService: RowerEventSource;
@@ -216,14 +217,45 @@ export class RideSessionStore {
   });
 
   /**
-   * True while loop mode must be forced off — a challenge row is scored on the
-   * course's own distance (#647 FR9), so looping is not a user choice there.
-   * The UI reflects this by disabling the toggle; the finish logic reflects
-   * it by reading `effectiveLoop`, not `loop`, so a stale `loop.enabled` from
-   * before the challenge was picked still produces the leaderboard-defined
-   * finish.
+   * Laps completed by the row the summary is showing (#647 D7 tail). Reads
+   * the completed row's cumulative distance against the selected route's own
+   * length. Returns `null` on a non-looped row or outside a summary so the
+   * stat tile is hidden; `>= 1` whenever at least one seam was crossed.
    */
-  readonly loopLocked = $derived.by(() => this.challengeInProgress !== null);
+  readonly completedLaps = $derived.by<number | null>(() => {
+    const completed = this.completedSession ?? this.guestCompletedSession;
+    const route = this.#routes.selectedRoute;
+    if (!completed || !route || route.distance <= 0) return null;
+    const laps = lapsCompleted(completed.distance, route.distance * 1000);
+    return laps >= 1 ? laps : null;
+  });
+
+  /**
+   * True while loop mode must be forced off — a challenge row is scored on the
+   * course's own distance (#647 FR9) and a leaderboard-sourced ghost race is
+   * scored to the ghost's finish time on the same distance (FR10), so looping
+   * is not a user choice in either case. The UI reflects this by disabling
+   * the toggle; the finish logic reflects it by reading `effectiveLoop`, not
+   * `loop`, so a stale `loop.enabled` from before the gate was set still
+   * produces the race-defined finish.
+   */
+  readonly loopLocked = $derived.by(() => {
+    if (this.challengeInProgress !== null) return true;
+    const ghost = this.#session.ghostChoice;
+    // A leaderboard-sourced pace race carries `displayName` (#415 AC4.4); a
+    // picker-set pace reference does not and is allowed to loop freely as a
+    // training aid.
+    return ghost.kind === 'pace' && !!ghost.displayName;
+  });
+
+  /** A short reason the UI shows next to a disabled loop toggle. */
+  readonly loopLockReason = $derived.by<string | null>(() => {
+    if (!this.loopLocked) return null;
+    if (this.challengeInProgress !== null) {
+      return 'A challenge is scored on the course distance, so looping is off.';
+    }
+    return 'A ghost race is scored on the route distance, so looping is off.';
+  });
 
   /**
    * The loop policy the finish detector and the engine actually read. Falls
@@ -375,6 +407,8 @@ export class RideSessionStore {
       this.currentSession = null;
       this.heartRateSamples = [];
       this.startSequence.reset();
+      // Reset the sampler back to linear so the next row starts fresh.
+      this.#deps.workoutService.setLoopActive(false);
     }
   }
 
@@ -401,6 +435,10 @@ export class RideSessionStore {
     if (this.loopLocked) return;
     const resolved = typeof next === 'function' ? next(this.loop) : next;
     this.loop = resolved;
+    // Tell the activity sampler so FIT's GPS trace re-walks the route each
+    // lap. Reads `effectiveLoop`, not the raw store, so a lock added after
+    // the toggle flipped keeps the sampler linear.
+    this.#deps.workoutService.setLoopActive(this.effectiveLoop.enabled);
   }
 
   /** Convenience: flip the loop toggle without touching the target. */

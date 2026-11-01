@@ -225,6 +225,7 @@
       ghost={ride.completedGhost}
       routeGeometrySource={routes.selectedRoute?.geometrySource}
       challengeStandingLine={standing ? formatChallengeStandingLine(standing) : null}
+      laps={ride.completedLaps}
     />
   {/if}
 

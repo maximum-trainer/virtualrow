@@ -19,6 +19,15 @@ export class WorkoutService {
   private sampler = new ActivitySampler();
 
   /**
+   * Tell the sampler whether the current row is intentionally looping (#647
+   * FR8), so FIT's GPS trace re-walks the route each lap rather than piling
+   * every sample past the finish on the last vertex.
+   */
+  setLoopActive(active: boolean): void {
+    this.sampler.setLoopActive(active);
+  }
+
+  /**
    * @param routeCoordinates the selected route's polyline, so the 1 Hz activity
    *   stream can place each sample on the water actually rowed (issue #221, R1).
    *   Omitted for sessions with no route geometry — those samples carry no position.

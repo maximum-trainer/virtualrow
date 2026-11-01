@@ -96,6 +96,7 @@ function setup(
       pauseSession: vi.fn(),
       resumeSession: vi.fn(),
       endSession: vi.fn(() => current),
+      setLoopActive: vi.fn(),
     },
     bluetoothService: pm5,
     ftmsBluetoothService: ftms,
@@ -369,6 +370,40 @@ describe('RideSessionStore', () => {
       stop();
       teardown();
     });
+  });
+
+  // #647 FR10 — a leaderboard ghost race (pace with a displayName) locks loop
+  // off; a picker-set pace (no displayName) does not and is allowed to loop.
+  it('loopLocked follows a leaderboard ghost race, not a picker-set pace', () => {
+    const { ride, session } = setup({ route: route(2) });
+    session.ghostChoice = { kind: 'pace', paceSPer500: 120 };
+    expect(ride.loopLocked).toBe(false);
+    session.ghostChoice = { kind: 'pace', paceSPer500: 120, displayName: 'Sander' };
+    expect(ride.loopLocked).toBe(true);
+    expect(ride.loopLockReason).toContain('ghost race');
+  });
+
+  it('setLoop pushes the effective loop flag through to the workout service', () => {
+    const { ride, deps } = setup({ route: route(2) });
+    ride.setLoop({ enabled: true, target: { kind: 'free' } });
+    expect(deps.workoutService.setLoopActive).toHaveBeenLastCalledWith(true);
+    ride.setLoop({ enabled: false, target: { kind: 'route' } });
+    expect(deps.workoutService.setLoopActive).toHaveBeenLastCalledWith(false);
+  });
+
+  it('setActive(false) resets the sampler to linear', () => {
+    const { ride, deps } = setup({ route: route(2) });
+    ride.setLoop({ enabled: true, target: { kind: 'free' } });
+    ride.setActive(false);
+    expect(deps.workoutService.setLoopActive).toHaveBeenLastCalledWith(false);
+  });
+
+  it('completedLaps reports whole laps on the row the summary shows (#647 D7)', () => {
+    const { ride } = setup({ route: route(2) }); // 2 km route
+    ride.completedSession = { distance: 5500, duration: 1800 } as unknown as WorkoutSession;
+    expect(ride.completedLaps).toBe(2);
+    ride.completedSession = { distance: 1500, duration: 500 } as unknown as WorkoutSession;
+    expect(ride.completedLaps).toBeNull();
   });
 
   it('setLoop is a no-op while loopLocked is true', () => {

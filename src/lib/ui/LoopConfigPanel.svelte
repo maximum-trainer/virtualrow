@@ -119,19 +119,24 @@
   };
 </script>
 
-{#if !ride.loopLocked}
-  <section class="loop-config" data-testid="loop-config">
-    <label class="loop-config-toggle">
-      <input
-        type="checkbox"
-        checked={ride.loop.enabled}
-        onchange={toggle}
-        data-testid="loop-config-toggle"
-      />
-      <span>Loop this route past its finish</span>
-    </label>
+<section class="loop-config" data-testid="loop-config">
+  <label class="loop-config-toggle">
+    <input
+      type="checkbox"
+      checked={ride.loop.enabled && !ride.loopLocked}
+      disabled={ride.loopLocked}
+      onchange={toggle}
+      data-testid="loop-config-toggle"
+    />
+    <span>Loop this route past its finish</span>
+  </label>
+  {#if ride.loopLocked}
+    <p class="loop-config-locked-note" data-testid="loop-config-locked-note">
+      {ride.loopLockReason}
+    </p>
+  {:else}
     {#if ride.loop.enabled}
-      <div class="loop-config-targets" role="radiogroup" aria-label="Row target">
+      <div class="loop-config-targets" role="radiogroup" aria-label="Row target" data-testid="loop-config-targets">
         <button
           type="button"
           role="radio"
@@ -196,8 +201,8 @@
         <p class="loop-config-free-note">End the row yourself when you're done.</p>
       {/if}
     {/if}
-  </section>
-{/if}
+  {/if}
+</section>
 
 <style>
   .loop-config {
@@ -264,5 +269,12 @@
     margin: 0;
     font-size: 0.85rem;
     color: #cbd5e1;
+  }
+
+  .loop-config-locked-note {
+    margin: 0;
+    font-size: 0.8rem;
+    color: #94a3b8;
+    font-style: italic;
   }
 </style>

@@ -55,6 +55,11 @@
      * leaderboard itself. `null`/omitted → no line is rendered (AC5.3/AC5.4).
      */
     challengeStandingLine?: string | null;
+    /**
+     * Laps completed on a looped row (#647 FR4 / D7 tail), or `null` for a
+     * non-looped row where the stat tile is hidden.
+     */
+    laps?: number | null;
   }
 
   let {
@@ -66,6 +71,7 @@
     ghost,
     routeGeometrySource,
     challengeStandingLine,
+    laps = null,
   }: Props = $props();
 
   /** Where the save has got to. */
@@ -180,6 +186,12 @@
         <div class="session-stat">
           <span class="session-stat-label">Avg Power</span>
           <span class="session-stat-value">{averagePower}<span class="session-stat-unit">W</span></span>
+        </div>
+      {/if}
+      {#if laps !== null && laps >= 1}
+        <div class="session-stat" data-testid="session-summary-laps">
+          <span class="session-stat-label">Laps</span>
+          <span class="session-stat-value">{laps}</span>
         </div>
       {/if}
     </div>
