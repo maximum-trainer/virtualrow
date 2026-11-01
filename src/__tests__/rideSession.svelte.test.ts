@@ -227,6 +227,25 @@ describe('RideSessionStore', () => {
     teardown();
   });
 
+  // #415 AC4.4 — chasing a leaderboard time names who set it, not the pace.
+  it('labels the ghost gap with the displayName when the pace carries one', () => {
+    const { ride, session, pm5 } = setup({ route: route(5) });
+    const teardown = ride.init();
+    session.sessionActive = true;
+    session.ghostChoice = {
+      kind: 'pace',
+      paceSPer500: 120,
+      displayName: 'Sander Roosendaal',
+    };
+    const stop = $effect.root(() => {
+      pm5.emit('data', packet({ distance: 100, elapsedTime: 60 }));
+      flushSync();
+      expect(ride.ghostGap?.label).toBe('Sander Roosendaal');
+    });
+    stop();
+    teardown();
+  });
+
   describe('with fake timers', () => {
     beforeEach(() => vi.useFakeTimers());
     afterEach(() => vi.useRealTimers());

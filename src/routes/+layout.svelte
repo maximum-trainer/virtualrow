@@ -35,6 +35,10 @@
   import { RownativeDeepLinkRunner } from '$lib/ui/deepLink.svelte';
   import AuthButton from '$lib/ui/AuthButton.svelte';
   import SessionSummary from '$lib/ui/SessionSummary.svelte';
+  import {
+    computeChallengeStanding,
+    challengeStandingLine as formatChallengeStandingLine,
+  } from '$lib/ui/challengeStanding';
   import GuestSessionSummary from '$lib/ui/GuestSessionSummary.svelte';
   import SettingsPanel from '$lib/ui/SettingsPanel.svelte';
   import CrashReportedBanner from '$lib/ui/CrashReportedBanner.svelte';
@@ -157,12 +161,14 @@
   const NAV_ITEMS = [
     { view: 'routes', label: 'Row', href: `${base}/` },
     { view: 'route-search', label: 'Routes', href: `${base}/search` },
+    { view: 'challenges', label: 'Challenges', href: `${base}/challenges` },
   ] as const;
 
   const view = $derived.by(() => {
     const path = page.url.pathname;
     if (path === `${base}/row` || path === `${base}/row/`) return 'workout';
     if (path === `${base}/search` || path === `${base}/search/`) return 'route-search';
+    if (path === `${base}/challenges` || path === `${base}/challenges/`) return 'challenges';
     return 'routes';
   });
 
@@ -200,6 +206,16 @@
   {/if}
 
   {#if ride.completedSession}
+    {@const challenge = ride.challengeInProgress}
+    {@const standing = challenge
+      ? computeChallengeStanding({
+          challengeName: challenge.challengeName,
+          courseDistanceMeters: challenge.courseDistanceMeters,
+          rowDistanceMeters: ride.completedSession.distance,
+          rowDurationSeconds: ride.completedSession.duration,
+          results: challenge.results,
+        })
+      : null}
     <SessionSummary
       session={ride.completedSession}
       onDone={() => ride.sessionDone()}
@@ -208,6 +224,7 @@
       personalBest={ride.completedSessionBest}
       ghost={ride.completedGhost}
       routeGeometrySource={routes.selectedRoute?.geometrySource}
+      challengeStandingLine={standing ? formatChallengeStandingLine(standing) : null}
     />
   {/if}
 

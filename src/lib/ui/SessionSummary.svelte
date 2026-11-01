@@ -48,9 +48,25 @@
      * between the start and finish gates — surface a persistent chip saying so.
      */
     routeGeometrySource?: GeometrySource;
+    /**
+     * The "would have been Nth of M on this leaderboard" line for a row
+     * against a rownative challenge (#415 Phase 4 / AC5.1). Pre-formatted
+     * so this component is read-only and does not reach for the challenge
+     * leaderboard itself. `null`/omitted → no line is rendered (AC5.3/AC5.4).
+     */
+    challengeStandingLine?: string | null;
   }
 
-  let { session, onDone, onSaved, isDemo, personalBest, ghost, routeGeometrySource }: Props = $props();
+  let {
+    session,
+    onDone,
+    onSaved,
+    isDemo,
+    personalBest,
+    ghost,
+    routeGeometrySource,
+    challengeStandingLine,
+  }: Props = $props();
 
   /** Where the save has got to. */
   type SaveState =
@@ -171,6 +187,19 @@
     <!-- The race first: it is the question the row was rowed to (#338). -->
     {#if ghost}
       <GhostVerdict rowSeconds={session.duration} ghostSeconds={ghost.seconds} label={ghost.label} />
+    {/if}
+
+    {#if challengeStandingLine}
+      <!--
+        #415 AC5.2 — a comparison, not a placing. The row is not on the
+        leaderboard; this line is only what rank it would have taken.
+      -->
+      <p
+        class="session-summary-challenge-standing"
+        data-testid="session-summary-challenge-standing"
+      >
+        {challengeStandingLine}
+      </p>
     {/if}
 
     <RowBreakdown {session} {personalBest} />

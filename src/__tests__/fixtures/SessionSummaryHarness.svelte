@@ -20,6 +20,7 @@
     personalBest?: number | null;
     ghost?: { seconds: number | null; label: string } | null;
     routeGeometrySource?: GeometrySource;
+    challengeStandingLine?: string | null;
     /** The signed-in athlete, or null for a signed-out tree. */
     authUser?: AuthUser | null;
     /** Stubbed uploadActivity the summary's Save button funnels through. */
@@ -34,6 +35,7 @@
     personalBest,
     ghost,
     routeGeometrySource,
+    challengeStandingLine,
     authUser = { id: 'i123', name: 'Alex', email: 'alex@example.com' },
     uploadActivity,
   }: Props = $props();
@@ -54,4 +56,13 @@
   }
 </script>
 
-<SessionSummary {session} {onDone} {onSaved} {isDemo} {personalBest} {ghost} {routeGeometrySource} />
+<SessionSummary
+  {session}
+  {onDone}
+  {onSaved}
+  {isDemo}
+  {personalBest}
+  {ghost}
+  {routeGeometrySource}
+  {challengeStandingLine}
+/>

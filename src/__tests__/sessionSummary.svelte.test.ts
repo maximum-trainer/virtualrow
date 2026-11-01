@@ -90,6 +90,7 @@ function renderSummary(
     personalBest: number | null;
     ghost: { seconds: number | null; label: string } | null;
     routeGeometrySource: GeometrySource;
+    challengeStandingLine: string | null;
     authUser: AuthUser | null;
   }> = {},
   options: { uploadActivity?: ReturnType<typeof uploadMock> } = {},
@@ -400,5 +401,26 @@ describe('SessionSummary, after a race (#338)', () => {
   it('says nothing about a race for a row that raced nothing', () => {
     renderSummary();
     expect(screen.queryByText(/beat your best/i)).toBeNull();
+  });
+});
+
+// #415 Phase 4 — would-have-placed line on a row against a challenge.
+describe('SessionSummary — challenge standing (#415 Phase 4)', () => {
+  it('renders the standing line when one is passed (AC5.1/AC5.2)', () => {
+    renderSummary({
+      challengeStandingLine: 'Your 4:37 would have been 3rd of 12 on Enschede',
+    });
+    const line = screen.getByTestId('session-summary-challenge-standing');
+    expect(line.textContent).toBe('Your 4:37 would have been 3rd of 12 on Enschede');
+  });
+
+  it('renders nothing for a non-challenge row (AC5.4)', () => {
+    renderSummary();
+    expect(screen.queryByTestId('session-summary-challenge-standing')).toBeNull();
+  });
+
+  it('renders nothing when the line is null (AC5.3 — short row refused upstream)', () => {
+    renderSummary({ challengeStandingLine: null });
+    expect(screen.queryByTestId('session-summary-challenge-standing')).toBeNull();
   });
 });
