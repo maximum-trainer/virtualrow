@@ -179,6 +179,34 @@ describe('activity sampler (issue #221, R1)', () => {
     expect(LOOP_CLOSURE_EPSILON_METRES).toBe(10);
   });
 
+  it('wraps an open route when setLoopActive(true) is set (#647 FR8)', () => {
+    // ROUTE is a 2 km open run (>1 km between endpoints — never a natural loop).
+    // With setLoopActive(true), the sampler wraps modulo the route length so
+    // the FIT GPS trace re-walks the route each lap of a #647 looped row.
+    const svc = new WorkoutService();
+    svc.startSession('r1', 'Route 1', undefined, 'pm5', true, false, ROUTE);
+    svc.setLoopActive(true);
+    row(svc, 600, 10); // 6 km on a 2 km course → ~3 laps
+
+    const last = svc.getCurrentSession()!.samples.at(-1)!;
+    // The last sample should NOT be at the finish vertex; it should be
+    // somewhere along the route interior, where distance mod routeMetres lands.
+    const atFinal =
+      Math.abs(last.lng! - ROUTE[1].lng) < 1e-6 &&
+      Math.abs(last.lat! - ROUTE[1].lat) < 1e-6;
+    expect(atFinal).toBe(false);
+  });
+
+  it('setLoopActive(false) returns an open route to clamp behaviour', () => {
+    const svc = new WorkoutService();
+    svc.startSession('r1', 'Route 1', undefined, 'pm5', true, false, ROUTE);
+    svc.setLoopActive(true);
+    svc.setLoopActive(false);
+    row(svc, 600, 10);
+    const last = svc.getCurrentSession()!.samples.at(-1)!;
+    expect(last.lng).toBeCloseTo(ROUTE[1].lng, 6);
+  });
+
   it('leaves an open route open when the first and last vertices are far apart (issue #466, D1(b))', () => {
     // ROUTE above is a 2 km due-east line — start and finish are >1 km apart,
     // well outside D1(b)'s 10 m epsilon. Rowed past the finish, the sampler

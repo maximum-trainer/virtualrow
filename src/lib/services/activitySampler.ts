@@ -30,6 +30,14 @@ export class ActivitySampler {
   private routeCumulative: number[] = [];
   private routeIsLoop = false;
   private routeTotalMetres = 0;
+  /**
+   * When the rower is intentionally looping a non-closed route (#647 FR8), the
+   * sampler wraps the position in the same way `routeIsLoop` already does for
+   * natural loops — so the FIT activity's GPS trace re-walks the route each
+   * lap and intervals.icu / Garmin see one continuous row on the route's own
+   * shape rather than a straight line past the final vertex.
+   */
+  private loopActive = false;
 
   /** Begin a new series. A route of fewer than two points yields samples with no position. */
   start(routeCoordinates: Coordinate[] = []): void {
@@ -39,6 +47,15 @@ export class ActivitySampler {
     this.routeCumulative = this.route.length >= 2 ? cumulativeLengths(this.route) : [];
     this.routeTotalMetres = this.routeCumulative[this.routeCumulative.length - 1] ?? 0;
     this.routeIsLoop = isClosedLoop(this.route, LOOP_CLOSURE_EPSILON_METRES);
+  }
+
+  /**
+   * Turn the loop-active flag on or off (#647). While on, `positionAt` wraps
+   * `distance` modulo the route length even on an open route, so each lap's
+   * samples sit on the route's own polyline.
+   */
+  setLoopActive(active: boolean): void {
+    this.loopActive = active;
   }
 
   /**
@@ -69,8 +86,11 @@ export class ActivitySampler {
     if (this.route.length === 0) return {};
     // On a closed loop, a row that exceeds the loop length wraps back to the
     // start rather than piling every late sample on the last vertex (issue
-    // #466, FR4). Open routes clamp to the final coordinate via interpolateAlong.
-    const effective = this.routeIsLoop && this.routeTotalMetres > 0
+    // #466, FR4). An open route with the #647 loop feature on wraps the same
+    // way, so FIT's GPS trace re-walks the route each lap. Non-loop open
+    // routes clamp to the final coordinate via interpolateAlong.
+    const wrap = (this.routeIsLoop || this.loopActive) && this.routeTotalMetres > 0;
+    const effective = wrap
       ? ((distance % this.routeTotalMetres) + this.routeTotalMetres) % this.routeTotalMetres
       : distance;
     return interpolateAlong(this.route, effective, this.routeCumulative);
