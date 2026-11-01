@@ -203,6 +203,14 @@ jobs:
         # the ride specs they launch with real WebGPU and branch to the
         # well-formed decline on a runner without a hardware adapter (#542 NFR5).
         run: npx playwright test --config=playwright/playwright.config.ts --project=default playwright/tests/webgpu-device-budget.spec.ts playwright/tests/webgpu-device-lost-recovery.spec.ts playwright/tests/webgpu-postfx.spec.ts playwright/tests/webgpu-scene-quality-match.spec.ts
+      - name: Perf-budget — gpuMs per tier (#588 FR10 / AC10)
+        # Samples __ROWER3D_FRAME_STATS.gpuMs over a short settle window at
+        # basic / medium / extra-high and asserts the median stays under
+        # the committed per-tier cap. Branches to the well-formed decline
+        # on a runner without a hardware adapter (#542 NFR5). D9-b: absolute
+        # caps with headroom; a real regression (added pass, per-frame
+        # upload) pushes gpuMs well above the margin.
+        run: npx playwright test --config=playwright/playwright.config.ts --project=default playwright/tests/webgpu-perf-budget.spec.ts
 
   visual:
     # #588 FR9 / AC9 — engine visual baselines, on the real-GPU runner. The
