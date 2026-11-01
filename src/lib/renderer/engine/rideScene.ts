@@ -67,6 +67,14 @@ import {
   BOAT_BONE_TORSO,
 } from '../plan/boatMesh';
 import { loadBoatMesh } from '../plan/boatMeshLoader';
+import {
+  classifyCrewSlot,
+  DEFAULT_CREW_PALETTE,
+  flatPrimitiveColors,
+  tintPrimitiveColors,
+  type CrewPalette,
+  type CrewSlot,
+} from '../plan/crewPalette';
 import { dominantGrassProfile } from '../plan/grassDensityPlan';
 import { publishBoatSource, publishFallback } from './health';
 import { computeCascades } from './cascadedShadows';
@@ -202,6 +210,12 @@ export interface RideSceneOpts {
    *  the pre-#571 off-white default. */
   athleteId?: string;
   /**
+   * #578 FR2 / FR5 — initial per-athlete clothing/hair/hat palette.
+   * Omitted = `DEFAULT_CREW_PALETTE` (the baked look). Updates mid-ride
+   * come through `RideSceneHandle.setAppearance`.
+   */
+  appearance?: CrewPalette;
+  /**
    * #623 Phase 1 — the attach test harness (`attach({testMode: true})`)
    * sets this so the SSR/test boat fallback keeps working: a mocked
    * canvas cannot fetch `shell.bin`, so without this flag the user-
@@ -216,6 +230,13 @@ export interface RideSceneHandle {
   readonly device: GPUDevice;
   /** Draw one frame. The outer rAF loop (or the test harness) calls this. */
   frameOnce(): void;
+  /**
+   * Update the per-athlete rower palette and re-tint the scull primitives
+   * on the next frame (#578 FR5). No reattach; no extra draw calls — the
+   * seam is a `queue.writeBuffer` per recoloured primitive. A primitive
+   * whose GLB node name does not match a slot (hull, oar) is left alone.
+   */
+  setAppearance(palette: CrewPalette): void;
   /**
    * Release every GPU resource this scene owns, including the device
    * session that owns the `GPUDevice`. Safe to call more than once.
@@ -449,8 +470,23 @@ export const createRideScene = async (
     nodeWorld: Mat4;
     group?: string;
     pivotWorld?: Mat4;
+    /**
+     * The appearance slot this primitive paints into (#578 FR2),
+     * resolved from `prim.groupName` via `classifyCrewSlot`. `undefined`
+     * for primitives outside the picker (hull, oar) — those keep their
+     * authored colours regardless of palette.
+     */
+    slot?: CrewSlot;
+    /**
+     * Snapshot of the authored per-vertex RGBA (or a flat buffer when
+     * the GLB only shipped a scalar `baseColor`), kept so the alpha
+     * channel survives a re-tint and so a reset-to-default is one
+     * writeBuffer away.
+     */
+    authoredColors?: Float32Array;
   }
   const boatScullPrimitives: BoatScullPrimitive[] = [];
+  let currentAppearance: CrewPalette = opts.appearance ?? DEFAULT_CREW_PALETTE;
   const COURSE_FURNITURE_MODELS: SceneryModelId[] = [
     'a01-buoy-lane-sphere',
     'a06-finish-tower',
@@ -472,12 +508,39 @@ export const createRideScene = async (
       for (let i = 0; i < model.primitives.length; i += 1) {
         const prim = model.primitives[i];
         const id = `${BOAT_SCULL_PREFIX}:${i}`;
+        // Each primitive is one GLB material = one picker slot (or none).
+        // Prefer the leaf node name (e.g. `Torso_Spine_part`) and fall back
+        // to the articulated group (`LeftOar`) when the loader only kept
+        // the latter.
+        const slotKey = prim.nodeName ?? prim.groupName;
+        const slot = slotKey ? classifyCrewSlot(slotKey) : undefined;
+        // GLB primitives today ship one scalar baseColor per primitive; the
+        // engine fans that out to one flat per-vertex buffer below so a
+        // palette change can rewrite the same bytes. Cached so a reset to
+        // default is one writeBuffer with no second GLB fetch.
+        const vertexCount = prim.positions.length / 3;
+        const authoredColors = new Float32Array(vertexCount * 4);
+        {
+          const [r, g, b, a] = prim.baseColor;
+          for (let v = 0; v < vertexCount; v += 1) {
+            authoredColors[v * 4] = r;
+            authoredColors[v * 4 + 1] = g;
+            authoredColors[v * 4 + 2] = b;
+            authoredColors[v * 4 + 3] = a;
+          }
+        }
+        // Apply the initial appearance up-front so attach(..., { appearance })
+        // skips a first-frame flash of the baked colour.
+        const initialColors = slot
+          ? tintPrimitiveColors(authoredColors, slot, currentAppearance)
+          : authoredColors;
         sceneryMeshPass.register({
           id,
           positions: prim.positions,
           normals: prim.normals,
           indices: prim.indices,
           baseColor: prim.baseColor,
+          colors: initialColors,
           maxInstances: 1,
         });
         boatScullMeshIds.push(id);
@@ -497,6 +560,8 @@ export const createRideScene = async (
           nodeWorld,
           group: prim.groupName,
           pivotWorld,
+          slot,
+          authoredColors,
         });
       }
     }
@@ -1272,9 +1337,31 @@ export const createRideScene = async (
       telemetry.textures.atlasKind = 'placeholder';
     });
 
+  const setAppearance = (palette: CrewPalette): void => {
+    currentAppearance = palette;
+    for (const prim of boatScullPrimitives) {
+      if (!prim.slot || !prim.authoredColors) continue;
+      const tinted = tintPrimitiveColors(prim.authoredColors, prim.slot, palette);
+      sceneryMeshPass.writeColors(prim.id, tinted);
+    }
+  };
+
+  // #578 FR2 — expose the seam on a window global so an attach caller
+  // without a scene reference (the Svelte picker in a sibling component)
+  // can still push a palette change. Gated to Playwright + the shell's
+  // own useRowerAppearance effect; a stray page cannot reach into the
+  // engine without discovering the key.
+  const SET_APPEARANCE_KEY = '__ROWER3D_SET_APPEARANCE' as const;
+  try {
+    (globalThis as unknown as Record<string, unknown>)[SET_APPEARANCE_KEY] = setAppearance;
+  } catch { /* non-browser (SSR) — the shell never calls it there anyway */ }
+  // Reference so a build-time dead-code pass doesn't drop the helper:
+  void flatPrimitiveColors;
+
   return {
     device,
     frameOnce,
+    setAppearance,
     dispose() {
       if (disposed) return;
       disposed = true;
@@ -1290,6 +1377,9 @@ export const createRideScene = async (
       sproutUniforms.destroy();
       atlasHandle?.texture.dispose();
       atlas.dispose();
+      try {
+        delete (globalThis as unknown as Record<string, unknown>)[SET_APPEARANCE_KEY];
+      } catch { /* non-browser */ }
       session.dispose();
     },
   };

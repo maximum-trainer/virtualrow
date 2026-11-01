@@ -44,12 +44,47 @@
      * values default to `male`, matching the engine's pre-seam behaviour.
      */
     crew?: 'male' | 'female';
+    /**
+     * #578 FR2 — initial per-athlete rower appearance palette (RGBA
+     * tuples per slot). Omitted = engine default. The shell computes it
+     * from `rowerAppearanceService` + `paletteFromPreference`. Live
+     * changes come through `appearancePatch` below.
+     */
+    appearance?: unknown;
+    /**
+     * #578 FR5 — a key that bumps whenever the palette should change
+     * mid-ride, carrying the new palette value. The host watches it and
+     * calls `handle.setAppearance` so the Svelte picker doesn't need a
+     * handle reference.
+     */
+    appearancePatch?: { palette: unknown } | undefined;
     /** #542 AC11: notify the ride view when the backend state changes so it
      *  can swap in the "needs WebGPU" screen on 'unavailable'. */
     onBackend?: (backend: CanvasBackend) => void;
   }
 
-  let { attach, tier, distanceTier, route, testMode = false, getFrame, crew, onBackend }: Props = $props();
+  let {
+    attach,
+    tier,
+    distanceTier,
+    route,
+    testMode = false,
+    getFrame,
+    crew,
+    appearance,
+    appearancePatch,
+    onBackend,
+  }: Props = $props();
+
+  let liveHandle = $state<RideRenderer | null>(null);
+  // #578 FR5 — forward palette changes from the Svelte picker. $effect runs
+  // on initial attach and on every `appearancePatch` change; the handle
+  // getter is a no-op before the engine has returned.
+  $effect(() => {
+    const patch = appearancePatch;
+    if (!patch || !liveHandle) return;
+    liveHandle.setAppearance?.(patch.palette);
+  });
 
   let container = $state<HTMLDivElement | undefined>(undefined);
   let canvas = $state<HTMLCanvasElement | undefined>(undefined);
@@ -83,13 +118,14 @@
     // in the catch path alongside a rejected promise, instead of escaping the
     // effect — AC11 wants the renderer-unavailable telemetry either way.
     Promise.resolve()
-      .then(() => attach(canvas!, { tier, distanceTier, route, testMode, getFrame, crew }))
+      .then(() => attach(canvas!, { tier, distanceTier, route, testMode, getFrame, crew, appearance }))
       .then((r) => {
         if (disposed) {
           r?.dispose();
           return;
         }
         handle = r;
+        liveHandle = r;
         setBackend(r ? 'live' : 'unavailable', r ? undefined : 'attach-returned-null');
       })
       .catch((err: unknown) => {
@@ -98,6 +134,7 @@
     return () => {
       disposed = true;
       handle?.dispose();
+      liveHandle = null;
     };
   });
 </script>

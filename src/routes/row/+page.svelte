@@ -26,6 +26,8 @@
   import { getAuth } from '$lib/ui/authContext';
   import { CrewPreferenceStore } from '$lib/ui/useCrewPreference.svelte';
   import { resolveCrew, effectiveCrewPreference } from '../../components/rower3d/crewModel';
+  import { RowerAppearanceStore } from '$lib/ui/useRowerAppearance.svelte';
+  import { paletteFromPreference } from '$lib/renderer/plan/crewPalette';
   import { FullscreenStore } from '$lib/ui/fullscreen.svelte';
   import { CameraViewStore } from '$lib/ui/cameraView.svelte';
   import Canvas3DHost, { type CanvasBackend } from '$lib/ui/Canvas3DHost.svelte';
@@ -45,6 +47,17 @@
   const routes = getRoutesStore();
   const auth = getAuth();
   const crewPreference = new CrewPreferenceStore();
+  // #578 FR2 — read the stored rower appearance so the engine renders the
+  // athlete's current clothing/hair/hat on the first frame.
+  const rowerAppearance = new RowerAppearanceStore();
+  const initialPalette = paletteFromPreference(rowerAppearance.appearance);
+  // #578 FR5 — push every subsequent picker change through the host.
+  // $derived wraps the current palette in a new object so Canvas3DHost's
+  // $effect fires on each edit even when the palette object identity
+  // would otherwise be reused.
+  const appearancePatch = $derived({
+    palette: paletteFromPreference(rowerAppearance.appearance),
+  });
 
   const testMode = typeof window !== 'undefined' && !!window.__PLAYWRIGHT_TESTING;
 
@@ -185,6 +198,8 @@
             {testMode}
             getFrame={() => ({ ...ride.frame(), view: cameraView.view })}
             crew={resolvedCrew}
+            appearance={initialPalette}
+            {appearancePatch}
             onBackend={(b) => (canvasBackend = b)}
           />
 
