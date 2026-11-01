@@ -84,6 +84,7 @@ test.use({
     args: [
       '--enable-unsafe-webgpu',
       '--enable-features=Vulkan',
+      '--use-angle=vulkan',
       '--no-sandbox',
       '--disable-dev-shm-usage',
     ],
