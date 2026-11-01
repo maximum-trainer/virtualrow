@@ -1,4 +1,10 @@
-# Rower generation prompt bundle (#590)
+# Rower generation prompt bundle (#590, #672)
+
+> **#672:** the rower the engine draws — `public/assets/boat/scull-{male,female}.glb` —
+> is now the high-definition body authored in `scripts/crew_body.py` with the
+> llm-cad design loop. See [hd-body.md](hd-body.md) for that brief. The rest of
+> this file covers the `shell-*.bin` box bodies, which are only the engine's
+> load-failure fallback.
 
 LLM-cad regenerates the two placeholder rower bodies that live at
 `public/assets/boat/scull-{male,female}.glb` and bakes them into

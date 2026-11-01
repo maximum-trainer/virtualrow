@@ -25,6 +25,8 @@
 import {
   resolveAppearanceColors,
   type AppearanceSlot,
+  type HairstyleId,
+  type HatId,
 } from '../../../components/rower3d/rowerAppearance';
 import type { RowerAppearancePreference } from '../../services/rowerAppearanceService';
 
@@ -38,6 +40,10 @@ export interface CrewPalette {
   readonly shoes: readonly [number, number, number, number];
   readonly hair: readonly [number, number, number, number];
   readonly hat: readonly [number, number, number, number];
+  /** Which `Hair_<Style>` sibling is drawn (#672). Absent means `'short'`. */
+  readonly hairstyle?: HairstyleId;
+  /** Which `Hat_<Style>` sibling is drawn; `'none'` or absent draws none (#672). */
+  readonly hatStyle?: HatId;
 }
 
 /**
@@ -51,6 +57,8 @@ export const DEFAULT_CREW_PALETTE: CrewPalette = {
   shoes: [0.165, 0.165, 0.157, 1.0], // #2A2A28 black
   hair: [0.165, 0.137, 0.125, 1.0], // #2A2320 black (hair)
   hat: [0.102, 0.102, 0.102, 1.0], // #1A1A1A black
+  hairstyle: 'short',
+  hatStyle: 'none',
 };
 
 /**
@@ -157,7 +165,28 @@ export const paletteFromPreference = (
     shoes: hexToRgba(colors.shoes),
     hair: hexToRgba(colors.hair),
     hat: hexToRgba(colors.hatColor),
+    hairstyle: preference.hairstyle,
+    hatStyle: preference.hat,
   };
+};
+
+const HAIR_NODE = /^Hair_(Short|Long|Buzz|Bun)(_|$)/;
+const HAT_NODE = /^Hat_(Cap|Visor|Beanie)(_|$)/;
+
+/**
+ * Whether a crew GLB primitive is drawn under this palette (#672).
+ *
+ * The GLB carries every hairstyle and hat as siblings; exactly one hairstyle
+ * and at most one hat are shown. Everything else (body, boat, unnamed
+ * primitives) is always drawn.
+ */
+export const isCrewNodeVisible = (nodeName: string | undefined, palette: CrewPalette): boolean => {
+  if (!nodeName) return true;
+  const hair = HAIR_NODE.exec(nodeName);
+  if (hair) return hair[1].toLowerCase() === (palette.hairstyle ?? 'short');
+  const hat = HAT_NODE.exec(nodeName);
+  if (hat) return hat[1].toLowerCase() === (palette.hatStyle ?? 'none');
+  return true;
 };
 
 export const flatPrimitiveColors = (

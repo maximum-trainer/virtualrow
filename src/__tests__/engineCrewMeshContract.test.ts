@@ -14,7 +14,7 @@
  *   - Each `.bin` is ≤ 128 KB (NFR2).
  *
  * The two existing GLBs (`scull-male.glb`, `scull-female.glb`) are size-
- * capped at ≤ 460 KB (NFR1) in a sibling assertion so a regenerate that
+ * capped at ≤ 450 KB (#672 D4-a) in a sibling assertion so a regenerate that
  * blows the budget fails this test instead of CI.
  */
 
@@ -134,7 +134,7 @@ describe('engine crew mesh contract (#590)', () => {
     }
   });
 
-  it('each committed .glb is ≤ 460 KB (NFR1)', () => {
+  it('each committed .glb is ≤ 450 KB (#672 D4-a)', () => {
     for (const name of ['scull-male.glb', 'scull-female.glb']) {
       const path = join(ASSET_DIR, name);
       // Skip if the GLB is not in this clone (CI without the LFS pull /
@@ -143,7 +143,7 @@ describe('engine crew mesh contract (#590)', () => {
       // enforced the first time it is regenerated.
       if (!existsSync(path)) return;
       const bytes = statSync(path).size;
-      expect(bytes, name).toBeLessThanOrEqual(460 * 1024);
+      expect(bytes, name).toBeLessThanOrEqual(450 * 1024);
     }
   });
 });
