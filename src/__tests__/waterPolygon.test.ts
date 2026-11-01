@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect } from 'vitest';
 
 import { WATER_SURFACE_Y } from '../lib/renderer/plan/waterStrip';
 import {
@@ -185,19 +185,27 @@ describe('clipPolygonToDisc (FR7 / D8c)', () => {
   });
 });
 
-describe('isPolygonWaterEnabled (AC13 kill switch)', () => {
-  it('is off when nothing is set (SSR)', () => {
-    // No window in jsdom? There is. The flag defaults off.
+describe('isPolygonWaterEnabled (AC13 kill switch, #493 Phase 4 default-on)', () => {
+  afterEach(() => {
     delete (window as unknown as { __VIRTUALROW_POLYGON_WATER?: boolean })
       .__VIRTUALROW_POLYGON_WATER;
-    expect(isPolygonWaterEnabled()).toBe(false);
+  });
+
+  it('is on when nothing is set (new Phase 4 default)', () => {
+    delete (window as unknown as { __VIRTUALROW_POLYGON_WATER?: boolean })
+      .__VIRTUALROW_POLYGON_WATER;
+    expect(isPolygonWaterEnabled()).toBe(true);
   });
 
   it('is on with the explicit opt-in flag', () => {
     (window as unknown as { __VIRTUALROW_POLYGON_WATER?: boolean })
       .__VIRTUALROW_POLYGON_WATER = true;
     expect(isPolygonWaterEnabled()).toBe(true);
-    delete (window as unknown as { __VIRTUALROW_POLYGON_WATER?: boolean })
-      .__VIRTUALROW_POLYGON_WATER;
+  });
+
+  it('is off when the kill switch is explicitly false', () => {
+    (window as unknown as { __VIRTUALROW_POLYGON_WATER?: boolean })
+      .__VIRTUALROW_POLYGON_WATER = false;
+    expect(isPolygonWaterEnabled()).toBe(false);
   });
 });
