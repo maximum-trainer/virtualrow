@@ -98,11 +98,67 @@ jobs:
           set -x
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libvulkan1 vulkan-tools libgl1 libegl1
-          DRV_MAJOR=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1 | cut -d. -f1)
+          # nvidia-smi writes its "has failed" error to stdout, so a prior
+          # 2>/dev/null doesn't suppress it and $DRV_MAJOR ended up holding
+          # the whole error message. Keep only output that looks like a
+          # version number (digits + dot).
+          DRV_MAJOR=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>&1 \
+            | grep -E '^[0-9]+\.' | head -1 | cut -d. -f1)
           if [ -n "$DRV_MAJOR" ]; then
             sudo apt-get install -y --no-install-recommends "libnvidia-gl-$DRV_MAJOR" \
               || echo "libnvidia-gl-$DRV_MAJOR not available via apt — relying on the image's own ICD"
           fi
+
+      # Temporary diagnostic — the AI/HPC image's apt `libnvidia-gl-$DRV_MAJOR`
+      # install blocks on CUDA package conflicts
+      # (`libnvidia-compute-$DRV-server` Conflicts: libcuda-10.0-1 .. 12.7-1),
+      # so even on a VM with the T4 attached the ICD never installs via apt
+      # and Chromium's WebGPU keeps declining as software-adapter. This step
+      # prints what the image already ships (ICD files, loader cache, what
+      # vulkaninfo sees) so a follow-up PR can either point VK_ICD_FILENAMES
+      # at the pre-installed ICD or install only the pieces that don't fight
+      # with CUDA. `set +e` + `exit 0` keep the job green while we gather
+      # data; this step comes out once the fix lands.
+      - name: Diagnose Vulkan / NVIDIA runtime (#648 follow-up, temporary)
+        if: always()
+        run: |
+          set +e
+          echo "=== uname / lsb_release ==="
+          uname -a
+          lsb_release -a 2>&1 | tail -4
+          echo
+          echo "=== nvidia-smi -L ==="
+          nvidia-smi -L 2>&1
+          echo
+          echo "=== /usr/share/vulkan/icd.d/ ==="
+          ls -la /usr/share/vulkan/icd.d/ 2>&1
+          echo "=== /etc/vulkan/icd.d/ ==="
+          ls -la /etc/vulkan/icd.d/ 2>&1
+          echo "=== /usr/local/share/vulkan/icd.d/ ==="
+          ls -la /usr/local/share/vulkan/icd.d/ 2>&1
+          echo "=== cat any ICD JSONs found ==="
+          for d in /usr/share/vulkan/icd.d /etc/vulkan/icd.d /usr/local/share/vulkan/icd.d; do
+            for f in "$d"/*.json; do
+              [ -e "$f" ] || continue
+              echo "--- $f ---"
+              cat "$f"
+            done
+          done
+          echo
+          echo "=== ldconfig -p | grep -iE 'glx|vulkan|nvidia' ==="
+          ldconfig -p | grep -iE 'glx|vulkan|nvidia' 2>&1 | head -40
+          echo
+          echo "=== vulkaninfo --summary (first 60 lines) ==="
+          vulkaninfo --summary 2>&1 | head -60
+          echo
+          echo "=== env ==="
+          echo "VK_ICD_FILENAMES=${VK_ICD_FILENAMES:-<unset>}"
+          echo "VK_LAYER_PATH=${VK_LAYER_PATH:-<unset>}"
+          echo "LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-<unset>}"
+          echo
+          echo "=== find / -name 'libGLX_nvidia*' -o -name 'libnvidia-glvkspirv*' 2>/dev/null ==="
+          find / \( -name 'libGLX_nvidia*' -o -name 'libnvidia-glvkspirv*' -o -name 'nvidia_icd*' \) 2>/dev/null | head -40
+          exit 0
 
       - name: Render marketing screenshots (#648 FR1 / AC1)
         run: |
