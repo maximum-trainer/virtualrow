@@ -857,13 +857,16 @@ export const createRideScene = async (
   );
   const sceneryLoaded = new Set<string>();
   const sceneryLoading = new Set<string>();
-  const streamScenery = (boatDistanceMeters: number): void => {
+  const streamScenery = (boatDistanceMeters: number, loop: boolean): void => {
     const pending = sceneryModelsToLoad(
       sceneryPlan,
       new Set<string>([...sceneryLoaded, ...sceneryLoading]),
       boatDistanceMeters,
       SCENERY_LOOKAHEAD_M,
       SCENERY_MAX_PER_TICK,
+      // #647 FR6 — looping walks the stream plan torus-style so the first
+      // tiles of the route are already loaded when the boat crosses the seam.
+      loop ? { loopRouteMeters: totalDistanceMeters } : undefined,
     );
     for (const id of pending) {
       sceneryLoading.add(id);
@@ -981,7 +984,10 @@ export const createRideScene = async (
     lastWakeTime = frame.time;
     // Stream scenery that has come within the look-ahead window as the boat
     // advances; already-loaded / in-flight models are skipped.
-    streamScenery(boatPlacement.progress * totalDistanceMeters);
+    // Pass the boat's position along the current lap (already wrapped by
+    // `placeBoat` when the frame is looping) together with the loop flag so
+    // the stream planner wraps its lookahead window around the seam.
+    streamScenery(boatPlacement.progress * totalDistanceMeters, !!rideFrame?.loop);
     const ghostInfo = placeGhost(
       ghostPlacement,
       routeCurve,

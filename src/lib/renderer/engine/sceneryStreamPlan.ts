@@ -68,10 +68,29 @@ export const planSceneryStream = (
   return entries;
 };
 
+export interface SceneryModelsToLoadOptions {
+  /**
+   * The route length when the row is looping (#647 FR6). When set, the planner
+   * walks the plan torus-style: an entry at the start of the route becomes
+   * eligible as soon as the boat's forward route-distance to it (modulo the
+   * route length) falls within `lookaheadMeters`. Omit, or set to 0, for a
+   * non-looped row — then the planner uses its original linear horizon.
+   */
+  loopRouteMeters?: number;
+}
+
 /**
  * The not-yet-loaded models whose trigger distance is within
  * `boatDistanceMeters + lookaheadMeters`, nearest first, capped at `maxCount`.
  * `plan` is assumed ascending (as {@link planSceneryStream} returns it).
+ *
+ * When `loopRouteMeters` is set (#647 FR6), the horizon wraps around the end
+ * of the route — entries whose trigger sits a short way past the seam are
+ * eligible as the boat approaches the end of the current lap, so a model that
+ * lives in the first 50 m of the route is loaded while the boat is in the
+ * last 400 m. The result is still ordered by forward route-distance, nearest
+ * first; `lookaheadMeters` is clamped to the route length so a tiny route
+ * doesn't force every model into one tick.
  */
 export const sceneryModelsToLoad = (
   plan: readonly SceneryStreamEntry[],
@@ -79,7 +98,30 @@ export const sceneryModelsToLoad = (
   boatDistanceMeters: number,
   lookaheadMeters: number,
   maxCount: number,
+  options: SceneryModelsToLoadOptions = {},
 ): string[] => {
+  const { loopRouteMeters } = options;
+  if (loopRouteMeters !== undefined && loopRouteMeters > 0) {
+    const L = loopRouteMeters;
+    const position = ((boatDistanceMeters % L) + L) % L;
+    const horizon = Math.min(lookaheadMeters, L);
+    const forward = (triggerDistanceMeters: number): number => {
+      const offset = (((triggerDistanceMeters - position) % L) + L) % L;
+      return offset;
+    };
+    const out: string[] = [];
+    const candidates = plan
+      .filter((entry) => !loaded.has(entry.id))
+      .map((entry) => ({ entry, offset: forward(entry.triggerDistanceMeters) }))
+      .filter(({ offset }) => offset <= horizon)
+      .sort((a, b) => a.offset - b.offset);
+    for (const { entry } of candidates) {
+      if (out.length >= maxCount) break;
+      out.push(entry.id);
+    }
+    return out;
+  }
+
   const horizon = boatDistanceMeters + lookaheadMeters;
   const out: string[] = [];
   for (const entry of plan) {
