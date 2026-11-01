@@ -109,6 +109,87 @@ jobs:
               || echo "libnvidia-gl-$DRV_MAJOR not available via apt — relying on the image's own ICD"
           fi
 
+      - name: Diagnose Chromium GPU-process state (#648 follow-up, temporary)
+        # Fleet-VM lottery check: nvidia-smi + nvidia_icd.json + libGLX_nvidia
+        # can all be present on a `linux-nvidia-gpu-runner` VM and Dawn STILL
+        # declines with `software-adapter`. This step launches Chromium with
+        # the same flags the spec uses, visits chrome://gpu, and dumps:
+        #   * /dev/dri + /dev/nvidia* device nodes (sandbox needs read access)
+        #   * dmesg | grep -i nvidia (kernel-side driver state)
+        #   * Chromium's own chrome://gpu text (Dawn/Vulkan diagnosis)
+        #   * ldd on libGLX_nvidia.so.0 (dangling runtime deps)
+        #   * Chromium stderr with --enable-logging=stderr --v=1
+        # `set +e` + `exit 0` keeps the job green regardless. The step comes
+        # out once we've seen the real failure reason.
+        env:
+          MARKETING_OUT_DIR: ${{ env.MARKETING_OUT_DIR }}
+        run: |
+          set +e
+          echo "=== /dev/dri + /dev/nvidia* ==="
+          ls -la /dev/dri /dev/nvidia* 2>&1 | head -40
+          echo
+          echo "=== dmesg | grep -i nvidia (last 40 lines) ==="
+          sudo dmesg 2>/dev/null | grep -i nvidia | tail -40
+          echo
+          echo "=== ldd /usr/lib/x86_64-linux-gnu/libGLX_nvidia.so.0 ==="
+          ldd /usr/lib/x86_64-linux-gnu/libGLX_nvidia.so.0 2>&1 | head -30
+          echo
+          echo "=== Chromium chrome://gpu via Playwright ==="
+          node <<'NODE'
+          const { chromium } = require('playwright');
+          (async () => {
+            try {
+              const browser = await chromium.launch({
+                args: [
+                  '--enable-unsafe-webgl',
+                  '--use-gl=swiftshader',
+                  '--enable-unsafe-swiftshader',
+                  '--enable-unsafe-webgpu',
+                  '--no-sandbox',
+                  '--disable-gpu-rasterization',
+                  '--disable-gpu-compositing',
+                  '--disable-dev-shm-usage',
+                  '--enable-logging=stderr',
+                  '--v=1',
+                ],
+              });
+              const page = await browser.newPage();
+              page.on('console', msg => console.log('[chromium console]', msg.type(), msg.text()));
+              await page.goto('chrome://gpu');
+              await page.waitForTimeout(2000);
+              const text = await page.evaluate(() => document.body.innerText);
+              console.log(text.slice(0, 8000));
+              // Also probe navigator.gpu directly
+              await page.goto('data:text/html,<html></html>');
+              const info = await page.evaluate(async () => {
+                const nav = navigator;
+                if (!nav.gpu) return { gpu: 'absent' };
+                const adapter = await nav.gpu.requestAdapter({ powerPreference: 'high-performance' });
+                if (!adapter) return { gpu: 'present', adapter: 'null' };
+                const info = (adapter.info ?? await adapter.requestAdapterInfo?.()) || {};
+                return {
+                  gpu: 'present',
+                  adapter: 'ok',
+                  isFallbackAdapter: adapter.isFallbackAdapter ?? null,
+                  info: {
+                    vendor: info.vendor,
+                    architecture: info.architecture,
+                    device: info.device,
+                    description: info.description,
+                    driver: info.driver,
+                  },
+                };
+              });
+              console.log('=== navigator.gpu probe ===');
+              console.log(JSON.stringify(info, null, 2));
+              await browser.close();
+            } catch (err) {
+              console.error('diagnostic failed:', err.message);
+            }
+          })();
+          NODE
+          exit 0
+
       - name: Render marketing screenshots (#648 FR1 / AC1)
         # The Vulkan ICD selection isn't the problem on this runner — see the
         # diagnostic output on PR #671's runner-782, where nvidia_icd.json,
