@@ -101,9 +101,19 @@ jobs:
           if [ -f "$MARKETING_OUT_DIR/report.json" ]; then
             node -e '
               const r = require(process.env.MARKETING_OUT_DIR + "/report.json");
-              const rows = r.shots.map(s => `| ${s.file} | ${s.outcome} | ${s.bytes} B | gpuMs=${s.gpuMs ?? "?"} | draws=${s.drawCalls ?? "?"} |`).join("\n");
+              const shots = r.shots || [];
+              const ready = shots.filter(s => s.outcome === "ready").length;
+              const fallback = shots.filter(s => s.outcome === "fallback").length;
+              const rows = shots.map(s => `| ${s.file} | ${s.outcome} | ${s.bytes} B | gpuMs=${s.gpuMs ?? "?"} | draws=${s.drawCalls ?? "?"} |`).join("\n");
               const head = "| file | outcome | bytes | gpuMs | draws |\n| --- | --- | --- | --- | --- |";
-              require("fs").appendFileSync(process.env.GITHUB_STEP_SUMMARY, head + "\n" + rows + "\n");
+              const fs = require("fs");
+              if (ready === 0 && fallback > 0) {
+                fs.appendFileSync(
+                  process.env.GITHUB_STEP_SUMMARY,
+                  `_Runner landed on a non-GPU fleet VM — every shot skipped (software adapter). Site stays on the committed fallback PNGs._\n\n`,
+                );
+              }
+              fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, head + "\n" + rows + "\n");
             '
           else
             echo "report.json was not produced" >> "$GITHUB_STEP_SUMMARY"
