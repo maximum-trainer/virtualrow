@@ -13,6 +13,7 @@
     "default:webgpu-flora-smoke.spec.ts": 45,
     "default:webgpu-buildings-smoke.spec.ts": 45,
     "default:webgpu-boat-smoke.spec.ts": 45,
+    "default:webgpu-polygon-water.spec.ts": 45,
     "default:webgpu-crew-appearance.spec.ts": 45,
     "default:webgpu-postfx-smoke.spec.ts": 45,
     "default:webgpu-unsupported-row.spec.ts": 20,
