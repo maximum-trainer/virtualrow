@@ -113,15 +113,22 @@ jobs:
           path: regen-marketing-shots
 
       - name: Overlay regenerated marketing screenshots onto docs/
+        id: regen_overlay
         if: steps.regen_download.outcome == 'success'
         run: |
           set -e
-          echo "regenerated screenshots:"
-          ls -lh regen-marketing-shots/
+          echo "regenerated artifact contents:"
+          ls -lh regen-marketing-shots/ || true
           # Only overlay PNGs — report.json is published alongside as an
-          # artifact (#648 AC8), not as part of the Pages site.
-          find regen-marketing-shots -maxdepth 1 -name '*.png' -print0 \
-            | xargs -0 -I{} cp {} docs/
+          # artifact (#648 AC8), not as part of the Pages site. Count what
+          # was overlaid so `Report regen outcome` below can tell "fresh"
+          # from "fleet-VM gap, no PNGs produced" cleanly (#648 FR8 / D5).
+          OVERLAY_COUNT=$(find regen-marketing-shots -maxdepth 1 -name '*.png' | wc -l)
+          echo "overlay_count=$OVERLAY_COUNT" >> "$GITHUB_OUTPUT"
+          if [ "$OVERLAY_COUNT" -gt 0 ]; then
+            find regen-marketing-shots -maxdepth 1 -name '*.png' -print0 \
+              | xargs -0 -I{} cp {} docs/
+          fi
           echo "docs/ after overlay:"
           ls -lh docs/*.png
 
@@ -138,9 +145,16 @@ jobs:
         if: always()
         run: |
           REGEN="${{ needs.regen-marketing-shots.result }}"
+          OVERLAID="${{ steps.regen_overlay.outputs.overlay_count || '0' }}"
           echo "regen-marketing-shots result: $REGEN"
-          if [ "$REGEN" = "success" ] && [ "${{ steps.regen_download.outcome }}" = "success" ]; then
-            echo "::notice::Pages publishing freshly regenerated marketing screenshots."
+          echo "PNGs overlaid onto docs/: $OVERLAID"
+          if [ "$REGEN" = "success" ] && [ "$OVERLAID" -gt 0 ]; then
+            echo "::notice::Pages publishing $OVERLAID freshly regenerated marketing screenshot(s)."
+          elif [ "$REGEN" = "success" ]; then
+            # Regen job completed but produced no PNGs — the GPU runner landed
+            # on a fleet VM without the NVIDIA Vulkan ICD and every shot
+            # skipped. Site stays on the committed fallback (#648 FR8 / D5).
+            echo "::notice::Regen landed on a non-GPU fleet VM — Pages publishing committed fallback marketing screenshots."
           else
             echo "::notice::Pages publishing committed fallback marketing screenshots (regen=$REGEN)."
           fi
