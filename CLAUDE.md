@@ -40,6 +40,15 @@ npm run test:contract:upload # Live check that intervals.icu accepts our FIT byt
                          #   the created activity is deleted in a finally). #446.
 npm run test:fit-csv     # Optional FIT structural gate via Garmin's FitCSVTool.jar
                          #   (tools/FitCSVTool.jar; skipped when the JAR or java is missing). #446.
+npm run test:mutation    # StrykerJS mutation testing scoped to the engine's plan layer,
+                         #   the smoothing/physics helper on the engine seam, and the FIT
+                         #   encoder (#588 FR4 / D3-a). Config in stryker.config.mjs; HTML
+                         #   report at reports/mutation/mutation.html. CI runs this on
+                         #   every build via the `mutation` job and uploads the report.
+                         #   Baseline survived-mutant count (first full run, 2026-11-01):
+                         #   recorded in the `mutation-report` artifact of the first PR
+                         #   build after #588 FR4 lands — read from the HTML's totals
+                         #   line and update this comment on the next pass.
 npm run verify:staged    # TDD guard alone, against the current git index
 npm run hooks:install    # Point git at .githooks (also runs on npm install)
 ```

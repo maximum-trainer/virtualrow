@@ -19,6 +19,10 @@ export default defineConfig([
     'playwright-report',
     '.claude',
     'src/wasm-pkg',
+    // #588 FR4: StrykerJS sandbox copies the whole tree with `@ts-nocheck`
+    // headers; those are tooling-generated and must not be linted.
+    '.stryker-tmp',
+    'reports',
   ]),
 
   // Baseline for every TypeScript file in the repo, React or not.
