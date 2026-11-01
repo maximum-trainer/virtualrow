@@ -36,6 +36,12 @@ jobs:
   # so a fleet outage skips (not fails) the regen; the deploy job overlays
   # fresh PNGs on top of the committed last-known-good fallback and keeps
   # going when the regen artifact is missing (#648 FR8 / D5).
+  #
+  # commit-back-branch: on a successful real-GPU run the regen job pushes
+  # the fresh PNGs back to `main` with `[skip ci]`, so the committed
+  # `docs/*.png` are a self-updating cache. The next deploy that lands on a
+  # non-GPU fleet VM then ships the just-committed PNGs rather than the
+  # pre-cutover baselines (#648 follow-up to D2).
   regen-marketing-shots:
     name: Regenerate marketing screenshots (#648)
     if: ${{ vars.GPU_RUNNER_DISABLED != 'true' }}
@@ -43,7 +49,10 @@ jobs:
     with:
       ref: ${{ github.sha }}
       artifact-name: marketing-shots-${{ github.run_id }}
+      commit-back-branch: main
     secrets: inherit
+    permissions:
+      contents: write
 
   deploy:
     name: Deploy to GitHub Pages
