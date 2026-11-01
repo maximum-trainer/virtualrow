@@ -297,10 +297,12 @@ for (const shot of MARKETING_SHOTS) {
       const probeBytes = await page.screenshot({ fullPage: false });
       fs.writeFileSync(outPath, probeBytes);
       const probeNzr = await nonZeroPixelRatio(probeBytes);
+      let canvasRegionNzr: number | undefined;
       try {
         const canvasOnlyBytes = await canvas.screenshot();
         const canvasOnlyPath = outPath.replace(/\.png$/, '-canvas.png');
         fs.writeFileSync(canvasOnlyPath, canvasOnlyBytes);
+        canvasRegionNzr = await nonZeroPixelRatio(canvasOnlyBytes);
       } catch {
         // Element screenshot can fail if the canvas is scrolled out of
         // view or zero-sized; the full-page shot above still lands.
@@ -332,6 +334,9 @@ for (const shot of MARKETING_SHOTS) {
         rawAdapter,
         canvasSize: { w: readback.w, h: readback.h },
         readback: { nonBlank: readback.nonBlank, total: readback.total },
+        canvasRegionNzr,
+        consoleLines: consoleLines.slice(0, 80),
+        pageErrors: pageErrors.slice(0, 20),
         error:
           readback.nonBlank === 0 && probeNzr <= 0.1
             ? `blank frame (drawImage=0/${readback.total}, screenshotNzr=${probeNzr.toFixed(3)}); adapter=${health?.adapter ?? '?'} isSoftware=${health?.isSoftware ?? '?'}; draws=${renderStats?.draws ?? '?'} gpuMs=${telemetry.frame?.gpuMs ?? '?'}\n--- console (${consoleLines.length}) ---\n${consoleLines.slice(0, 80).join('\n')}\n--- pageerror (${pageErrors.length}) ---\n${pageErrors.slice(0, 20).join('\n')}`
@@ -376,6 +381,9 @@ for (const shot of MARKETING_SHOTS) {
         rawAdapter,
         canvasSize: { w: readback.w, h: readback.h },
         readback: { nonBlank: readback.nonBlank, total: readback.total },
+        canvasRegionNzr,
+        consoleLines: consoleLines.slice(0, 80),
+        pageErrors: pageErrors.slice(0, 20),
       });
 
       // #648 AC11: zero draws is a non-skippable failure — never publish a

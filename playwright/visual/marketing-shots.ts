@@ -165,4 +165,10 @@ export interface MarketingShotReport {
   readonly canvasSize?: { readonly w: number; readonly h: number };
   /** How many sampled pixels came back non-blank, out of total — null on fallback/error-before-readback. */
   readonly readback?: { readonly nonBlank: number; readonly total: number };
+  /** Captured `page.on('console')` lines (error/warning only), truncated. */
+  readonly consoleLines?: readonly string[];
+  /** Captured `page.on('pageerror')` entries, truncated. */
+  readonly pageErrors?: readonly string[];
+  /** Non-zero pixel ratio measured on the canvas region only (vs the full-page nzr above). */
+  readonly canvasRegionNzr?: number;
 }
