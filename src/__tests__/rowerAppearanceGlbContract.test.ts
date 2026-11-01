@@ -14,7 +14,7 @@ import { execFileSync } from 'node:child_process';
  *  - `build_crew.py --dry-run` lists exactly the Phase 2 node tree, so the
  *    generator CAN produce the layout the renderer expects (AC8).
  *  - The committed `scull-male.glb` / `scull-female.glb` stay under the
- *    460 KB NFR2 cap once regenerated — a size-cap test that WILL fail if a
+ *    450 KB cap (#672 D4-a) once regenerated — a size-cap test that WILL fail if a
  *    future regen pushes the asset over that threshold (AC6).
  *
  * The GLB structural assertion (AC5 — the actual regenerated GLBs carry every
@@ -73,8 +73,8 @@ describe('rower appearance GLB contract (#474 Phase 2)', () => {
     },
   );
 
-  it('both scull GLBs stay under the 460 KB NFR2 cap', () => {
-    const CAP = 460 * 1024;
+  it('both scull GLBs stay under the 450 KB cap (#672 D4-a)', () => {
+    const CAP = 450 * 1024;
     expect(fs.statSync(MALE_GLB).size, 'scull-male.glb').toBeLessThan(CAP);
     expect(fs.statSync(FEMALE_GLB).size, 'scull-female.glb').toBeLessThan(CAP);
   });

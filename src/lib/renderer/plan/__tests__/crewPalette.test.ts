@@ -12,6 +12,7 @@ import {
   DEFAULT_CREW_PALETTE,
   flatPrimitiveColors,
   hexToRgba,
+  isCrewNodeVisible,
   paletteFromPreference,
   tintPrimitiveColors,
   type CrewPalette,
@@ -142,5 +143,44 @@ describe('crewPalette CREW_SLOT_PATTERNS', () => {
       'shorts',
       'top',
     ]);
+  });
+});
+
+describe('crewPalette isCrewNodeVisible (#672)', () => {
+  it('shows only the chosen hairstyle sibling', () => {
+    const palette = { ...DEFAULT_CREW_PALETTE, hairstyle: 'long' as const };
+    expect(isCrewNodeVisible('Hair_Long_Cap_part', palette)).toBe(true);
+    expect(isCrewNodeVisible('Hair_Long_Tail_part', palette)).toBe(true);
+    expect(isCrewNodeVisible('Hair_Short_Cap_part', palette)).toBe(false);
+    expect(isCrewNodeVisible('Hair_Buzz_Cap_part', palette)).toBe(false);
+    expect(isCrewNodeVisible('Hair_Bun_Bun_part', palette)).toBe(false);
+  });
+
+  it('hides every hat when the hat is none, and shows only the chosen one otherwise', () => {
+    expect(isCrewNodeVisible('Hat_Cap_Crown_part', DEFAULT_CREW_PALETTE)).toBe(false);
+    expect(isCrewNodeVisible('Hat_Visor_Band_part', DEFAULT_CREW_PALETTE)).toBe(false);
+    const visor = { ...DEFAULT_CREW_PALETTE, hatStyle: 'visor' as const };
+    expect(isCrewNodeVisible('Hat_Visor_Band_part', visor)).toBe(true);
+    expect(isCrewNodeVisible('Hat_Visor_Brim_part', visor)).toBe(true);
+    expect(isCrewNodeVisible('Hat_Cap_Brim_part', visor)).toBe(false);
+    expect(isCrewNodeVisible('Hat_Beanie_Dome_part', visor)).toBe(false);
+  });
+
+  it('defaults to short hair and no hat', () => {
+    expect(DEFAULT_CREW_PALETTE.hairstyle).toBe('short');
+    expect(DEFAULT_CREW_PALETTE.hatStyle).toBe('none');
+    expect(isCrewNodeVisible('Hair_Short_Fringe_part', DEFAULT_CREW_PALETTE)).toBe(true);
+  });
+
+  it('never hides the body, boat or an unnamed primitive', () => {
+    for (const name of ['Head_part', 'Head_Eyes_part', 'LeftHand_part', 'Hull_part', 'LeftOar', undefined]) {
+      expect(isCrewNodeVisible(name, DEFAULT_CREW_PALETTE)).toBe(true);
+    }
+  });
+
+  it('carries the hairstyle and hat through paletteFromPreference', () => {
+    const palette = paletteFromPreference({ ...DEFAULT_ROWER_APPEARANCE, hairstyle: 'bun', hat: 'beanie' });
+    expect(palette.hairstyle).toBe('bun');
+    expect(palette.hatStyle).toBe('beanie');
   });
 });

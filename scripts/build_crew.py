@@ -1,5 +1,6 @@
 """
 Tier H crew & craft builder (issue #229): single scull + female/male rowers.
+The rower is the high-definition llm-cad body in `crew_body.py` (issue #672).
 
 Authored in METRES (the boat loader consumes true scale), bow toward +Z, up +Y,
 pivot at the hull's geometric centre at the waterline (Y=0).
@@ -9,10 +10,10 @@ Exports crewed GLBs to public/assets/boat/ with the node tree the slot requires
 Rower -> Rower_Torso / Rower_LeftArm / Rower_RightArm / Rower_LeftLeg /
 Rower_RightLeg.  Renders a validation PNG and asserts the hull bounds.
 
-The crew now also carries four hairstyle siblings (Hair_Short / Hair_Long /
+The crew also carries four hairstyle siblings (Hair_Short / Hair_Long /
 Hair_Buzz / Hair_Bun) and three hat siblings (Hat_Cap / Hat_Visor / Hat_Beanie
 under a `Hat` parent). The renderer shows one hairstyle and at most one hat;
-colouring is runtime-only (`src/components/rower3d/rowerAppearance.ts`), so a
+colouring is runtime-only (`src/lib/renderer/plan/crewPalette.ts`), so a
 palette change does not touch the GLB. Issue #474 Phase 2.
 
 Pass `--dry-run` to print the authored node tree without exporting a GLB; this
@@ -75,9 +76,6 @@ def strut(p1, p2, r):
 DECK="#E8E4D8"; UNDER="#1E2A33"; COCK="#2A2A28"
 SEAT="#3E4348"; RAIL="#C8CCD0"; GATE="#1A1A1A"
 OAR_SHAFT="#F2F2F0"; OAR_BLADE="#C8102E"
-SUIT="#1E3A5F"; STRIPE="#F2F2F0"; SKIN="#C9A184"; HAIR="#2A2320"
-# Hats carry a baked default (D7); runtime recolours them via `rowerAppearance.ts`.
-HAT_DEFAULT="#1A1A1A"
 
 OARLOCK = (0.30, 0.15, 0.50)   # pivot offset from hull centre (right side; mirror X for left)
 
@@ -125,164 +123,9 @@ def oar_assembly(name, sign):
     return a
 
 
-# ============================================================================
-# HAIRSTYLE AND HAT GENERATORS (#474 Phase 2, FR9)
-#
-# One function per slot that takes a parameter dict and returns a
-# `cq.Assembly`. The function signatures match the shape a future
-# `llm-cad generate-rower --slot hairstyle --style long` CLI would emit; the
-# migration path on #449 D1 swaps the function body, not the surrounding
-# assembly code.
-#
-# Every variant is authored in the head's local frame — the caller places the
-# whole hairstyle / hat assembly at the head centre with a single `loc`. Shapes
-# are deliberately simple (one or two primitives) so the GLB stays under the
-# NFR2 size cap (both files ≤ 460 KB uncompressed).
-# ============================================================================
-
-
-def build_hairstyle(name, params):
-    """Build a hairstyle variant as a `cq.Assembly` named ``Hair_<name>``.
-
-    ``params`` carries the head geometry the hairstyle sits on:
-        * ``skull_r``   base skull radius (metres)
-        * ``front``     +Z offset of the forehead from the hair centre
-        * ``nape``      -Z offset of the nape from the hair centre
-    """
-    skull_r = params["skull_r"]
-    nape_z = -params["nape"]
-    a = cq.Assembly(name=f"Hair_{name}")
-
-    if name == "Short":
-        a.add(ellipsoid(skull_r * 1.00, skull_r * 1.045, skull_r * 1.05),
-              name=f"Hair_{name}_Cap", color=col(HAIR))
-    elif name == "Long":
-        a.add(ellipsoid(skull_r * 1.03, skull_r * 1.055, skull_r * 1.08),
-              name=f"Hair_{name}_Cap", color=col(HAIR))
-        # Ponytail at the nape, hanging down.
-        a.add(ellipsoid(0.030, 0.085, 0.030, (0.0, -0.08, nape_z - 0.02)),
-              name=f"Hair_{name}_Tail", color=col(HAIR))
-    elif name == "Buzz":
-        # A tight cap, close to the skull.
-        a.add(ellipsoid(skull_r * 0.98, skull_r * 1.00, skull_r * 1.00),
-              name=f"Hair_{name}_Cap", color=col(HAIR))
-    elif name == "Bun":
-        a.add(ellipsoid(skull_r * 1.00, skull_r * 1.045, skull_r * 1.05),
-              name=f"Hair_{name}_Cap", color=col(HAIR))
-        # Round bun at the back of the head, above the nape.
-        a.add(ellipsoid(0.045, 0.045, 0.040, (0.0, 0.055, nape_z - 0.015)),
-              name=f"Hair_{name}_Bun", color=col(HAIR))
-    else:
-        raise ValueError(f"unknown hairstyle: {name!r}")
-    return a
-
-
-def build_hat(name, params):
-    """Build a hat variant as a `cq.Assembly` named ``Hat_<name>``.
-
-    ``params`` carries the head geometry the hat sits on:
-        * ``skull_r``   base skull radius (metres)
-    """
-    skull_r = params["skull_r"]
-    hat_color = col(HAT_DEFAULT)
-    a = cq.Assembly(name=f"Hat_{name}")
-
-    if name == "Cap":
-        # A low crown (short cylinder) plus a brim stretched forward.
-        a.add(cyl(skull_r * 0.92, 0.055, (0.0, skull_r * 1.02, 0.0)),
-              name=f"Hat_{name}_Crown", color=hat_color)
-        a.add(box(skull_r * 1.6, 0.012, skull_r * 1.1,
-                  (0.0, skull_r * 1.02, skull_r * 1.1)),
-              name=f"Hat_{name}_Brim", color=hat_color)
-    elif name == "Visor":
-        # Thin headband plus a brim: open-topped, no crown.
-        a.add(cyl(skull_r * 1.03, 0.025, (0.0, skull_r * 1.00, 0.0)),
-              name=f"Hat_{name}_Band", color=hat_color)
-        a.add(box(skull_r * 1.6, 0.012, skull_r * 1.1,
-                  (0.0, skull_r * 1.03, skull_r * 1.1)),
-              name=f"Hat_{name}_Brim", color=hat_color)
-    elif name == "Beanie":
-        # A snug domed cap, no brim.
-        a.add(ellipsoid(skull_r * 1.07, skull_r * 0.95, skull_r * 1.07,
-                        (0.0, skull_r * 0.55, 0.0)),
-              name=f"Hat_{name}_Dome", color=hat_color)
-    else:
-        raise ValueError(f"unknown hat: {name!r}")
-    return a
-
-
-HAIRSTYLES = ("Short", "Long", "Buzz", "Bun")
-HATS = ("Cap", "Visor", "Beanie")
-
-
-def rower_assembly(dims):
-    """Seated rower at the catch, segmented into the five rig chains.
-    dims: torso, uarm, larm, thigh, shin, shoulder_w, hip_w, scale."""
-    torso_l = dims["torso"]; ua = dims["uarm"]; la = dims["larm"]
-    th = dims["thigh"]; sh = dims["shin"]; shw = dims["shoulder_w"]; hipw = dims["hip_w"]
-    limb_r = dims["limb_r"]
-
-    hip = np.array([0.0, 0.24, 0.02])                     # sits on the seat (top ~0.18)
-    # torso leans forward (+Z) at the catch
-    shoulder = hip + np.array([0.0, torso_l*0.82, torso_l*0.55])
-    rower = cq.Assembly(name="Rower")
-
-    # torso + head + hips
-    torso = cq.Assembly(name="Rower_Torso")
-    torso.add(strut(tuple(hip), tuple(shoulder), 0.085), name="Torso_Spine", color=col(SUIT))
-    torso.add(box(shw, 0.10, 0.12, tuple(shoulder)), name="Torso_Shoulders", color=col(SUIT))
-    torso.add(box(0.06, 0.02, 0.34, tuple((hip+shoulder)/2 + np.array([0,0.02,0.02]))), name="Torso_Stripe", color=col(STRIPE))
-    neck = shoulder + np.array([0.0, 0.10, 0.02])
-    torso.add(ellipsoid(0.09, 0.11, 0.10, tuple(neck + np.array([0,0.06,0.03]))), name="Head", color=col(SKIN))
-
-    # Hair: four sibling variants under a `Hairstyles` group. The renderer
-    # shows exactly one at a time (`applyAppearance`'s visibility pass).
-    # Hair_Short is the baked default and matches the old single `Hair` node.
-    hair_center = tuple(neck + np.array([0, 0.09, 0.0]))
-    hair_params = {"skull_r": 0.105, "front": 0.06, "nape": 0.065}
-    hairstyles = cq.Assembly(name="Hairstyles")
-    for style in HAIRSTYLES:
-        sub = build_hairstyle(style, hair_params)
-        sub.loc = cq.Location(cq.Vector(*hair_center))
-        hairstyles.add(sub)
-    torso.add(hairstyles)
-
-    # Hats: three sibling variants under a `Hat` group, hidden by default
-    # (hat preference starts at 'none'). Positioned at the hair centre so a
-    # future head-rock animation on the torso carries them along.
-    hat_params = {"skull_r": 0.105}
-    hat_parent = cq.Assembly(name="Hat")
-    for hat in HATS:
-        sub = build_hat(hat, hat_params)
-        sub.loc = cq.Location(cq.Vector(*hair_center))
-        hat_parent.add(sub)
-    torso.add(hat_parent)
-    rower.add(torso)
-
-    # arms reach forward to the handles near the midline (catch)
-    hand_z = shoulder[2] + 0.34
-    for side, s in (("Left", -1), ("Right", 1)):
-        arm = cq.Assembly(name=f"Rower_{side}Arm")
-        sh_pt = shoulder + np.array([s*shw*0.5, 0.0, 0.0])
-        elbow = sh_pt + np.array([s*0.04, -0.02, ua])
-        hand  = np.array([s*0.10, 0.30, hand_z])
-        arm.add(strut(tuple(sh_pt), tuple(elbow), limb_r), name=f"{side}Arm_Upper", color=col(SKIN))
-        arm.add(strut(tuple(elbow), tuple(hand), limb_r*0.9), name=f"{side}Arm_Fore", color=col(SKIN))
-        arm.add(ellipsoid(0.05, 0.05, 0.06, tuple(hand)), name=f"{side}Hand", color=col(SKIN))
-        rower.add(arm)
-
-    # legs compressed at the catch: knees high, feet forward at the stretcher
-    for side, s in (("Left", -1), ("Right", 1)):
-        leg = cq.Assembly(name=f"Rower_{side}Leg")
-        hip_pt = hip + np.array([s*hipw*0.5, 0.0, 0.0])
-        knee = hip_pt + np.array([s*0.02, th*0.55, th*0.75])
-        foot = np.array([s*0.11, 0.10, hip_pt[2] + 0.80])
-        leg.add(strut(tuple(hip_pt), tuple(knee), limb_r*1.15), name=f"{side}Thigh", color=col(SUIT))
-        leg.add(strut(tuple(knee), tuple(foot), limb_r), name=f"{side}Shin", color=col(SKIN))
-        leg.add(box(0.08, 0.20, 0.05, tuple(foot + np.array([0,0.0,0.06]))), name=f"{side}Foot", color=col("#2A2A28"))
-        rower.add(leg)
-
-    return rower
+# The rower itself — body, head, hairstyles and hats — is the high-definition
+# llm-cad model in `crew_body.py` (issue #672). This file keeps the boat.
+from crew_body import rower_assembly, MALE, FEMALE, HAIRSTYLES, HATS  # noqa: E402
 
 
 def scull_hull():
@@ -315,12 +158,6 @@ def scull_hull():
         oar.loc = cq.Location(cq.Vector(s*GATE_OFFSET, oy, oz))
         a.add(oar)
     return a
-
-
-MALE = dict(torso=0.62, uarm=0.34, larm=0.30, thigh=0.46, shin=0.44,
-            shoulder_w=0.46, hip_w=0.34, limb_r=0.055, scale=1.0)
-FEMALE = dict(torso=0.56, uarm=0.31, larm=0.27, thigh=0.43, shin=0.41,
-              shoulder_w=0.40, hip_w=0.32, limb_r=0.05, scale=1.0)
 
 
 def render_glb(glb_path, name):

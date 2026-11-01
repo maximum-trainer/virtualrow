@@ -77,6 +77,7 @@ import {
   DEFAULT_CREW_PALETTE,
   flatPrimitiveColors,
   tintPrimitiveColors,
+  isCrewNodeVisible,
   type CrewPalette,
   type CrewSlot,
 } from '../plan/crewPalette';
@@ -482,6 +483,8 @@ export const createRideScene = async (
      * authored colours regardless of palette.
      */
     slot?: CrewSlot;
+    /** GLB node name; decides hairstyle / hat sibling visibility (#672). */
+    nodeName?: string;
     /**
      * Snapshot of the authored per-vertex RGBA (or a flat buffer when
      * the GLB only shipped a scalar `baseColor`), kept so the alpha
@@ -566,6 +569,7 @@ export const createRideScene = async (
           group: prim.groupName,
           pivotWorld,
           slot,
+          nodeName: slotKey,
           authoredColors,
         });
       }
@@ -1160,7 +1164,10 @@ export const createRideScene = async (
         } else {
           mat4Multiply(perInstance, boatTrs, prim.nodeWorld);
         }
-        sceneryMeshPass.setInstances(prim.id, [perInstance]);
+        sceneryMeshPass.setInstances(
+          prim.id,
+          isCrewNodeVisible(prim.nodeName, currentAppearance) ? [perInstance] : [],
+        );
       }
     }
     boatPass.boat.write(device, {

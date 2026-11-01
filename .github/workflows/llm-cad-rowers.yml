@@ -70,6 +70,20 @@ jobs:
           echo "Reference style: ${REFERENCE_STYLE}"
           npm run build:crew
 
+      # #672: the crewed GLBs carry the HD llm-cad body from scripts/crew_body.py.
+      - name: Setup Python
+        if: steps.guard.outputs.skip != 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Regenerate HD crew GLBs
+        if: steps.guard.outputs.skip != 'true'
+        run: |
+          python3 -m pip install cadquery trimesh matplotlib
+          python3 scripts/build_crew.py public/assets/boat "${RUNNER_TEMP}/crew-renders"
+          node scripts/compress-scenery.mjs
+
       - name: Describe generated bins
         if: steps.guard.outputs.skip != 'true'
         id: describe
@@ -79,7 +93,7 @@ jobs:
             echo ''
             echo '| File | Bytes |'
             echo '| --- | --- |'
-            for f in public/assets/boat/shell.bin public/assets/boat/shell-male.bin public/assets/boat/shell-female.bin; do
+            for f in public/assets/boat/shell.bin public/assets/boat/shell-male.bin public/assets/boat/shell-female.bin public/assets/boat/scull-male.glb public/assets/boat/scull-female.glb; do
               if [ -f "$f" ]; then
                 echo "| \`$f\` | $(stat -c%s "$f") |"
               fi
