@@ -1,5 +1,6 @@
 <!--
   RowerAppearancePicker (#474, ported to Svelte for #542 P1). Lets a rower pick
+  the Male / Female / Auto rower (#672, above the disclosure) and the
   clothing, hair, hairstyle, hat and hat colour, inside a `<details>` disclosure
   so the pre-row panel stays compact. The hat-colour row is hidden when the hat
   slot is 'none'. DOM, class names, data-testids and copy are kept verbatim so
@@ -19,6 +20,8 @@
     type HatId,
   } from '../../components/rower3d/rowerAppearance';
   import type { RowerAppearancePreference } from '../services/rowerAppearanceService';
+  import CrewPicker from './CrewPicker.svelte';
+  import type { CrewPreference } from './useCrewPreference.svelte';
   import './RowerAppearancePicker.css';
 
   interface Props {
@@ -27,9 +30,12 @@
       slot: K,
       value: RowerAppearancePreference[K],
     ) => void;
+    /** Male / Female / Auto rower (#672). Shown above the disclosure, for everyone. */
+    crew?: CrewPreference;
+    onCrewChange?: (preference: CrewPreference) => void;
   }
 
-  let { appearance, onChange }: Props = $props();
+  let { appearance, onChange, crew, onCrewChange }: Props = $props();
 </script>
 
 {#snippet swatchRow(
@@ -82,6 +88,12 @@
     </div>
   </div>
 {/snippet}
+
+{#if crew && onCrewChange}
+  <!-- Outside the <details>: a closed disclosure hides its content, and the
+       rower choice should be one click away (#672). -->
+  <CrewPicker preference={crew} onChange={onCrewChange} />
+{/if}
 
 <details class="rower-appearance" data-testid="rower-appearance">
   <summary class="rower-appearance-summary">Rower appearance</summary>

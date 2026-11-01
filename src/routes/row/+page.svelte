@@ -25,7 +25,7 @@
   import { getRoutesStore } from '$lib/ui/routesContext';
   import { getAuth } from '$lib/ui/authContext';
   import { CrewPreferenceStore } from '$lib/ui/useCrewPreference.svelte';
-  import { resolveCrew, effectiveCrewPreference } from '../../components/rower3d/crewModel';
+  import { resolveCrew } from '../../components/rower3d/crewModel';
   import { RowerAppearanceStore } from '$lib/ui/useRowerAppearance.svelte';
   import { paletteFromPreference } from '$lib/renderer/plan/crewPalette';
   import { FullscreenStore } from '$lib/ui/fullscreen.svelte';
@@ -140,16 +140,10 @@
     return () => window.clearInterval(id);
   });
 
-  // Crewed-scull selection (#232 / #443): a signed-in profile with a `sex`
-  // field wins, otherwise the stored CrewPreference decides, otherwise male.
-  // The engine stays free of this policy — it just loads the GLB url the
-  // shell resolves. See `src/components/rower3d/crewModel.ts` for the rules.
-  const resolvedCrew = $derived(
-    resolveCrew(
-      auth.user?.gender ?? null,
-      effectiveCrewPreference(auth.user?.gender ?? null, crewPreference.preference),
-    ),
-  );
+  // Crewed-scull selection (#232 / #672): the stored CrewPreference wins,
+  // `auto` follows the intervals.icu profile, otherwise male. The engine stays
+  // free of this policy — it just loads the GLB url the shell resolves.
+  const resolvedCrew = $derived(resolveCrew(auth.user?.gender ?? null, crewPreference.preference));
 </script>
 
 <svelte:head>

@@ -1,7 +1,7 @@
 <!--
   CrewPicker (#232, ported to Svelte for #542 P1). Lets a rower choose who is in
-  the boat; since #443 it only renders for guests, demo rows and signed-in
-  athletes whose intervals.icu profile has no `sex` field. Reuses the
+  the boat. Rendered by RowerAppearancePicker for everyone since #672 (#443 had
+  hidden it from athletes whose intervals.icu profile has a `sex`). Reuses the
   `.graphics-quality` classes. DOM, class names and copy are kept verbatim so
   the Playwright selectors keep resolving.
 -->
