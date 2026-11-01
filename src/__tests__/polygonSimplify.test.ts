@@ -60,6 +60,26 @@ describe('simplifyRing', () => {
     expect(a).toEqual(b);
   });
 
+  it('breaks ties by lowest index (strict less-than, #588 FR4 — kills `area <= worstArea` mutant)', () => {
+    // A regular hexagon: every vertex's removal costs the same triangle
+    // area. The source comment at polygonSimplify.ts:51 says "Strict
+    // less-than keeps the lower index on ties — determinism." StrykerJS
+    // flagged `if (area < worstArea)` → `if (area <= worstArea)` as a
+    // survivor because no previous test distinguished the two. With
+    // strict <, worstIdx sticks at 0 on the first all-equal pass; with
+    // ≤ it would walk to the last index. This test fixes the
+    // discriminator.
+    const ring = circle(6, 10);
+    const simplified = simplifyRing(ring, 5);
+    expect(simplified.length).toBe(5);
+    // Index 0 of the hexagon is at (10, 0). Strict < removes it;
+    // ≤ would remove the last vertex (index 5).
+    const hadIndexZero = simplified.some(
+      (p) => Math.abs(p.x - 10) < 1e-9 && Math.abs(p.z - 0) < 1e-9,
+    );
+    expect(hadIndexZero, 'the first vertex (10, 0) must be gone — strict <').toBe(false);
+  });
+
   it('drops the near-collinear vertex before the sharp corner on an L-shape with a stub', () => {
     // Square with an extra almost-collinear vertex on the top edge: that
     // vertex has the smallest removal-area and must go first.

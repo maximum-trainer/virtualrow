@@ -180,3 +180,40 @@ jobs:
         # the ride specs they launch with real WebGPU and branch to the
         # well-formed decline on a runner without a hardware adapter (#542 NFR5).
         run: npx playwright test --config=playwright/playwright.config.ts --project=default playwright/tests/webgpu-device-budget.spec.ts playwright/tests/webgpu-device-lost-recovery.spec.ts playwright/tests/webgpu-postfx.spec.ts playwright/tests/webgpu-scene-quality-match.spec.ts
+
+  # #588 FR4 / AC4 (D3-a + D10 "every build"): StrykerJS mutation testing
+  # scoped to the engine's plan layer, the smoothing/physics helper on the
+  # engine seam, and the FIT encoder (`stryker.config.mjs`). Dan's
+  # directive is to run it on every build, so this gates main / PRs here.
+  # NFR3 cap: `timeout-minutes` keeps a hung mutant from monopolising the
+  # wall clock. Report lands under `reports/mutation/mutation.html` and is
+  # uploaded on every run (not only failures) so the HTML survives a green
+  # run and can be compared PR-over-PR.
+  mutation:
+    name: Mutation testing (#588 FR4)
+    needs: preflight
+    runs-on: ubuntu-24.04
+    env:
+      CI: true
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: StrykerJS
+        # The CI script keeps concurrency at 2 so the hosted runner's
+        # memory holds. The HTML report writes even on a green run so
+        # the artifact upload below can carry it in both cases.
+        run: npm run test:mutation:ci
+      - name: Upload mutation HTML report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-report
+          path: reports/mutation
+          retention-days: 14
