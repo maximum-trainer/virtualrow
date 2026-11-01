@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { mipLevelCountFor, textureBytes } from '../engine/textures';
+import { describe, expect, it, vi } from 'vitest';
+import { mipLevelCountFor, textureBytes, uploadBc7 } from '../engine/textures';
 
 describe('textures', () => {
   it('mipLevelCountFor rounds down log2(max)', () => {
@@ -34,5 +34,41 @@ describe('textures', () => {
     const bc7 = textureBytes(512, 512, 'bc7-rgba-unorm-srgb', 10);
     expect(rgba / bc7).toBeGreaterThan(3.9);
     expect(rgba / bc7).toBeLessThan(4.1);
+  });
+
+  // #648: Dawn validation on Chrome 156 / NVIDIA Turing was discarding every
+  // uploadBc7 texture because the smallest mips (2×2, 1×1) were being written
+  // with a copySize whose width was not a multiple of 4, the BC block size.
+  // Each mip must be written with its block-aligned PHYSICAL extent instead.
+  it('uploadBc7 writes every mip with block-aligned copySize (regression)', () => {
+    (globalThis as unknown as { GPUTextureUsage: { TEXTURE_BINDING: number; COPY_DST: number } }).GPUTextureUsage ??= {
+      TEXTURE_BINDING: 4,
+      COPY_DST: 8,
+    };
+    const copySizes: Array<{ width: number; height: number }> = [];
+    const device = {
+      createTexture: vi.fn().mockReturnValue({ destroy() {}, createView: () => ({}) }),
+      queue: {
+        writeTexture: vi.fn((_dst, _data, _layout, size) => {
+          copySizes.push({ width: size.width, height: size.height });
+        }),
+      },
+    } as unknown as GPUDevice;
+    // 8×8 → mips 8, 4, 2, 1. Pre-fix the last two mips were written at
+    // {2,2} and {1,1}; post-fix every mip is {4,4}-aligned.
+    const mipData = [8, 4, 2, 1].map((px) =>
+      new Uint8Array(Math.max(1, Math.ceil(px / 4)) ** 2 * 16),
+    );
+    uploadBc7(device, 8, 8, mipData);
+    expect(copySizes).toEqual([
+      { width: 8, height: 8 },
+      { width: 4, height: 4 },
+      { width: 4, height: 4 },
+      { width: 4, height: 4 },
+    ]);
+    for (const size of copySizes) {
+      expect(size.width % 4, `width ${size.width} must be multiple of 4`).toBe(0);
+      expect(size.height % 4, `height ${size.height} must be multiple of 4`).toBe(0);
+    }
   });
 });

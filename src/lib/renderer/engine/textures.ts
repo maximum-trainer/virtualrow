@@ -148,12 +148,27 @@ export const uploadBc7 = (
   let w = width;
   let h = height;
   for (let i = 0; i < mipLevelCount; i += 1) {
-    const bytesPerRow = Math.max(1, Math.ceil(w / 4)) * 16;
+    // BC7 is 4×4-blocked: the texture's PHYSICAL extent at each mip is
+    // `ceil(logical / 4) * 4`, and writeTexture's copySize must be either a
+    // multiple of 4 or exactly fill the remaining physical extent from the
+    // origin. Passing the logical mip width (`w`) tripped Dawn validation
+    // on the 2×2 and 1×1 mips with
+    //   "copySize.width (1|2) is not a multiple of compressed texture format
+    //    block width (4)."
+    // and the whole write — not just the smallest mips — was discarded on
+    // Chrome 156 / NVIDIA Turing, which is why the real-GPU regen rendered
+    // pure black (every scenery texture sampled zeros). #648 run 41355366329.
+    //
+    // Fix: send the block-aligned PHYSICAL extent (`blocksX * 4` wide) and
+    // the block-count rows, matching the WebGPU spec's definition of the
+    // mip's physical size.
+    const blocksX = Math.max(1, Math.ceil(w / 4));
+    const blocksY = Math.max(1, Math.ceil(h / 4));
     device.queue.writeTexture?.(
       { texture, mipLevel: i },
       mipData[i] as BufferSource,
-      { bytesPerRow, rowsPerImage: Math.max(1, Math.ceil(h / 4)) },
-      { width: w, height: h },
+      { bytesPerRow: blocksX * 16, rowsPerImage: blocksY },
+      { width: blocksX * 4, height: blocksY * 4 },
     );
     w = Math.max(1, Math.floor(w / 2));
     h = Math.max(1, Math.floor(h / 2));
