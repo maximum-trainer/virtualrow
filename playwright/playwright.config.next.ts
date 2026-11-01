@@ -105,6 +105,10 @@ const EXTRA_IGNORE = [
   '**/webgpu-device-lost-recovery.spec.ts',
   '**/webgpu-postfx.spec.ts',
   '**/webgpu-scene-quality-match.spec.ts',
+  // #588 FR10 / AC10 — perf-budget telemetry. Reads __ROWER3D_FRAME_STATS
+  // after a warm-up; only runs on the real adapter, so keep it off the
+  // SwiftShader shards.
+  '**/webgpu-perf-budget.spec.ts',
   // The `smoke` job in next-branch-ci.yml runs this one.
   '**/svelte-scaffold-smoke.spec.ts',
 ];
