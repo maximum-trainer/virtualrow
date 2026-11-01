@@ -66,6 +66,7 @@ import {
   BOAT_BONE_TORSO,
 } from '../plan/boatMesh';
 import { loadBoatMesh } from '../plan/boatMeshLoader';
+import { dominantGrassProfile } from '../plan/grassDensityPlan';
 import { publishBoatSource, publishFallback } from './health';
 import { computeCascades } from './cascadedShadows';
 import { createPlacement, placeBoat, placeGhost, strokePhase, strokeAmplitude } from './characterPlacement';
@@ -586,9 +587,14 @@ export const createRideScene = async (
   // dominant profile when the adapter supplied one; strength scales with
   // the actual device tier, respecting the `__VIRTUALROW_SHADER_GRASS`
   // kill switch the React scene also honours — see `shaderGrass.ts`.
-  const bankGrassProfile = (
-    isSceneryRoute(opts.route) ? (opts.route.dominantProfile as SceneryProfile | undefined) : undefined
-  ) ?? 'fallback';
+  // #496 FR3 / AC5: biome mapping lives in `plan/grassDensityPlan.ts`.
+  // The adapter passes a `dominantProfile` picked by the same mapping, so
+  // the renderer defers to it; the plan module is the source of truth,
+  // and when the adapter omits it we fall through to the plan's default.
+  const explicitProfile = isSceneryRoute(opts.route)
+    ? (opts.route.dominantProfile as SceneryProfile | undefined)
+    : undefined;
+  const bankGrassProfile: SceneryProfile = explicitProfile ?? dominantGrassProfile(null);
   const bankGrassStrength = shaderGrassStrengthFor((opts.tier ?? 'medium') as PerformanceMode);
   const bankPass = createBankPass({
     device,
