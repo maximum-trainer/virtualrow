@@ -72,18 +72,18 @@ test.use({
     // runner-884, PR #671 run 41351188410, even with libGLX_nvidia and all
     // the userspace NVIDIA libs resolved on disk).
     //
-    // Keep this list MINIMAL — Dan's Windows laptop runs with just
-    // `--enable-unsafe-webgpu` and the engine renders fully (parity-shots
-    // 672-hd-rower). On Linux headless we also need --no-sandbox and
-    // --disable-dev-shm-usage for container stability, but DROP
-    // --use-angle=vulkan (that's a WebGL flag; Dawn uses Vulkan directly
-    // without ANGLE) and --enable-features=Vulkan (they force a swap-chain
-    // path that comes out dark grey on Chrome 156 headless Linux, confirmed
-    // in run 41357256131: `drawCalls=9, gpuMs~8ms`, but the canvas region
-    // in the PNG was pure background slate — the engine thought it was
-    // rendering but nothing reached Chrome's compositor).
+    // Dan's Windows laptop renders cleanly with just `--enable-unsafe-webgpu`
+    // because D3D12 is Chrome's default WebGPU backend on Windows. On
+    // headless Linux Chrome falls back to a software adapter unless
+    // `--enable-features=Vulkan` is explicitly passed — the "minimal" flag
+    // set (dae6102, run 41358150390) regressed to fallback for exactly this
+    // reason. ANGLE though is a WebGL concept (Dawn drives Vulkan directly
+    // for WebGPU, no ANGLE involvement), so `--use-angle=vulkan` is
+    // dropped as noise. `--no-sandbox` + `--disable-dev-shm-usage` are the
+    // ordinary container-stability pair.
     args: [
       '--enable-unsafe-webgpu',
+      '--enable-features=Vulkan',
       '--no-sandbox',
       '--disable-dev-shm-usage',
     ],
@@ -288,17 +288,22 @@ for (const shot of MARKETING_SHOTS) {
         return { w, h, nonBlank, total };
       });
 
-      // #648 blank-frame debug: write the actual Chrome-presented PNG even
-      // when drawImage says the WebGPU canvas is blank. The two can disagree
-      // when the swap-chain's back buffer has already been handed back to
-      // the browser (WebGPU has no preserveDrawingBuffer), so page.screenshot
-      // can still carry a non-blank frame while drawImage sees zeros.
-      // Writing it unconditionally means the PR artifact always has the real
-      // pixels for Dan to eyeball, and we can tell which failure mode this is.
+      // #648 blank-frame debug: write both a full-page PNG and a
+      // canvas-only PNG. If the canvas-only shot shows the scene but the
+      // full page is dark, the engine canvas is being covered by an
+      // overlay. If both are dark, the engine really isn't presenting.
       await forceRender(page);
       const probeBytes = await page.screenshot({ fullPage: false });
       fs.writeFileSync(outPath, probeBytes);
       const probeNzr = await nonZeroPixelRatio(probeBytes);
+      try {
+        const canvasOnlyBytes = await canvas.screenshot();
+        const canvasOnlyPath = outPath.replace(/\.png$/, '-canvas.png');
+        fs.writeFileSync(canvasOnlyPath, canvasOnlyBytes);
+      } catch {
+        // Element screenshot can fail if the canvas is scrolled out of
+        // view or zero-sized; the full-page shot above still lands.
+      }
 
       const telemetry = await readRideTelemetry(page);
       const renderStats = await readRenderStats(page);

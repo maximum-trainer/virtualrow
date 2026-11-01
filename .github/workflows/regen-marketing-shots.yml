@@ -173,6 +173,7 @@ jobs:
                 timeout: 30_000,
                 args: [
                   '--enable-unsafe-webgpu',
+                  '--enable-features=Vulkan',
                   '--no-sandbox',
                   '--disable-dev-shm-usage',
                 ],
