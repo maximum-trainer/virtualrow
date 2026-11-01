@@ -96,3 +96,111 @@ export async function assertCanvasNotBlank(
       `invalid command buffers (see helper comment).`,
   ).toBeGreaterThanOrEqual(minShare);
 }
+
+/**
+ * #588 FR7 / AC7 — per-region pixel probe.
+ *
+ * `assertCanvasNotBlank` samples the whole canvas and passes a frame
+ * that is pure sky top-to-bottom. The chase-camera scene has sky at
+ * the top, water in the middle band, and the boat near the bottom —
+ * a drop of the water pass or the boat pass passes the non-blank test
+ * because sky alone saturates it. This helper walks a named set of
+ * rectangles and asserts each one has at least one non-blank sample,
+ * so a seeded "clear to sky" scene fails on `water` and `boat` while
+ * `sky` still passes.
+ */
+export interface CanvasRegion {
+  /** Fractional rect in [0, 1]^2 — `{x0, y0, x1, y1}`. */
+  readonly x0: number;
+  readonly y0: number;
+  readonly x1: number;
+  readonly y1: number;
+  /** Minimum fraction of samples in the region that must be non-blank. */
+  readonly minNonBlankShare?: number;
+}
+
+export interface SamplePerRegionOptions {
+  /** Minimum R+G+B sum to count a pixel as non-blank. Default 15. */
+  minBrightness?: number;
+  /** Sample grid per region (NxN). Default 8 → 64 samples/region. */
+  gridSize?: number;
+}
+
+/**
+ * The engine's default chase-camera framing. Captures the three regions
+ * a dropped pass would stop filling.
+ */
+export const DEFAULT_CHASE_REGIONS: Record<string, CanvasRegion> = {
+  sky: { x0: 0.2, y0: 0.0, x1: 0.8, y1: 0.35, minNonBlankShare: 0.6 },
+  water: { x0: 0.1, y0: 0.55, x1: 0.9, y1: 0.9, minNonBlankShare: 0.3 },
+  boat: { x0: 0.35, y0: 0.5, x1: 0.65, y1: 0.95, minNonBlankShare: 0.15 },
+};
+
+export async function samplePerRegion(
+  page: Page,
+  canvas: Locator,
+  regions: Record<string, CanvasRegion> = DEFAULT_CHASE_REGIONS,
+  opts: SamplePerRegionOptions = {},
+): Promise<void> {
+  const minBrightness = opts.minBrightness ?? 15;
+  const grid = opts.gridSize ?? 8;
+
+  await page.evaluate(() =>
+    (window as unknown as { __ROWER3D_FORCE_RENDER?: () => void }).__ROWER3D_FORCE_RENDER?.(),
+  );
+
+  const samples = await canvas.evaluate(
+    (el, { regionList, grid: g, minBrightness: mb }) => {
+      const c = el as HTMLCanvasElement;
+      const w = c.width;
+      const h = c.height;
+      const tmp = document.createElement('canvas');
+      tmp.width = w;
+      tmp.height = h;
+      const ctx = tmp.getContext('2d');
+      if (!ctx) return { error: 'no-2d-context' as const, regions: {} };
+      try {
+        ctx.drawImage(c, 0, 0);
+      } catch (err) {
+        return {
+          error: (err instanceof Error ? err.message : String(err)) as string,
+          regions: {},
+        };
+      }
+      const out: Record<string, { total: number; nonBlank: number }> = {};
+      for (const [name, r] of regionList) {
+        let total = 0;
+        let nonBlank = 0;
+        for (let yi = 0; yi < g; yi += 1) {
+          for (let xi = 0; xi < g; xi += 1) {
+            const fx = r.x0 + ((xi + 0.5) / g) * (r.x1 - r.x0);
+            const fy = r.y0 + ((yi + 0.5) / g) * (r.y1 - r.y0);
+            const x = Math.min(w - 1, Math.max(0, Math.floor(fx * w)));
+            const y = Math.min(h - 1, Math.max(0, Math.floor(fy * h)));
+            const d = ctx.getImageData(x, y, 1, 1).data;
+            total += 1;
+            if (d[0] + d[1] + d[2] >= mb) nonBlank += 1;
+          }
+        }
+        out[name] = { total, nonBlank };
+      }
+      return { regions: out };
+    },
+    { regionList: Object.entries(regions), grid, minBrightness },
+  );
+
+  expect(samples, 'canvas readback should succeed').toMatchObject({ error: undefined });
+  const regionCounts = samples.regions as Record<string, { total: number; nonBlank: number }>;
+  for (const [name, region] of Object.entries(regions)) {
+    const s = regionCounts[name];
+    const minShare = region.minNonBlankShare ?? 0.2;
+    const share = s.total === 0 ? 0 : s.nonBlank / s.total;
+    expect(
+      share,
+      `region "${name}": expected ≥${(minShare * 100).toFixed(0)}% of ${s.total} ` +
+        `samples to be non-black; got ${s.nonBlank}/${s.total}. A failure here ` +
+        `with the whole-canvas probe passing means the pass that fills this ` +
+        `region (sky / water / boat / …) stopped drawing.`,
+    ).toBeGreaterThanOrEqual(minShare);
+  }
+}
