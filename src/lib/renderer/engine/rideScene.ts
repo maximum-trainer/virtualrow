@@ -45,6 +45,11 @@ import { simplifyPolygons } from '../plan/polygonSimplify';
 import { createWaterDebugPass } from '../passes/waterDebug';
 import { isPolygonWaterEnabled } from './polygonWater';
 import {
+  clearPolygonWaterTelemetry,
+  publishPolygonWaterTelemetry,
+  summarisePolygonWater,
+} from './polygonWaterTelemetry';
+import {
   isWaterDebugEnabled,
   publishWaterDetectionSummary,
   EMPTY_WATER_DETECTION_SUMMARY,
@@ -692,6 +697,14 @@ export const createRideScene = async (
         polygons: polygonLakes,
       })
     : null;
+  // #493 AC6 follow-up — publish the polygon-water render telemetry so a
+  // Playwright smoke can tell the polygon path from the ribbon fallback
+  // without reaching into the engine. `fallback` is true when the kill
+  // switch disabled polygon water OR there were no polygons to draw AT
+  // ALL — in both cases the ribbon pass is wired below.
+  publishPolygonWaterTelemetry(
+    summarisePolygonWater(polygonLakes, tierCaps.polygonWaterMaxVertices, !useLakePolygonWater),
+  );
   // #493 Phase 3d — debug overlay of the detected shoreline / islands /
   // on-land samples, toggled from `DebugPanel.svelte` via the global
   // `__VIRTUALROW_WATER_DEBUG` flag. The pass is only built when the
@@ -1386,6 +1399,7 @@ export const createRideScene = async (
       try {
         delete (globalThis as unknown as Record<string, unknown>)[SET_APPEARANCE_KEY];
       } catch { /* non-browser */ }
+      clearPolygonWaterTelemetry();
       session.dispose();
     },
   };
