@@ -279,6 +279,82 @@ Reaching for the last two is a judgement call you should be able to defend in re
 - Don't write Playwright tests that assert on specific pixel positions or animation frame counts — they're flaky across platforms.
 - Don't dispatch the same BLE DataView to multiple characteristics with different parsers — each characteristic has its own wire format.
 
+### 8. Rendering WebGPU on the Linux GPU runner — the three traps
+
+A real-GPU Playwright run on `linux-nvidia-gpu-runner` (Tesla T4) does
+NOT just work. Three independent traps turn an engine that draws
+perfectly on Dan's Windows Chrome into blank PNGs on CI. If a new
+workflow needs to produce PNGs from the WebGPU engine, clear all three.
+
+**Trap 1 — `playwright install chromium` ships `chromium_headless_shell`.**
+That binary has no WebGPU support at all; `navigator.gpu` is `undefined`.
+Install Chrome Stable alongside and set `channel: 'chrome'`:
+
+```yaml
+run: |
+  npx playwright install --with-deps chromium
+  npx playwright install --with-deps chrome
+```
+
+```ts
+test.use({ channel: 'chrome', launchOptions: { args: [...] } });
+```
+
+**Trap 2 — Chrome needs the hardware WebGPU flags on headless Linux.**
+Without `--enable-features=Vulkan` AND `--use-angle=vulkan`, Chrome's
+WebGPU falls back to SwiftShader, and the engine rejects a software
+adapter (`reason: 'software-adapter'`). SwiftShader-style launch args
+(`--use-gl=swiftshader`, `--disable-gpu-rasterization`) hide
+`navigator.gpu` entirely. The complete set:
+
+```ts
+args: [
+  '--enable-unsafe-webgpu',
+  '--enable-features=Vulkan',
+  '--use-angle=vulkan',
+  '--no-sandbox',
+  '--disable-dev-shm-usage',
+],
+```
+
+**Trap 3 — Chrome Stable's headless path on Linux does NOT composite
+WebGPU swap-chain content into `page.screenshot`.** The engine runs
+correctly on the real T4 (`drawCalls > 0`, `gpuMs > 0`, hundreds of
+scenery instances) and Dawn reports zero validation errors, but every
+screenshot reads back as pure background slate. There's no equivalent
+to WebGL's `preserveDrawingBuffer` for WebGPU, and headless's compositor
+samples a layer that bypasses the WebGPU surface. Fix: wrap Playwright
+in `xvfb-run` and launch Chrome headful.
+
+```yaml
+run: |
+  apt-get install -y --no-install-recommends xvfb xauth
+  export MARKETING_HEADFUL=1
+  xvfb-run -a --server-args="-screen 0 1920x1080x24" \
+    npx playwright test --config=…
+```
+
+```ts
+test.use({
+  headless: process.env.MARKETING_HEADFUL === '1' ? false : undefined,
+  ...
+});
+```
+
+Verify the fix end-to-end by inspecting the artifact PNG — a working
+WebGPU render is a large, visually dense PNG (typically 700 KB – 1 MB
+per 1600×900 shot). A nearly-blank canvas is 90–130 KB and the engine
+canvas region reads as uniform background colour even though the full
+page `nonZeroPixelRatio` can approach 1.0 from HUD chrome.
+
+Related CI traps: `uploadBc7` in `src/lib/renderer/engine/textures.ts`
+must send each mip's BLOCK-ALIGNED physical extent (`blocksX * 4` wide,
+`blocksY * 4` tall) to `queue.writeTexture`, not the logical mip width.
+Dawn silently discards the whole write when the final 2×2 and 1×1 mips
+are not 4-block-aligned, which turns every BC7 scenery texture pure
+black on Chrome 156 / NVIDIA Turing (regression test:
+`src/lib/renderer/__tests__/textures.test.ts`).
+
 ## Shared agent skills
 
 Shared skills live in [MaximumTrainer/agent-skills](https://github.com/MaximumTrainer/agent-skills). Before writing a new

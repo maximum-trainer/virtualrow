@@ -129,105 +129,22 @@ jobs:
               || echo "neither libnvidia-gl-$DRV_MAJOR-server nor libnvidia-gl-$DRV_MAJOR available — Chrome will not expose navigator.gpu"
           fi
 
-      - name: Diagnose Chromium GPU-process state (#648 follow-up, temporary)
-        # Fleet-VM lottery check: nvidia-smi + nvidia_icd.json + libGLX_nvidia
-        # can all be present on a `linux-nvidia-gpu-runner` VM and Dawn STILL
-        # declines with `software-adapter`. This step launches Chromium with
-        # the same flags the spec uses, visits chrome://gpu, and dumps:
-        #   * /dev/dri + /dev/nvidia* device nodes (sandbox needs read access)
-        #   * dmesg | grep -i nvidia (kernel-side driver state)
-        #   * Chromium's own chrome://gpu text (Dawn/Vulkan diagnosis)
-        #   * ldd on libGLX_nvidia.so.0 (dangling runtime deps)
-        #   * Chromium stderr with --enable-logging=stderr --v=1
-        # `set +e` + `exit 0` keeps the job green regardless. The step comes
-        # out once we've seen the real failure reason.
-        env:
-          MARKETING_OUT_DIR: ${{ env.MARKETING_OUT_DIR }}
-        timeout-minutes: 3
-        run: |
-          set +e
-          echo "=== /dev/dri + /dev/nvidia* ==="
-          ls -la /dev/dri /dev/nvidia* 2>&1 | head -40
-          echo
-          echo "=== dmesg | grep -i nvidia (last 40 lines) ==="
-          timeout 10 sudo -n dmesg 2>/dev/null | grep -i nvidia | tail -40
-          echo
-          echo "=== ldd /usr/lib/x86_64-linux-gnu/libGLX_nvidia.so.0 ==="
-          timeout 10 ldd /usr/lib/x86_64-linux-gnu/libGLX_nvidia.so.0 2>&1 | head -30
-          echo
-          echo "=== Chromium headless + navigator.gpu probe via Playwright ==="
-          # Hard 90s wall-clock cap for the node probe; if Chromium hangs on
-          # GPU-process init the step still returns to the main render step.
-          timeout 90 node <<'NODE' 2>&1
-          const { chromium } = require('playwright');
-          const t0 = Date.now();
-          const timer = setTimeout(() => {
-            console.error('probe exceeded 80s wall clock');
-            process.exit(0);
-          }, 80_000);
-          (async () => {
-            let browser;
-            try {
-              browser = await chromium.launch({
-                channel: 'chrome',
-                timeout: 30_000,
-                args: [
-                  '--enable-unsafe-webgpu',
-                  '--enable-features=Vulkan',
-                  '--use-angle=vulkan',
-                  '--no-sandbox',
-                  '--disable-dev-shm-usage',
-                ],
-              });
-              console.log('launch ms=', Date.now() - t0);
-              const page = await browser.newPage();
-              page.on('console', (m) => console.log('[c]', m.type(), m.text().slice(0, 400)));
-              await page.goto('data:text/html,<html></html>', { timeout: 15_000 });
-              const info = await page.evaluate(async () => {
-                const nav = navigator;
-                if (!nav.gpu) return { gpu: 'absent' };
-                let adapter;
-                try {
-                  adapter = await nav.gpu.requestAdapter({ powerPreference: 'high-performance' });
-                } catch (e) {
-                  return { gpu: 'present', requestAdapterError: String(e && e.message) };
-                }
-                if (!adapter) return { gpu: 'present', adapter: 'null' };
-                const info = (adapter.info ?? (adapter.requestAdapterInfo ? await adapter.requestAdapterInfo() : {})) || {};
-                return {
-                  gpu: 'present',
-                  adapter: 'ok',
-                  isFallbackAdapter: adapter.isFallbackAdapter ?? null,
-                  info: {
-                    vendor: info.vendor,
-                    architecture: info.architecture,
-                    device: info.device,
-                    description: info.description,
-                    driver: info.driver,
-                  },
-                };
-              });
-              console.log('=== navigator.gpu probe ===');
-              console.log(JSON.stringify(info, null, 2));
-            } catch (err) {
-              console.error('diagnostic failed:', (err && err.message) || err);
-            } finally {
-              clearTimeout(timer);
-              if (browser) await browser.close().catch(() => {});
-              process.exit(0);
-            }
-          })();
-          NODE
-          echo "diagnostic exit=$?"
-          exit 0
-
       - name: Render marketing screenshots (#648 FR1 / AC1)
-        # The Vulkan ICD selection isn't the problem on this runner — see the
-        # diagnostic output on PR #671's runner-782, where nvidia_icd.json,
-        # libGLX_nvidia and the T4 were all visible to `vulkaninfo` yet every
-        # shot still `test.skip`d. The real trap was the Chromium flag set:
-        # `playwright.config.marketing.ts` now mirrors the proven
-        # webgpu-engine-smoke combination.
+        # Three traps had to be cleared to get the T4 drawing into a PNG
+        # (see agents.md "GPU runner — the three traps"):
+        #   1. Playwright's default `chromium` is `chromium_headless_shell`
+        #      which does NOT expose `navigator.gpu`. The spec uses
+        #      `channel: 'chrome'` so Playwright serves Google Chrome Stable.
+        #   2. Chrome needs the HARDWARE WebGPU flags on headless Linux:
+        #      `--enable-unsafe-webgpu --enable-features=Vulkan
+        #      --use-angle=vulkan`. Dropping either Vulkan flag drops back
+        #      to the software adapter.
+        #   3. Chrome Stable's headless path on Linux does NOT composite
+        #      WebGPU swap-chain content into page.screenshot. The engine
+        #      renders correctly on the real T4 (confirmed via drawCalls,
+        #      gpuMs, sceneryDraws telemetry and zero Dawn validation
+        #      errors) but every screenshot reads back as background slate.
+        #      Fix: wrap Playwright in `xvfb-run` and launch Chrome headful.
         run: |
           mkdir -p "$MARKETING_OUT_DIR"
           # Run Chrome under Xvfb so it's "headful" from Chrome's point of
