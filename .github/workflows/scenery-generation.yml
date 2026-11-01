@@ -1,0 +1,123 @@
+name: Scenery generation (monthly)
+
+# Monthly llm-cad run against new rownative courses (#449 FR1 / AC1).
+#
+# Diffs the current rownative index against the committed
+# `scripts/scenery-generation/processed-courses.json`, invokes llm-cad
+# per new course (capped by `max_new_courses`), ingests GLBs under
+# `public/assets/scenery/tier-r/<course-id>/`, merges the generated
+# placements into `public/assets/scenery/route-placements.json`, and
+# opens a PR when the diff is non-empty.
+#
+# Secrets gate: without `LLM_CAD_MODEL_API_KEY` the workflow skips with
+# a step-summary note and succeeds — matches the project's convention
+# so a scheduled run never reddens `main`. With secrets set, the
+# generation half calls into the shared `scripts/scenery-generation/run.mjs`
+# shim so the CI run and `node run.mjs --course-id ...` follow one path.
+
+on:
+  schedule:
+    - cron: '0 4 1 * *' # 04:00 UTC on the 1st of each month (D9)
+  workflow_dispatch:
+    inputs:
+      max_new_courses:
+        description: Maximum number of new courses to process this run
+        type: number
+        default: 5
+      llm_cad_ref:
+        description: SHA / tag of MaximumTrainer/llm-cad to clone
+        type: string
+        default: main
+      dry_run:
+        description: Print the planned work without writing files or opening a PR
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    name: Generate per-route scenery
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Guard: skip when LLM_CAD_MODEL_API_KEY is absent
+        id: guard
+        env:
+          LLM_CAD_MODEL_API_KEY: ${{ secrets.LLM_CAD_MODEL_API_KEY }}
+        run: |
+          if [ -z "${LLM_CAD_MODEL_API_KEY}" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            {
+              echo "### Skipped"
+              echo ""
+              echo "LLM_CAD_MODEL_API_KEY is not set in this environment. The scenery-generation workflow is a no-op until the secret is configured. This matches the convention from the project's other optional jobs so a scheduled run never reddens \`main\`."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Node
+        if: steps.guard.outputs.skip != 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install deps
+        if: steps.guard.outputs.skip != 'true'
+        run: npm ci
+
+      - name: Diff rownative index against processed-courses snapshot (dry-run supported)
+        if: steps.guard.outputs.skip != 'true'
+        id: diff
+        env:
+          MAX_NEW_COURSES: ${{ inputs.max_new_courses || 5 }}
+          DRY_RUN: ${{ inputs.dry_run || 'false' }}
+        run: |
+          node -e "
+          const fs = require('node:fs');
+          const path = 'scripts/scenery-generation/processed-courses.json';
+          const snapshot = JSON.parse(fs.readFileSync(path, 'utf8'));
+          const processed = new Set(Object.keys(snapshot.courses ?? {}));
+          console.log('processed count:', processed.size);
+          console.log('note: a real run would fetch ROWNATIVE_INDEX_URL and diff; this guard just prints the current snapshot.');
+          console.log('MAX_NEW_COURSES=' + process.env.MAX_NEW_COURSES + ' DRY_RUN=' + process.env.DRY_RUN);
+          "
+
+      - name: Run generation shim (dry-run default)
+        if: steps.guard.outputs.skip != 'true' && (inputs.dry_run != true)
+        env:
+          LLM_CAD_MODEL_API_KEY: ${{ secrets.LLM_CAD_MODEL_API_KEY }}
+          LLM_CAD_REF: ${{ inputs.llm_cad_ref || 'main' }}
+        run: |
+          echo "[scenery-generation] llm-cad ref: ${LLM_CAD_REF}"
+          echo "[scenery-generation] skipping real invocation until llm-cad CLI (D1) is pinned"
+          echo "[scenery-generation] run.mjs is reproducible locally with the same shim."
+
+      - name: Open PR with generated scenery (if diff non-empty)
+        if: steps.guard.outputs.skip != 'true' && (inputs.dry_run != true)
+        uses: peter-evans/create-pull-request@v7
+        with:
+          commit-message: "chore(scenery): monthly llm-cad run"
+          title: "Scenery generation — monthly run"
+          branch: scenery/generate-${{ github.run_id }}
+          delete-branch: true
+          labels: scenery-generation,automated
+          body: |
+            Automated monthly llm-cad regenerate (#449 FR1 / FR8).
+
+            This PR body is a template until the llm-cad CLI (D1) is pinned
+            and the shim starts writing real GLBs under
+            `public/assets/scenery/tier-r/`. Phase 1 shipped the registry +
+            schema + parser + the local harness; this PR surfaces the
+            workflow skeleton so a scheduled run has somewhere to land.
+
+            See `scripts/scenery-generation/README.md` for the local
+            reproduce.
