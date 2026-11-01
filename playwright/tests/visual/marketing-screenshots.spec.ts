@@ -211,17 +211,101 @@ for (const shot of MARKETING_SHOTS) {
         await page.waitForTimeout(250);
       }
 
-      await assertCanvasNotBlank(page, canvas);
-      await hideOverlays(page, shot.hiddenOverlays);
-      await forceRender(page);
+      // #648 blank-frame debug: capture adapter info + readback stats BEFORE
+      // the assertion fires, so a blank-frame report entry carries why it
+      // was blank even when the test errors mid-way.
+      const health = await page.evaluate(() => window.__VIRTUALROW_WEBGPU_HEALTH);
+      const rawAdapter = await page.evaluate(async () => {
+        try {
+          const nav = navigator as Navigator & { gpu?: { requestAdapter(o?: unknown): Promise<unknown> } };
+          const a = (await nav.gpu?.requestAdapter({ powerPreference: 'high-performance' })) as
+            | {
+                info?: { vendor?: string; architecture?: string; device?: string; description?: string };
+                isFallbackAdapter?: boolean;
+              }
+            | undefined;
+          if (!a) return undefined;
+          const info = a.info ?? {};
+          return {
+            vendor: info.vendor,
+            architecture: info.architecture,
+            device: info.device,
+            description: info.description,
+            isFallbackAdapter: a.isFallbackAdapter,
+          };
+        } catch {
+          return undefined;
+        }
+      });
+      const readback = await canvas.evaluate((el) => {
+        const c = el as HTMLCanvasElement;
+        const w = c.width;
+        const h = c.height;
+        const tmp = document.createElement('canvas');
+        tmp.width = w;
+        tmp.height = h;
+        const ctx = tmp.getContext('2d');
+        if (!ctx) return { w, h, nonBlank: 0, total: 0 };
+        try {
+          ctx.drawImage(c, 0, 0);
+        } catch {
+          return { w, h, nonBlank: 0, total: 0 };
+        }
+        let total = 0;
+        let nonBlank = 0;
+        for (let yi = 0; yi < 20; yi += 1) {
+          for (let xi = 0; xi < 20; xi += 1) {
+            const x = Math.floor(((xi + 0.5) / 20) * w);
+            const y = Math.floor(((yi + 0.5) / 20) * h);
+            const d = ctx.getImageData(x, y, 1, 1).data;
+            total += 1;
+            if (d[0] + d[1] + d[2] >= 15) nonBlank += 1;
+          }
+        }
+        return { w, h, nonBlank, total };
+      });
 
       const telemetry = await readRideTelemetry(page);
       const renderStats = await readRenderStats(page);
+
+      // Record a provisional entry BEFORE the assertion so a blank frame
+      // still lands with its adapter/readback diagnostics attached.
+      appendReport({
+        file: shot.file,
+        label: shot.label,
+        tier: shot.tier,
+        lighting: shot.lighting,
+        view: shot.view,
+        viewport: shot.viewport,
+        outcome: readback.nonBlank > 0 ? 'ready' : 'error',
+        bytes: 0,
+        nonZeroPixelRatio: 0,
+        gpuMs: telemetry.frame?.gpuMs,
+        drawCalls: renderStats?.draws,
+        sceneryDraws: renderStats?.sceneryDraws,
+        adapter: health?.adapter,
+        isSoftware: health?.isSoftware,
+        rawAdapter,
+        canvasSize: { w: readback.w, h: readback.h },
+        readback: { nonBlank: readback.nonBlank, total: readback.total },
+        error:
+          readback.nonBlank === 0
+            ? `blank frame (0/${readback.total} non-black); adapter=${health?.adapter ?? '?'} isSoftware=${health?.isSoftware ?? '?'}; draws=${renderStats?.draws ?? '?'} gpuMs=${telemetry.frame?.gpuMs ?? '?'}`
+            : undefined,
+      });
+      reported = true;
+
+      await assertCanvasNotBlank(page, canvas);
+      await hideOverlays(page, shot.hiddenOverlays);
+      await forceRender(page);
 
       const pngBytes = await page.screenshot({ fullPage: false });
       fs.writeFileSync(outPath, pngBytes);
 
       const nzr = await nonZeroPixelRatio(pngBytes);
+      // Overwrite the provisional entry with the real success record. The
+      // report file holds a list, so the duplicate is harmless; the
+      // "Summarise rendered shots" step treats the latest entry per file.
       appendReport({
         file: shot.file,
         label: shot.label,
@@ -235,6 +319,11 @@ for (const shot of MARKETING_SHOTS) {
         gpuMs: telemetry.frame?.gpuMs,
         drawCalls: renderStats?.draws,
         sceneryDraws: renderStats?.sceneryDraws,
+        adapter: health?.adapter,
+        isSoftware: health?.isSoftware,
+        rawAdapter,
+        canvasSize: { w: readback.w, h: readback.h },
+        readback: { nonBlank: readback.nonBlank, total: readback.total },
       });
 
       // #648 AC11: zero draws is a non-skippable failure — never publish a

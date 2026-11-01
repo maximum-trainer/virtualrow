@@ -149,4 +149,20 @@ export interface MarketingShotReport {
   readonly sceneryDraws?: number;
   readonly fallbackReason?: string;
   readonly error?: string;
+  /** The engine's own `__VIRTUALROW_WEBGPU_HEALTH.adapter` string (vendor / arch / device). */
+  readonly adapter?: string;
+  /** The engine's own `__VIRTUALROW_WEBGPU_HEALTH.isSoftware`. */
+  readonly isSoftware?: boolean;
+  /** Raw `navigator.gpu.requestAdapter().info` the page sees, independent of the engine's heuristic. */
+  readonly rawAdapter?: {
+    readonly vendor?: string;
+    readonly architecture?: string;
+    readonly device?: string;
+    readonly description?: string;
+    readonly isFallbackAdapter?: boolean;
+  };
+  /** The canvas's actual dimensions when readback failed, for the blank-frame debug. */
+  readonly canvasSize?: { readonly w: number; readonly h: number };
+  /** How many sampled pixels came back non-blank, out of total — null on fallback/error-before-readback. */
+  readonly readback?: { readonly nonBlank: number; readonly total: number };
 }
