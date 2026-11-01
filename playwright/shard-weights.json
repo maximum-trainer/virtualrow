@@ -16,6 +16,7 @@
     "default:webgpu-polygon-water.spec.ts": 45,
     "default:webgpu-crew-appearance.spec.ts": 45,
     "default:webgpu-postfx-smoke.spec.ts": 45,
+    "default:webgpu-loop-smoke.spec.ts": 30,
     "default:webgpu-unsupported-row.spec.ts": 20,
     "default:ride-loop.spec.ts": 90,
     "default:intervals-login.spec.ts": 20,
