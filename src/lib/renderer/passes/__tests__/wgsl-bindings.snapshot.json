@@ -1,0 +1,458 @@
+{
+  "bank.wgsl": [
+    {
+      "group": 0,
+      "binding": 0,
+      "name": "frame",
+      "resourceType": 0
+    },
+    {
+      "group": 2,
+      "binding": 0,
+      "name": "grass",
+      "resourceType": 0
+    },
+    {
+      "group": 2,
+      "binding": 1,
+      "name": "grassTile",
+      "resourceType": 3
+    },
+    {
+      "group": 2,
+      "binding": 2,
+      "name": "grassSampler",
+      "resourceType": 4
+    },
+    {
+      "group": 2,
+      "binding": 3,
+      "name": "bankAtlas",
+      "resourceType": 3
+    },
+    {
+      "group": 2,
+      "binding": 4,
+      "name": "bankAtlasSampler",
+      "resourceType": 4
+    }
+  ],
+  "bankDepth.wgsl": [
+    {
+      "group": 0,
+      "binding": 0,
+      "name": "cascade",
+      "resourceType": 0
+    }
+  ],
+  "bloomDown.wgsl": [
+    {
+      "group": 0,
+      "binding": 0,
+      "name": "src",
+      "resourceType": 3
+    },
+    {
+      "group": 0,
+      "binding": 1,
+      "name": "samp",
+      "resourceType": 4
+    },
+    {
+      "group": 0,
+      "binding": 2,
+      "name": "uBloom",
+      "resourceType": 0
+    }
+  ],
+  "bloomUp.wgsl": [
+    {
+      "group": 0,
+      "binding": 0,
+      "name": "src",
+      "resourceType": 3
+    },
+    {
+      "group": 0,
+      "binding": 1,
+      "name": "samp",
+      "resourceType": 4
+    },
+    {
+      "group": 0,
+      "binding": 2,
+      "name": "uUp",
+      "resourceType": 0
+    }
+  ],
+  "boat.wgsl": [
+    {
+      "group": 0,
+      "binding": 0,
+      "name": "frame",
+      "resourceType": 0
+    },
+    {
+      "group": 2,
+      "binding": 0,
+      "name": "boat",
+      "resourceType": 0
+    },
+    {
+      "group": 2,
+      "binding": 1,
+      "name": "skin",
+      "resourceType": 0
+    }
+  ],
+  "buildings.wgsl": [
+    {
+      "group": 0,
+      "binding": 0,
+      "name": "frame",
+      "resourceType": 0
+    },
+    {
+      "group": 2,
+      "binding": 0,
+      "name": "centres",
+      "resourceType": 1
+    },
+    {
+      "group": 2,
+      "binding": 1,
+      "name": "sizes",
+      "resourceType": 1
+    },
+    {
+      "group": 2,
+      "binding": 2,
+      "name": "atlasTex",
+      "resourceType": 3
+    },
+    {
+      "group": 2,
+      "binding": 3,
+      "name": "atlasSampler",
+      "resourceType": 4
+    }
+  ],
+  "buildingsDepth.wgsl": [
+    {
+      "group": 0,
+      "binding": 0,
+      "name": "cascade",
+      "resourceType": 0
+    },
+    {
+      "group": 1,
+      "binding": 0,
+      "name": "centres",
+      "resourceType": 1
+    },
+    {
+      "group": 1,
+      "binding": 1,
+      "name": "sizes",
+      "resourceType": 1
+    }
+  ],
+  "charactersDepth.wgsl": [
+    {
+      "group": 0,
+      "binding": 0,
+      "name": "cascade",
+      "resourceType": 0
+    },
+    {
+      "group": 1,
+      "binding": 0,
+      "name": "boat",
+      "resourceType": 0
+    },
+    {
+      "group": 1,
+      "binding": 1,
+      "name": "skin",
+      "resourceType": 0
+    }
+  ],
+  "clouds.wgsl": [
+    {
+      "group": 0,
+      "binding": 0,
+      "name": "frame",
+      "resourceType": 0
+    }
+  ],
+  "composite.wgsl": [
+    {
+      "group": 0,
+      "binding": 0,
+      "name": "scene",
+      "resourceType": 3
+    },
+    {
+      "group": 0,
+      "binding": 1,
+      "name": "samp",
+      "resourceType": 4
+    },
+    {
+      "group": 0,
+      "binding": 2,
+      "name": "bloom",
+      "resourceType": 3
+    },
+    {
+      "group": 0,
+      "binding": 3,
+      "name": "lut",
+      "resourceType": 3
+    },
+    {
+      "group": 0,
+      "binding": 4,
+      "name": "ao",
+      "resourceType": 3
+    },
+    {
+      "group": 0,
+      "binding": 5,
+      "name": "u",
+      "resourceType": 0
+    },
+    {
+      "group": 0,
+      "binding": 6,
+      "name": "exposureTex",
+      "resourceType": 3
+    }
+  ],
+  "dofBlur.wgsl": [
+    {
+      "group": 0,
+      "binding": 0,
+      "name": "colour",
+      "resourceType": 3
+    },
+    {
+      "group": 0,
+      "binding": 1,
+      "name": "samp",
+      "resourceType": 4
+    },
+    {
+      "group": 0,
+      "binding": 2,
+      "name": "depthTex",
+      "resourceType": 3
+    },
+    {
+      "group": 0,
+      "binding": 3,
+      "name": "u",
+      "resourceType": 0
+    }
+  ],
+  "luminance.wgsl": [
+    {
+      "group": 0,
+      "binding": 0,
+      "name": "scene",
+      "resourceType": 3
+    },
+    {
+      "group": 0,
+      "binding": 1,
+      "name": "samp",
+      "resourceType": 4
+    }
+  ],
+  "oarSplashParticles.wgsl": [
+    {
+      "group": 0,
+      "binding": 0,
+      "name": "frame",
+      "resourceType": 0
+    },
+    {
+      "group": 2,
+      "binding": 0,
+      "name": "particles",
+      "resourceType": 1
+    }
+  ],
+  "rainOverlay.wgsl": [
+    {
+      "group": 0,
+      "binding": 0,
+      "name": "frame",
+      "resourceType": 0
+    }
+  ],
+  "scenery.wgsl": [
+    {
+      "group": 0,
+      "binding": 0,
+      "name": "frame",
+      "resourceType": 0
+    },
+    {
+      "group": 0,
+      "binding": 1,
+      "name": "sprout",
+      "resourceType": 0
+    },
+    {
+      "group": 0,
+      "binding": 2,
+      "name": "foliageAtlas",
+      "resourceType": 3
+    },
+    {
+      "group": 0,
+      "binding": 3,
+      "name": "foliageSampler",
+      "resourceType": 4
+    },
+    {
+      "group": 1,
+      "binding": 0,
+      "name": "centres",
+      "resourceType": 1
+    },
+    {
+      "group": 1,
+      "binding": 1,
+      "name": "indices",
+      "resourceType": 1
+    }
+  ],
+  "sceneryCull.wgsl": [
+    {
+      "group": 0,
+      "binding": 0,
+      "name": "uniforms",
+      "resourceType": 0
+    },
+    {
+      "group": 0,
+      "binding": 1,
+      "name": "centres",
+      "resourceType": 1
+    },
+    {
+      "group": 0,
+      "binding": 2,
+      "name": "indices",
+      "resourceType": 1
+    },
+    {
+      "group": 0,
+      "binding": 3,
+      "name": "indirect",
+      "resourceType": 1
+    }
+  ],
+  "sceneryDepth.wgsl": [
+    {
+      "group": 0,
+      "binding": 0,
+      "name": "cascade",
+      "resourceType": 0
+    },
+    {
+      "group": 1,
+      "binding": 0,
+      "name": "centres",
+      "resourceType": 1
+    }
+  ],
+  "sceneryMesh.wgsl": [
+    {
+      "group": 0,
+      "binding": 0,
+      "name": "frame",
+      "resourceType": 0
+    },
+    {
+      "group": 1,
+      "binding": 1,
+      "name": "instances",
+      "resourceType": 1
+    }
+  ],
+  "sceneryMeshDepth.wgsl": [
+    {
+      "group": 0,
+      "binding": 0,
+      "name": "cascade",
+      "resourceType": 0
+    },
+    {
+      "group": 1,
+      "binding": 0,
+      "name": "instances",
+      "resourceType": 1
+    }
+  ],
+  "sky.wgsl": [
+    {
+      "group": 0,
+      "binding": 0,
+      "name": "frame",
+      "resourceType": 0
+    }
+  ],
+  "ssao.wgsl": [
+    {
+      "group": 0,
+      "binding": 0,
+      "name": "depthTex",
+      "resourceType": 3
+    },
+    {
+      "group": 0,
+      "binding": 1,
+      "name": "samp",
+      "resourceType": 4
+    },
+    {
+      "group": 0,
+      "binding": 2,
+      "name": "u",
+      "resourceType": 0
+    }
+  ],
+  "wakeParticles.wgsl": [
+    {
+      "group": 0,
+      "binding": 0,
+      "name": "frame",
+      "resourceType": 0
+    },
+    {
+      "group": 2,
+      "binding": 0,
+      "name": "particles",
+      "resourceType": 1
+    }
+  ],
+  "water.wgsl": [
+    {
+      "group": 0,
+      "binding": 0,
+      "name": "frame",
+      "resourceType": 0
+    }
+  ],
+  "waterDebug.wgsl": [
+    {
+      "group": 0,
+      "binding": 0,
+      "name": "frame",
+      "resourceType": 0
+    }
+  ]
+}
