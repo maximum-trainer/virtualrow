@@ -1,37 +1,20 @@
-import * as THREE from 'three';
-
 // ============================================================================
-// ROWER APPEARANCE — the per-athlete clothing / hair / hat picker (#474).
+// ROWER APPEARANCE — pure data for the per-athlete clothing / hair / hat
+// picker (#474 / #578).
 //
-// The crew GLBs (`scripts/build_crew.py`) ship with a baked palette: navy
-// unisuit, white stripe, dark hair, black shoes. This module overrides the
-// `MeshStandardMaterial.color` on named rower nodes at runtime so an athlete
-// can pick their own top / shorts / shoes / hair / hat colour without
-// regenerating the GLB. Phase 2 (#474) adds four hairstyle siblings and three
-// hat siblings; the pass shows the selected one and hides the others.
+// Pre-#625 this file also carried a `applyAppearance(root, …)` function that
+// walked a `THREE.Object3D` and recoloured its materials in place; the WebGPU
+// engine took over at the cutover and the three.js path went with the rest of
+// the React scene. This file is now framework-free: the WebGPU engine imports
+// the slot regex table and the palettes through `src/lib/renderer/plan/
+// crewPalette.ts`, and the Svelte picker UI imports the same palettes.
 //
-// Why runtime and not baked: per-athlete GLBs would multiply the asset count
-// combinatorially and defeat the drei `useGLTF` cache. Overriding the color on
-// an existing `MeshStandardMaterial` leaves `normalMap`/`roughnessMap` intact,
-// which is what `dressScull` relies on for the scull hull (#349, #437).
-//
-// Why the pass clones materials: `Torso_Spine_part`, `Torso_Shoulders_part`,
-// `LeftThigh_part` and `RightThigh_part` all share material index 8 in the
-// authored GLB (the SUIT colour). Three.js shares the JS `MeshStandardMaterial`
-// instance across every mesh pointing at the same material index, so a naive
-// `color.set` would paint top AND shorts in one go. The pass clones per slot
-// the first time it runs; the clone is marked so subsequent passes recolour
-// the same clone instead of growing a chain.
-//
-// Why the pass tolerates the Phase 1 GLB layout: the Phase 2 generator renames
-// the single `Hair` node to `Hair_Short` and adds three sibling hairstyles.
-// Until a reader's cached GLBs are regenerated with the Phase 2 generator the
-// scene still carries the Phase 1 `Hair_part` mesh, so the colour match keeps
-// recognising it; the visibility toggle is a no-op in that case.
+// #588 FR1 / AC1 — the file no longer imports `three`, so the surviving
+// consumers can be ported without the React-era dependency hanging on.
 // ============================================================================
 
 /** Where in the loaded GLB each colourable slot lives. */
-const SLOT_NODE_PATTERNS = {
+export const SLOT_NODE_PATTERNS = {
   top: /^(Torso_Spine|Torso_Shoulders)_part$/,
   shorts: /^(Left|Right)Thigh_part$/,
   shoes: /^(Left|Right)Foot_part$/,
@@ -42,25 +25,6 @@ const SLOT_NODE_PATTERNS = {
 } as const;
 
 export type AppearanceSlot = keyof typeof SLOT_NODE_PATTERNS;
-
-/** Marks a material cloned by this module so a second pass is a no-op. */
-const CLONED_FOR = '__virtualrowAppearanceSlot';
-const APPLIED_VERSION = '__virtualrowAppearanceVersion';
-
-const slotOf = (material: THREE.Material): AppearanceSlot | undefined =>
-  (material as unknown as Record<string, unknown>)[CLONED_FOR] as AppearanceSlot | undefined;
-
-const markSlot = <T extends THREE.Material>(material: T, slot: AppearanceSlot): T => {
-  (material as unknown as Record<string, unknown>)[CLONED_FOR] = slot;
-  return material;
-};
-
-const classifySlot = (meshName: string): AppearanceSlot | undefined => {
-  for (const slot of Object.keys(SLOT_NODE_PATTERNS) as AppearanceSlot[]) {
-    if (SLOT_NODE_PATTERNS[slot].test(meshName)) return slot;
-  }
-  return undefined;
-};
 
 export type HairstyleId = 'short' | 'long' | 'buzz' | 'bun';
 export type HatId = 'none' | 'cap' | 'visor' | 'beanie';
@@ -81,102 +45,6 @@ export interface AppearanceColors {
   /** Hex colour for the active hat (ignored when hat === 'none'). */
   hatColor: string;
 }
-
-const HAIRSTYLE_NODE: Record<HairstyleId, string> = {
-  short: 'Hair_Short',
-  long: 'Hair_Long',
-  buzz: 'Hair_Buzz',
-  bun: 'Hair_Bun',
-};
-
-const HAT_NODE: Record<Exclude<HatId, 'none'>, string> = {
-  cap: 'Hat_Cap',
-  visor: 'Hat_Visor',
-  beanie: 'Hat_Beanie',
-};
-
-/**
- * Show/hide the hairstyle and hat subtrees to match `appearance`.
- *
- * No-op on a GLB that does not carry the sibling nodes yet (the Phase 1
- * cached asset), so the renderer stays safe while the GLB migration lands.
- */
-const applyGeometryVisibility = (root: THREE.Object3D, appearance: AppearanceColors): void => {
-  // Hairstyle siblings. The Phase 2 GLB nests them under a `Hairstyles` group;
-  // we match by name on the root so the pass works whether the group exists
-  // or not.
-  (Object.entries(HAIRSTYLE_NODE) as [HairstyleId, string][]).forEach(([id, nodeName]) => {
-    const node = root.getObjectByName(nodeName);
-    if (node) node.visible = id === appearance.hairstyle;
-  });
-
-  // Hat parent + variants. 'none' hides the whole subtree; otherwise show
-  // the parent and the matching child only.
-  const hatParent = root.getObjectByName('Hat');
-  if (hatParent) hatParent.visible = appearance.hat !== 'none';
-  (Object.entries(HAT_NODE) as [Exclude<HatId, 'none'>, string][]).forEach(([id, nodeName]) => {
-    const node = root.getObjectByName(nodeName);
-    if (node) node.visible = appearance.hat === id;
-  });
-};
-
-const colorForSlot = (
-  slot: AppearanceSlot,
-  appearance: AppearanceColors,
-): string => {
-  switch (slot) {
-    case 'top':
-      return appearance.top;
-    case 'shorts':
-      return appearance.shorts;
-    case 'shoes':
-      return appearance.shoes;
-    case 'hair':
-      return appearance.hair;
-    case 'hat':
-      return appearance.hatColor;
-  }
-};
-
-/**
- * Override the colour slots on the rower meshes and set hairstyle/hat
- * visibility.
- *
- * Idempotent: a second call with the same `appearance` is a no-op for colour
- * (the `APPLIED_VERSION` marker on each cloned material gates the writes).
- * Visibility is re-asserted each call — it is cheap and keeps a stray
- * `.visible = false` elsewhere from drifting the state.
- */
-export const applyAppearance = (root: THREE.Object3D, appearance: AppearanceColors): void => {
-  const version = `${appearance.top}|${appearance.shorts}|${appearance.shoes}|${appearance.hair}|${appearance.hatColor}`;
-  applyGeometryVisibility(root, appearance);
-  root.traverse((object) => {
-    const mesh = object as THREE.Mesh;
-    if (!mesh.isMesh) return;
-    const slot = classifySlot(mesh.name);
-    if (!slot) return;
-    const current = mesh.material as THREE.Material | THREE.Material[] | null;
-    if (!current || Array.isArray(current)) return;
-    const standard = current as THREE.MeshStandardMaterial;
-    if (!standard.color) return;
-
-    let target = standard;
-    const existingSlot = slotOf(standard);
-    if (existingSlot !== slot) {
-      // First visit of this slot's mesh (or a mesh accidentally sharing a
-      // material with a different slot): clone so the override stays scoped.
-      target = standard.clone() as THREE.MeshStandardMaterial;
-      markSlot(target, slot);
-      mesh.material = target;
-    }
-
-    const prevVersion = (target as unknown as Record<string, unknown>)[APPLIED_VERSION];
-    if (prevVersion === version) return;
-
-    target.color.set(colorForSlot(slot, appearance));
-    (target as unknown as Record<string, unknown>)[APPLIED_VERSION] = version;
-  });
-};
 
 // ============================================================================
 // PALETTE

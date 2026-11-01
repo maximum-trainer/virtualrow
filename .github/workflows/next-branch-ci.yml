@@ -34,9 +34,18 @@ jobs:
     uses: ./.github/workflows/npm-preflight.yml
 
   smoke:
-    name: Scaffold smoke (SvelteKit boots at base path)
+    # #588 FR8 / AC8 — the SvelteKit scaffold boot runs on every supported
+    # SwiftShader-safe OS (Linux / Windows / macOS). The engine declines
+    # software adapters, so this job stays about the shell: the title and
+    # the base path. A Linux-only run would miss path-separator or
+    # process-environment bugs that only show up on Windows.
+    name: Scaffold smoke (SvelteKit boots at base path, ${{ matrix.os }})
     needs: preflight
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest, macos-latest]
     env:
       CI: true
     steps:
@@ -52,6 +61,8 @@ jobs:
         run: npm ci
 
       - name: Install Playwright Chromium
+        # `--with-deps` only installs system libs on Linux; it's a no-op on
+        # macOS/Windows, where Playwright ships the needed runtime bits.
         run: npx playwright install --with-deps chromium
 
       - name: Smoke — boot the scaffold
@@ -69,12 +80,19 @@ jobs:
   # tests through it (otherwise it still asks `playwright.config.ci.ts`,
   # which would include specs this branch cannot pass yet).
   e2e-shards:
-    name: e2e shards ${{ matrix.shard }}/2 (ubuntu, SwiftShader)
+    # #588 FR8 / AC8 — the SwiftShader-safe e2e matrix runs on Linux /
+    # Windows / macOS. Only the shell + non-WebGPU specs ride this (the
+    # engine declines software adapters), but every OS catches
+    # path-separator, process-environment, filesystem-case and font-metric
+    # bugs the others would miss. The real-GPU engine smokes stay on the
+    # single `linux-nvidia-gpu-runner` for continuity with its baseline.
+    name: e2e shards ${{ matrix.shard }}/2 (${{ matrix.os }}, SwiftShader)
     needs: preflight
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-24.04, windows-latest, macos-latest]
         shard: [1, 2]
     env:
       CI: true
@@ -84,7 +102,9 @@ jobs:
       # workflow (playwright-e2e-clean.yml) uses the same placeholder.
       VITE_INTERVALS_CLIENT_ID: playwright-e2e-client
       # SwiftShader fallback for WebGL contexts the UI still mounts (e.g. the
-      # route detail map's WebGL leaflet / MapLibre layer).
+      # route detail map's WebGL leaflet / MapLibre layer). Linux-only env
+      # var; harmless on macOS/Windows which pick their own software
+      # rasteriser when the engine declines.
       LIBGL_ALWAYS_SOFTWARE: '1'
     timeout-minutes: 20
     steps:
@@ -104,7 +124,10 @@ jobs:
         if: ${{ failure() }}
         uses: actions/upload-artifact@v4
         with:
-          name: next-branch-playwright-report-shard-${{ matrix.shard }}
+          # The matrix OS has to be in the name so each cell uploads to a
+          # distinct artifact (actions/upload-artifact@v4 refuses two
+          # uploads to the same name).
+          name: next-branch-playwright-report-${{ matrix.os }}-shard-${{ matrix.shard }}
           path: playwright-report
           retention-days: 7
 
@@ -180,6 +203,89 @@ jobs:
         # the ride specs they launch with real WebGPU and branch to the
         # well-formed decline on a runner without a hardware adapter (#542 NFR5).
         run: npx playwright test --config=playwright/playwright.config.ts --project=default playwright/tests/webgpu-device-budget.spec.ts playwright/tests/webgpu-device-lost-recovery.spec.ts playwright/tests/webgpu-postfx.spec.ts playwright/tests/webgpu-scene-quality-match.spec.ts
+      - name: Perf-budget — gpuMs per tier (#588 FR10 / AC10)
+        # Samples __ROWER3D_FRAME_STATS.gpuMs over a short settle window at
+        # basic / medium / extra-high and asserts the median stays under
+        # the committed per-tier cap. Branches to the well-formed decline
+        # on a runner without a hardware adapter (#542 NFR5). D9-b: absolute
+        # caps with headroom; a real regression (added pass, per-frame
+        # upload) pushes gpuMs well above the margin.
+        run: npx playwright test --config=playwright/playwright.config.ts --project=default playwright/tests/webgpu-perf-budget.spec.ts
+
+  visual:
+    # #588 FR9 / AC9 — engine visual baselines, on the real-GPU runner. The
+    # pre-#625 React/three.js visual spec compared SwiftShader PNGs; the
+    # WebGPU engine declines software adapters (#542 NFR5), so baselines
+    # must come from a GPU-attached runner. D8-a pins the chosen platform
+    # to `linux-nvidia-gpu-runner` for continuity with the engine smokes.
+    #
+    # Runs on every push to the gated branches and on PRs carrying the
+    # `visual-baseline` label — the label gates re-record pushes so a
+    # routine PR cannot accidentally overwrite committed baselines.
+    name: Visual baselines (#588 FR9)
+    needs: preflight
+    if: >-
+      ${{
+        vars.GPU_RUNNER_DISABLED != 'true' &&
+        (
+          github.event_name == 'push' ||
+          (github.event_name == 'pull_request' &&
+            contains(github.event.pull_request.labels.*.name, 'visual-baseline'))
+        )
+      }}
+    runs-on: linux-nvidia-gpu-runner
+    continue-on-error: false
+    env:
+      CI: true
+    steps:
+      - uses: actions/checkout@v7
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Install Vulkan runtime for the NVIDIA GPU
+        # Same shape as the webgpu-engine job: without the Vulkan userspace
+        # + the NVIDIA ICD matching the running driver, Chromium's WebGPU
+        # backend falls back to SwiftShader and the engine declines.
+        run: |
+          set -x
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libvulkan1 vulkan-tools libgl1 libegl1
+          DRV_MAJOR=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1 | cut -d. -f1)
+          if [ -n "$DRV_MAJOR" ]; then
+            sudo apt-get install -y --no-install-recommends "libnvidia-gl-$DRV_MAJOR" \
+              || echo "libnvidia-gl-$DRV_MAJOR not available via apt — relying on the image's own ICD"
+          fi
+      - name: Run visual baselines (engine)
+        # `scene.spec.ts` drives real /row via the demo path; on a VM without
+        # a hardware adapter each shot `test.skip`s with a well-formed decline
+        # so a routine fleet-VM gap doesn't read as a visual regression.
+        run: npx playwright test --config=playwright/playwright.config.visual.ts
+      - name: Upload baselines (recorded or diff)
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          # Carries the recorded PNGs on a `visual-baseline` label run
+          # (download, inspect, commit back) and the actual-vs-expected diff
+          # images on a red PR run (triage).
+          name: visual-baselines-${{ github.run_id }}
+          path: |
+            playwright/tests/visual/__snapshots__
+            playwright-report
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Record baselines (visual-baseline label only)
+        # Only on a `visual-baseline` label the engine's `__snapshots__/` is
+        # regenerated with `--update-snapshots`; a non-labelled PR cannot
+        # update them, so the committed baselines are only overwritten
+        # intentionally.
+        if: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'visual-baseline') }}
+        run: npx playwright test --config=playwright/playwright.config.visual.ts --update-snapshots
 
   # #588 FR4 / AC4 (D3-a + D10 "every build"): StrykerJS mutation testing
   # scoped to the engine's plan layer, the smoothing/physics helper on the
