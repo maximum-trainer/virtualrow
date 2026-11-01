@@ -1,0 +1,50 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "VirtualRow route placements",
+  "description": "Per-route scenery placements for the llm-cad generation workflow (#449 FR6/D6/D7). The engine reads this file alongside the generic kit, filters by the current route's rownative externalId, and places each tier-r GLB on the engine's RouteCurve at the declared distance / bank.",
+  "type": "object",
+  "required": ["$schemaVersion", "placements"],
+  "additionalProperties": false,
+  "properties": {
+    "$schemaVersion": {
+      "type": "integer",
+      "const": 1
+    },
+    "placements": {
+      "type": "object",
+      "description": "Keyed by rownative course id (matches ROWNATIVE_ROUTE_ID_PATTERN in src/lib/services/rownativeService.ts).",
+      "patternProperties": {
+        "^[A-Za-z0-9_-]{1,128}$": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/placement" }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "definitions": {
+    "placement": {
+      "type": "object",
+      "required": [
+        "modelId",
+        "assetPath",
+        "distanceAlongRouteMeters",
+        "bankSide",
+        "lateralOffsetMeters",
+        "orientationDegrees",
+        "scale"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "modelId": { "type": "string", "pattern": "^r-[A-Za-z0-9_-]{1,196}$" },
+        "assetPath": { "type": "string", "pattern": "^/assets/scenery/tier-r/[A-Za-z0-9_/-]+\\.glb$" },
+        "distanceAlongRouteMeters": { "type": "number", "minimum": 0 },
+        "bankSide": { "type": "string", "enum": ["left", "right", "centre"] },
+        "lateralOffsetMeters": { "type": "number" },
+        "orientationDegrees": { "type": "number", "minimum": -360, "maximum": 360 },
+        "scale": { "type": "number", "exclusiveMinimum": 0 },
+        "sourceRun": { "type": "string" }
+      }
+    }
+  }
+}
