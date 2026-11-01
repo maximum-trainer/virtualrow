@@ -114,8 +114,19 @@ jobs:
           DRV_MAJOR=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>&1 \
             | grep -E '^[0-9]+\.' | head -1 | cut -d. -f1)
           if [ -n "$DRV_MAJOR" ]; then
-            sudo apt-get install -y --no-install-recommends "libnvidia-gl-$DRV_MAJOR" \
-              || echo "libnvidia-gl-$DRV_MAJOR not available via apt — relying on the image's own ICD"
+            # The fleet VMs run `nvidia-driver-$DRV-server-open`, which depends
+            # on `libnvidia-gl-$DRV-server`, not the plain `libnvidia-gl-$DRV`
+            # (the latter pulls in a non-server libnvidia-compute that
+            # conflicts with the server flavor already installed). Chrome
+            # without the GL userspace library hides `navigator.gpu` entirely —
+            # confirmed on runner-860 (run 41349583867): Chrome 156 launched
+            # but `navigator.gpu === absent` because this very step logged
+            # "libnvidia-gl-590 not available via apt". Try the `-server`
+            # variant first; fall back to the non-server package only if the
+            # server flavor isn't published for this major.
+            sudo apt-get install -y --no-install-recommends "libnvidia-gl-$DRV_MAJOR-server" \
+              || sudo apt-get install -y --no-install-recommends "libnvidia-gl-$DRV_MAJOR" \
+              || echo "neither libnvidia-gl-$DRV_MAJOR-server nor libnvidia-gl-$DRV_MAJOR available — Chrome will not expose navigator.gpu"
           fi
 
       - name: Diagnose Chromium GPU-process state (#648 follow-up, temporary)
