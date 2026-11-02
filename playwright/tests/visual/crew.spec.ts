@@ -1,5 +1,4 @@
 import { test, expect, type Page } from '../../fixtures/crash-watch';
-import { assertCanvasNotBlank } from '../helpers/assertCanvasNotBlank';
 import {
   installRideHarness,
   pinTier,
@@ -77,6 +76,42 @@ async function pinCrewAndView(page: Page, crew: string, view: string): Promise<v
   );
 }
 
+/**
+ * Share of a 20×20 grid of the canvas's on-screen pixels that are not black.
+ *
+ * Read from Chrome's own screenshot, decoded in the page, rather than through
+ * `assertCanvasNotBlank`'s `drawImage` readback: on the GPU runner a WebGPU
+ * canvas presents cleanly while `drawImage` still reads zero (#648, see
+ * `marketing-screenshots.spec.ts`), and the screenshot is what the baseline
+ * compares anyway.
+ */
+async function onScreenNonBlankShare(page: Page, png: Buffer): Promise<number> {
+  return page.evaluate(async (b64) => {
+    const img = new Image();
+    img.src = `data:image/png;base64,${b64}`;
+    await img.decode();
+    const c = document.createElement('canvas');
+    c.width = img.naturalWidth;
+    c.height = img.naturalHeight;
+    const ctx = c.getContext('2d');
+    if (!ctx || c.width === 0 || c.height === 0) return 0;
+    ctx.drawImage(img, 0, 0);
+    let nonBlank = 0;
+    for (let yi = 0; yi < 20; yi += 1) {
+      for (let xi = 0; xi < 20; xi += 1) {
+        const d = ctx.getImageData(
+          Math.floor(((xi + 0.5) / 20) * c.width),
+          Math.floor(((yi + 0.5) / 20) * c.height),
+          1,
+          1,
+        ).data;
+        if (d[0] + d[1] + d[2] >= 15) nonBlank += 1;
+      }
+    }
+    return nonBlank / 400;
+  }, png.toString('base64'));
+}
+
 async function hideOverlays(page: Page): Promise<void> {
   await page.evaluate((selectors) => {
     const style = document.createElement('style');
@@ -134,9 +169,12 @@ for (const crew of CREWS) {
         await page.waitForTimeout(250);
       }
 
-      await assertCanvasNotBlank(page, canvas);
       await hideOverlays(page);
       await forceRender(page);
+
+      // A black frame must never become the baseline.
+      const share = await onScreenNonBlankShare(page, await canvas.screenshot());
+      expect(share, 'the canvas shows a lit scene, not a black frame').toBeGreaterThanOrEqual(0.2);
 
       // Perceptual, as in scene.spec.ts. The stroke is live, so the rower is
       // never in quite the same pose twice; the tolerance has to admit that
