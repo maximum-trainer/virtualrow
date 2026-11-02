@@ -246,26 +246,49 @@ jobs:
           cache: 'npm'
       - name: Install dependencies
         run: npm ci
-      - name: Install Playwright Chromium
-        run: npx playwright install --with-deps chromium
+      - name: Install Playwright Chromium + Google Chrome (for WebGPU)
+        # #672 Phase 3: the same recipe that got the T4 drawing into a PNG for
+        # the marketing shots (#671, agents.md §8 "the three traps"). The
+        # headless shell `playwright install chromium` lands has no
+        # `navigator.gpu`, so the visual specs run on Chrome Stable.
+        run: |
+          npx playwright install --with-deps chromium
+          npx playwright install --with-deps chrome
       - name: Install Vulkan runtime for the NVIDIA GPU
-        # Same shape as the webgpu-engine job: without the Vulkan userspace
-        # + the NVIDIA ICD matching the running driver, Chromium's WebGPU
-        # backend falls back to SwiftShader and the engine declines.
+        # Same recipe as regen-marketing-shots.yml: the fleet VMs run the
+        # `-server` driver flavour, so the GL userspace is
+        # `libnvidia-gl-$DRV-server`; without it Chrome hides `navigator.gpu`.
+        # Xvfb is for the headful run below.
         run: |
           set -x
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libvulkan1 vulkan-tools libgl1 libegl1
-          DRV_MAJOR=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1 | cut -d. -f1)
+          sudo apt-get install -y --no-install-recommends libvulkan1 vulkan-tools libgl1 libegl1 xvfb xauth
+          DRV_MAJOR=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>&1 \
+            | grep -E '^[0-9]+\.' | head -1 | cut -d. -f1)
           if [ -n "$DRV_MAJOR" ]; then
-            sudo apt-get install -y --no-install-recommends "libnvidia-gl-$DRV_MAJOR" \
-              || echo "libnvidia-gl-$DRV_MAJOR not available via apt — relying on the image's own ICD"
+            sudo apt-get install -y --no-install-recommends "libnvidia-gl-$DRV_MAJOR-server" \
+              || sudo apt-get install -y --no-install-recommends "libnvidia-gl-$DRV_MAJOR" \
+              || echo "neither libnvidia-gl-$DRV_MAJOR-server nor libnvidia-gl-$DRV_MAJOR available — Chrome will not expose navigator.gpu"
           fi
       - name: Run visual baselines (engine)
-        # `scene.spec.ts` drives real /row via the demo path; on a VM without
-        # a hardware adapter each shot `test.skip`s with a well-formed decline
-        # so a routine fleet-VM gap doesn't read as a visual regression.
-        run: npx playwright test --config=playwright/playwright.config.visual.ts
+        # On a VM without a hardware adapter each shot `test.skip`s with a
+        # well-formed decline, so a routine fleet-VM gap doesn't read as a
+        # visual regression.
+        #
+        # Headful Chrome under Xvfb: Chrome Stable's headless path on Linux
+        # does not composite the WebGPU swap chain into `page.screenshot`
+        # (#671). VISUAL_HEADFUL=1 tells the crew spec to launch headful.
+        #
+        # Only on a `visual-baseline` label does this re-record
+        # `__snapshots__/` (`--update-snapshots`), so the committed baselines
+        # are only overwritten on purpose. It is one step, ahead of the
+        # upload, so the label run's PNGs are in the artifact to commit back.
+        env:
+          VISUAL_HEADFUL: '1'
+          UPDATE_FLAG: ${{ (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'visual-baseline')) && '--update-snapshots' || '' }}
+        run: |
+          xvfb-run -a --server-args="-screen 0 1920x1080x24" \
+            npx playwright test --config=playwright/playwright.config.visual.ts $UPDATE_FLAG
       - name: Upload baselines (recorded or diff)
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
@@ -277,15 +300,9 @@ jobs:
           path: |
             playwright/tests/visual/__snapshots__
             playwright-report
+            test-results
           if-no-files-found: ignore
           retention-days: 14
-      - name: Record baselines (visual-baseline label only)
-        # Only on a `visual-baseline` label the engine's `__snapshots__/` is
-        # regenerated with `--update-snapshots`; a non-labelled PR cannot
-        # update them, so the committed baselines are only overwritten
-        # intentionally.
-        if: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'visual-baseline') }}
-        run: npx playwright test --config=playwright/playwright.config.visual.ts --update-snapshots
 
   # #588 FR4 / AC4 (D3-a + D10 "every build"): StrykerJS mutation testing
   # scoped to the engine's plan layer, the smoothing/physics helper on the

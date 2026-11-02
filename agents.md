@@ -347,6 +347,13 @@ per 1600×900 shot). A nearly-blank canvas is 90–130 KB and the engine
 canvas region reads as uniform background colour even though the full
 page `nonZeroPixelRatio` can approach 1.0 from HUD chrome.
 
+Two workflows clear all three today: `regen-marketing-shots.yml` (marketing
+shots, `MARKETING_HEADFUL=1`) and the `visual` job in `next-branch-ci.yml`
+(engine baselines, `VISUAL_HEADFUL=1`, used by
+`playwright/tests/visual/crew.spec.ts`, #672). `next-branch-ci.yml` runs on
+`opened`/`synchronize`/`reopened` only, so adding the `visual-baseline` label
+to an open PR records nothing until the next push.
+
 Related CI traps: `uploadBc7` in `src/lib/renderer/engine/textures.ts`
 must send each mip's BLOCK-ALIGNED physical extent (`blocksX * 4` wide,
 `blocksY * 4` tall) to `queue.writeTexture`, not the logical mip width.
