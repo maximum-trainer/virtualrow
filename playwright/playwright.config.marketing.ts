@@ -25,12 +25,11 @@ export default defineConfig({
     ...ci.use,
     launchOptions: {
       ...(process.env.PW_LOCAL_CHROME ? { executablePath: process.env.PW_LOCAL_CHROME } : {}),
-      args: [
-        '--enable-unsafe-webgpu',
-        '--enable-features=Vulkan',
-        '--no-sandbox',
-        '--disable-dev-shm-usage',
-      ],
+      // The spec itself pins the proven engine-smoke flag combo via its
+      // own `test.use({ launchOptions })` — see
+      // playwright/tests/visual/marketing-screenshots.spec.ts. Keep this
+      // list minimal so the override there always wins.
+      args: ['--no-sandbox', '--disable-dev-shm-usage'],
     },
     screenshot: 'off',
     video: 'off',

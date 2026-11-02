@@ -86,8 +86,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install Playwright Chromium
-        run: npx playwright install --with-deps chromium
+      - name: Install Playwright Chromium + Google Chrome (for WebGPU)
+        # The default `playwright install chromium` lands Playwright's
+        # `chromium_headless_shell` binary, which does NOT expose
+        # `navigator.gpu` (confirmed on runner-847 via PR #671's diagnostic
+        # — kernel driver loaded, libGLX_nvidia resolved, navigator.gpu
+        # still `absent`). The marketing spec therefore runs with
+        # `channel: 'chrome'`, which Playwright serves from the system
+        # Google Chrome Stable it installs here.
+        run: |
+          npx playwright install --with-deps chromium
+          npx playwright install --with-deps chrome
 
       - name: Install Vulkan runtime for the NVIDIA GPU
         # Same recipe as next-branch-ci.yml webgpu-engine: the AI/HPC image
@@ -97,17 +106,59 @@ jobs:
         run: |
           set -x
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libvulkan1 vulkan-tools libgl1 libegl1
-          DRV_MAJOR=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1 | cut -d. -f1)
+          sudo apt-get install -y --no-install-recommends libvulkan1 vulkan-tools libgl1 libegl1 xvfb xauth
+          # nvidia-smi writes its "has failed" error to stdout, so a prior
+          # 2>/dev/null doesn't suppress it and $DRV_MAJOR ended up holding
+          # the whole error message. Keep only output that looks like a
+          # version number (digits + dot).
+          DRV_MAJOR=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>&1 \
+            | grep -E '^[0-9]+\.' | head -1 | cut -d. -f1)
           if [ -n "$DRV_MAJOR" ]; then
-            sudo apt-get install -y --no-install-recommends "libnvidia-gl-$DRV_MAJOR" \
-              || echo "libnvidia-gl-$DRV_MAJOR not available via apt — relying on the image's own ICD"
+            # The fleet VMs run `nvidia-driver-$DRV-server-open`, which depends
+            # on `libnvidia-gl-$DRV-server`, not the plain `libnvidia-gl-$DRV`
+            # (the latter pulls in a non-server libnvidia-compute that
+            # conflicts with the server flavor already installed). Chrome
+            # without the GL userspace library hides `navigator.gpu` entirely —
+            # confirmed on runner-860 (run 41349583867): Chrome 156 launched
+            # but `navigator.gpu === absent` because this very step logged
+            # "libnvidia-gl-590 not available via apt". Try the `-server`
+            # variant first; fall back to the non-server package only if the
+            # server flavor isn't published for this major.
+            sudo apt-get install -y --no-install-recommends "libnvidia-gl-$DRV_MAJOR-server" \
+              || sudo apt-get install -y --no-install-recommends "libnvidia-gl-$DRV_MAJOR" \
+              || echo "neither libnvidia-gl-$DRV_MAJOR-server nor libnvidia-gl-$DRV_MAJOR available — Chrome will not expose navigator.gpu"
           fi
 
       - name: Render marketing screenshots (#648 FR1 / AC1)
+        # Three traps had to be cleared to get the T4 drawing into a PNG
+        # (see agents.md "GPU runner — the three traps"):
+        #   1. Playwright's default `chromium` is `chromium_headless_shell`
+        #      which does NOT expose `navigator.gpu`. The spec uses
+        #      `channel: 'chrome'` so Playwright serves Google Chrome Stable.
+        #   2. Chrome needs the HARDWARE WebGPU flags on headless Linux:
+        #      `--enable-unsafe-webgpu --enable-features=Vulkan
+        #      --use-angle=vulkan`. Dropping either Vulkan flag drops back
+        #      to the software adapter.
+        #   3. Chrome Stable's headless path on Linux does NOT composite
+        #      WebGPU swap-chain content into page.screenshot. The engine
+        #      renders correctly on the real T4 (confirmed via drawCalls,
+        #      gpuMs, sceneryDraws telemetry and zero Dawn validation
+        #      errors) but every screenshot reads back as background slate.
+        #      Fix: wrap Playwright in `xvfb-run` and launch Chrome headful.
         run: |
           mkdir -p "$MARKETING_OUT_DIR"
-          npx playwright test --config=playwright/playwright.config.marketing.ts
+          # Run Chrome under Xvfb so it's "headful" from Chrome's point of
+          # view (DISPLAY=:99). The marketing spec reads MARKETING_HEADFUL=1
+          # and launches with headless:false. Chrome Stable's headless path
+          # on Linux has a long-standing quirk where WebGPU canvas content
+          # does not land in page.screenshot (run 41361819039 confirmed:
+          # engine draws 9 commands at 8ms gpuMs on the real T4 adapter,
+          # zero Dawn validation errors, zero page errors — but the engine
+          # canvas region reads back as pure background slate). Xvfb +
+          # headful bypasses that path entirely.
+          export MARKETING_HEADFUL=1
+          xvfb-run -a --server-args="-screen 0 1920x1080x24" \
+            npx playwright test --config=playwright/playwright.config.marketing.ts
 
       - name: Summarise rendered shots
         if: always()

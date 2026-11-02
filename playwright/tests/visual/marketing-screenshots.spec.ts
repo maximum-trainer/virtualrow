@@ -3,7 +3,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { assertCanvasNotBlank } from '../helpers/assertCanvasNotBlank';
 import {
-  GPU_RIDE_LAUNCH_OPTIONS,
   installRideHarness,
   pinTier,
   startDemoRide,
@@ -47,7 +46,57 @@ const REPORT_PATH = path.join(OUT_DIR, 'report.json');
 const LIGHTING_STORAGE_KEY = 'virtualrow:conditions';
 const CAMERA_VIEW_STORAGE_KEY = 'virtualrow:camera-view';
 
-test.use({ launchOptions: GPU_RIDE_LAUNCH_OPTIONS });
+// Run against the full Chrome-for-Testing build, not Playwright's default
+// headless_shell. The headless_shell binary (installed by
+// `playwright install chromium` with no `channel`) does NOT expose
+// `navigator.gpu`, so WebGPU is unavailable regardless of Vulkan ICD state.
+// PR #671's probe confirmed this on linux-nvidia-gpu-runner-847: the T4
+// kernel driver was fully loaded, libGLX_nvidia resolved, but
+// `navigator.gpu` was `absent` inside the browser. `channel: 'chromium'`
+// swaps to the full Chrome-for-Testing build Playwright installs
+// alongside, which ships WebGPU.
+//
+// The regen-marketing-shots.yml workflow installs that build with
+// `npx playwright install chromium --channel chromium`.
+test.use({
+  channel: 'chrome',
+  // MARKETING_HEADFUL=1 (set by the workflow when Xvfb wraps the run) flips
+  // Chrome into headful mode. Chrome Stable's headless path on Linux does
+  // NOT land WebGPU swap-chain content in page.screenshot (confirmed run
+  // 41361819039: engine draws 9 commands, zero Dawn errors, canvas region
+  // still reads background slate). With Xvfb + headful Chrome composites
+  // the real swap-chain into the frame screenshots see.
+  headless: process.env.MARKETING_HEADFUL === '1' ? false : undefined,
+  launchOptions: {
+    ...(process.env.PW_LOCAL_CHROME ? { executablePath: process.env.PW_LOCAL_CHROME } : {}),
+    // Marketing shots need the HARDWARE WebGPU path, not SwiftShader. The
+    // engine-smoke spec can mix `--use-gl=swiftshader` with
+    // `--enable-unsafe-webgpu` because its contract covers the fallback
+    // branch too; here we only care about the real-GPU render. Combining
+    // `--use-gl=swiftshader` + `--disable-gpu-{compositing,rasterization}`
+    // puts Chrome's GPU process into a software/off state that drops the
+    // WebGPU surface entirely (`navigator.gpu === undefined` — confirmed on
+    // runner-884, PR #671 run 41351188410, even with libGLX_nvidia and all
+    // the userspace NVIDIA libs resolved on disk).
+    //
+    // Dan's Windows laptop renders cleanly with just `--enable-unsafe-webgpu`
+    // because D3D12 is Chrome's default WebGPU backend on Windows. On
+    // headless Linux Chrome falls back to a software adapter unless
+    // `--enable-features=Vulkan` is explicitly passed — the "minimal" flag
+    // set (dae6102, run 41358150390) regressed to fallback for exactly this
+    // reason. ANGLE though is a WebGL concept (Dawn drives Vulkan directly
+    // for WebGPU, no ANGLE involvement), so `--use-angle=vulkan` is
+    // dropped as noise. `--no-sandbox` + `--disable-dev-shm-usage` are the
+    // ordinary container-stability pair.
+    args: [
+      '--enable-unsafe-webgpu',
+      '--enable-features=Vulkan',
+      '--use-angle=vulkan',
+      '--no-sandbox',
+      '--disable-dev-shm-usage',
+    ],
+  },
+});
 
 // Each shot sets its own viewport before boot; drop the config-wide default.
 test.use({ viewport: null });
@@ -114,6 +163,23 @@ for (const shot of MARKETING_SHOTS) {
 
     await page.setViewportSize(shot.viewport);
 
+    // #648 black-canvas debug: capture every console message and page error
+    // the browser emits during the run — WebGPU validation errors land on
+    // `page.on('console')` with type 'error', and uncaught throws land on
+    // `page.on('pageerror')`. Both are attached to the report entry so a
+    // blank-frame failure carries the Chromium-side reason.
+    const consoleLines: string[] = [];
+    const pageErrors: string[] = [];
+    page.on('console', (msg) => {
+      const type = msg.type();
+      if (type === 'error' || type === 'warning') {
+        consoleLines.push(`[${type}] ${msg.text()}`);
+      }
+    });
+    page.on('pageerror', (err) => {
+      pageErrors.push(err instanceof Error ? `${err.name}: ${err.message}` : String(err));
+    });
+
     await installRideHarness(page);
     await pinTier(page, shot.tier);
     await pinLightingAndView(page, shot.lighting, shot.view);
@@ -176,17 +242,134 @@ for (const shot of MARKETING_SHOTS) {
         await page.waitForTimeout(250);
       }
 
-      await assertCanvasNotBlank(page, canvas);
-      await hideOverlays(page, shot.hiddenOverlays);
+      // #648 blank-frame debug: capture adapter info + readback stats BEFORE
+      // the assertion fires, so a blank-frame report entry carries why it
+      // was blank even when the test errors mid-way.
+      const health = await page.evaluate(() => window.__VIRTUALROW_WEBGPU_HEALTH);
+      const rawAdapter = await page.evaluate(async () => {
+        try {
+          const nav = navigator as Navigator & { gpu?: { requestAdapter(o?: unknown): Promise<unknown> } };
+          const a = (await nav.gpu?.requestAdapter({ powerPreference: 'high-performance' })) as
+            | {
+                info?: { vendor?: string; architecture?: string; device?: string; description?: string };
+                isFallbackAdapter?: boolean;
+              }
+            | undefined;
+          if (!a) return undefined;
+          const info = a.info ?? {};
+          return {
+            vendor: info.vendor,
+            architecture: info.architecture,
+            device: info.device,
+            description: info.description,
+            isFallbackAdapter: a.isFallbackAdapter,
+          };
+        } catch {
+          return undefined;
+        }
+      });
+      const readback = await canvas.evaluate((el) => {
+        const c = el as HTMLCanvasElement;
+        const w = c.width;
+        const h = c.height;
+        const tmp = document.createElement('canvas');
+        tmp.width = w;
+        tmp.height = h;
+        const ctx = tmp.getContext('2d');
+        if (!ctx) return { w, h, nonBlank: 0, total: 0 };
+        try {
+          ctx.drawImage(c, 0, 0);
+        } catch {
+          return { w, h, nonBlank: 0, total: 0 };
+        }
+        let total = 0;
+        let nonBlank = 0;
+        for (let yi = 0; yi < 20; yi += 1) {
+          for (let xi = 0; xi < 20; xi += 1) {
+            const x = Math.floor(((xi + 0.5) / 20) * w);
+            const y = Math.floor(((yi + 0.5) / 20) * h);
+            const d = ctx.getImageData(x, y, 1, 1).data;
+            total += 1;
+            if (d[0] + d[1] + d[2] >= 15) nonBlank += 1;
+          }
+        }
+        return { w, h, nonBlank, total };
+      });
+
+      // #648 blank-frame debug: write both a full-page PNG and a
+      // canvas-only PNG. If the canvas-only shot shows the scene but the
+      // full page is dark, the engine canvas is being covered by an
+      // overlay. If both are dark, the engine really isn't presenting.
       await forceRender(page);
+      const probeBytes = await page.screenshot({ fullPage: false });
+      fs.writeFileSync(outPath, probeBytes);
+      const probeNzr = await nonZeroPixelRatio(probeBytes);
+      let canvasRegionNzr: number | undefined;
+      try {
+        const canvasOnlyBytes = await canvas.screenshot();
+        const canvasOnlyPath = outPath.replace(/\.png$/, '-canvas.png');
+        fs.writeFileSync(canvasOnlyPath, canvasOnlyBytes);
+        canvasRegionNzr = await nonZeroPixelRatio(canvasOnlyBytes);
+      } catch {
+        // Element screenshot can fail if the canvas is scrolled out of
+        // view or zero-sized; the full-page shot above still lands.
+      }
 
       const telemetry = await readRideTelemetry(page);
       const renderStats = await readRenderStats(page);
+
+      // Record a provisional entry BEFORE the assertion so a blank frame
+      // still lands with its adapter/readback diagnostics attached. Treat
+      // the shot as `ready` when EITHER drawImage readback or the Chrome
+      // page.screenshot found pixels — a WebGPU canvas can present cleanly
+      // while drawImage still reads zero.
+      appendReport({
+        file: shot.file,
+        label: shot.label,
+        tier: shot.tier,
+        lighting: shot.lighting,
+        view: shot.view,
+        viewport: shot.viewport,
+        outcome: readback.nonBlank > 0 || probeNzr > 0.1 ? 'ready' : 'error',
+        bytes: probeBytes.length,
+        nonZeroPixelRatio: probeNzr,
+        gpuMs: telemetry.frame?.gpuMs,
+        drawCalls: renderStats?.draws,
+        sceneryDraws: renderStats?.sceneryDraws,
+        adapter: health?.adapter,
+        isSoftware: health?.isSoftware,
+        rawAdapter,
+        canvasSize: { w: readback.w, h: readback.h },
+        readback: { nonBlank: readback.nonBlank, total: readback.total },
+        canvasRegionNzr,
+        consoleLines: consoleLines.slice(0, 80),
+        pageErrors: pageErrors.slice(0, 20),
+        error:
+          readback.nonBlank === 0 && probeNzr <= 0.1
+            ? `blank frame (drawImage=0/${readback.total}, screenshotNzr=${probeNzr.toFixed(3)}); adapter=${health?.adapter ?? '?'} isSoftware=${health?.isSoftware ?? '?'}; draws=${renderStats?.draws ?? '?'} gpuMs=${telemetry.frame?.gpuMs ?? '?'}\n--- console (${consoleLines.length}) ---\n${consoleLines.slice(0, 80).join('\n')}\n--- pageerror (${pageErrors.length}) ---\n${pageErrors.slice(0, 20).join('\n')}`
+            : readback.nonBlank === 0
+              ? `drawImage=0/${readback.total} but screenshot nzr=${probeNzr.toFixed(3)} — WebGPU canvas back-buffer swapped before drawImage; PNG attached is from page.screenshot`
+              : undefined,
+      });
+      reported = true;
+
+      // If page.screenshot already proved the frame has pixels, keep going
+      // and overwrite the shot with a clean overlays-hidden version. If it
+      // genuinely was blank (both readbacks zero), let assertCanvasNotBlank
+      // fail the test so we don't publish a black PNG.
+      if (readback.nonBlank === 0 && probeNzr <= 0.1) {
+        await assertCanvasNotBlank(page, canvas);
+      }
+      await hideOverlays(page, shot.hiddenOverlays);
+      await forceRender(page);
 
       const pngBytes = await page.screenshot({ fullPage: false });
       fs.writeFileSync(outPath, pngBytes);
 
       const nzr = await nonZeroPixelRatio(pngBytes);
+      // Overwrite the provisional entry with the real success record. The
+      // report file holds a list, so the duplicate is harmless; the
+      // "Summarise rendered shots" step treats the latest entry per file.
       appendReport({
         file: shot.file,
         label: shot.label,
@@ -200,6 +383,14 @@ for (const shot of MARKETING_SHOTS) {
         gpuMs: telemetry.frame?.gpuMs,
         drawCalls: renderStats?.draws,
         sceneryDraws: renderStats?.sceneryDraws,
+        adapter: health?.adapter,
+        isSoftware: health?.isSoftware,
+        rawAdapter,
+        canvasSize: { w: readback.w, h: readback.h },
+        readback: { nonBlank: readback.nonBlank, total: readback.total },
+        canvasRegionNzr,
+        consoleLines: consoleLines.slice(0, 80),
+        pageErrors: pageErrors.slice(0, 20),
       });
 
       // #648 AC11: zero draws is a non-skippable failure — never publish a
@@ -223,7 +414,9 @@ for (const shot of MARKETING_SHOTS) {
           outcome: 'error',
           bytes: 0,
           nonZeroPixelRatio: 0,
-          error: message,
+          error:
+            `${message}\n--- console (${consoleLines.length}) ---\n${consoleLines.slice(0, 80).join('\n')}` +
+            `\n--- pageerror (${pageErrors.length}) ---\n${pageErrors.slice(0, 20).join('\n')}`,
         });
       }
       throw err;
