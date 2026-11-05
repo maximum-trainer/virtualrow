@@ -144,6 +144,41 @@ describe('createSceneryMeshPass', () => {
     expect(end).toHaveBeenCalled();
   });
 
+  it('pads an odd-length uint16 index upload to 4 bytes but still draws the real count (#672)', () => {
+    // WebGPU rejects a writeBuffer whose size is not a multiple of 4, and the
+    // index buffer then stays zero-filled: every triangle collapses onto
+    // vertex 0 and the primitive is invisible. The HD rower's meshopt output
+    // has many primitives with an odd triangle count (3 × u16 = 6 B each), so
+    // its head, neck, shoulders and arms vanished while the torso drew.
+    const { device, queue } = makeDevice();
+    const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+    const indices = new Uint16Array([0, 1, 2]);
+    p.register(makeInput({ id: 'odd', indices }));
+
+    const sizes = (device.createBuffer as unknown as { mock: { calls: [GPUBufferDescriptor][] } }).mock.calls
+      .filter(([d]) => d.label === 'sceneryMesh:odd-idx')
+      .map(([d]) => d.size);
+    expect(sizes).toEqual([8]);
+
+    const writes = (queue.writeBuffer as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    for (const call of writes) {
+      const data = call[2] as ArrayBufferView;
+      const size = (call[4] as number | undefined) ?? data.byteLength;
+      expect(size % 4, 'every writeBuffer is 4-byte aligned').toBe(0);
+    }
+    const idxWrite = writes.find((c) => (c[2] as ArrayBufferView) instanceof Uint16Array);
+    expect(Array.from((idxWrite![2] as Uint16Array).subarray(0, 3))).toEqual([0, 1, 2]);
+
+    p.setInstances('odd', [mat4Identity(mat4())]);
+    const { pass, drawIndexed } = makePass();
+    p.encode({
+      encoder: { beginRenderPass: vi.fn(() => pass) },
+      swapView: {},
+      depthView: {},
+    } as unknown as Parameters<typeof p.encode>[0]);
+    expect(drawIndexed.mock.calls[0][0]).toBe(3);
+  });
+
   it('uploads a supplied per-vertex colour buffer verbatim', () => {
     const { device, queue } = makeDevice();
     const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });

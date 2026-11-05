@@ -162,12 +162,25 @@ export const createSceneryMeshPass = ({
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
     });
     device.queue.writeBuffer(colorBuffer, 0, colors as BufferSource);
+    // `queue.writeBuffer` rejects a size that is not a multiple of 4, which
+    // leaves the buffer zero-filled and the primitive invisible. A uint16
+    // index list with an odd count (any odd triangle count) is 2 bytes
+    // short, so pad it with one unused index; `indexCount` keeps the real
+    // count so the pad is never drawn (#672).
+    const indexData =
+      input.indices.byteLength % 4 === 0
+        ? input.indices
+        : (() => {
+            const padded = new Uint16Array(input.indices.length + 1);
+            padded.set(input.indices);
+            return padded;
+          })();
     const indexBuffer = device.createBuffer({
       label: `sceneryMesh:${input.id}-idx`,
-      size: input.indices.byteLength,
+      size: indexData.byteLength,
       usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
     });
-    device.queue.writeBuffer(indexBuffer, 0, input.indices as BufferSource);
+    device.queue.writeBuffer(indexBuffer, 0, indexData as BufferSource);
     const instanceBuffer = device.createBuffer({
       label: `sceneryMesh:${input.id}-inst`,
       size: Math.max(1, input.maxInstances) * BYTES_PER_INSTANCE,
