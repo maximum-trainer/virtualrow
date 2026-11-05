@@ -62,9 +62,16 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   let ambient = mix(vec3<f32>(0.22, 0.20, 0.18), vec3<f32>(0.42, 0.46, 0.52), sky);
   let shade = ambient + halfLambert * halfLambert * 0.75;
   let col = in.color.rgb * shade;
-  // Fog with the frame's exponential density.
+  // Fog with the frame's exponential density, but capped at a modest
+  // atmospheric-haze ceiling. The baseline fog `[0.001, 0.0005]` reaches
+  // `f ≈ 0.84` at 60 m, and `fogCol` is a pale blue-grey `(0.72, 0.78, 0.82)`,
+  // so an unclamped mix bleaches mid-distance tier-E scenery (trees, foliage)
+  // toward near-pure fog — the trees read as transparent pale silhouettes
+  // instead of green/brown. Capping at 0.35 keeps the depth cue while letting
+  // the authored tint still show through. Other geometry (bank, water, boat)
+  // declares `fog` but doesn't apply it; the sprite flora pass is separate.
   let density = frame.fog.x + frame.fog.y * in.worldDist;
   let f = clamp(1.0 - exp(-density * in.worldDist), 0.0, 1.0);
   let fogCol = vec3<f32>(0.72, 0.78, 0.82);
-  return vec4<f32>(mix(col, fogCol, f), in.color.a);
+  return vec4<f32>(mix(col, fogCol, min(f, 0.35)), in.color.a);
 }
