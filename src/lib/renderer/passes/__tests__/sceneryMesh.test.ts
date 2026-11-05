@@ -1,6 +1,7 @@
 /// <reference types="@webgpu/types" />
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { createSceneryMeshPass, type SceneryMeshInput } from '../sceneryMesh';
+import sceneryMeshWgsl from '../sceneryMesh.wgsl?raw';
 import { mat4, mat4Identity } from '../../math/mat4';
 
 // jsdom doesn't ship the WebGPU globals; the pass only reads
@@ -227,6 +228,24 @@ describe('createSceneryMeshPass', () => {
     p.writeColors('nope', new Float32Array(4));
     const writesAfter = (queue.writeBuffer as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
     expect(writesAfter).toBe(writesBefore);
+  });
+
+  // The shader used to blend each tree fragment with the pale fog colour
+  // `(0.72, 0.78, 0.82)` at the full exponential mix (`f` up to 1.0), so a
+  // tree 60 m from the camera read as a near-pure pale-blue silhouette with
+  // only a hint of leaf colour (frame.fog baseline `[0.001, 0.0005]` gives
+  // `f ≈ 0.84` at 60 m). Dan filed this as "trees appear transparent" — the
+  // trees were being bleached to the fog colour, not actually blended out.
+  // The fix caps the mix at a modest ceiling so distant trees retain their
+  // authored tint while still sitting under atmospheric haze.
+  it('caps the fog mix so distant trees never bleach to pure fog colour', () => {
+    // The shader clamps `f` to `≤ TREE_FOG_MAX` where TREE_FOG_MAX is well
+    // under 1.0. Encoded as `min(..., 0.X)` in the mix argument.
+    const match = sceneryMeshWgsl.match(/min\(\s*f\s*,\s*(0?\.\d+)\s*\)/);
+    expect(match, 'sceneryMesh.wgsl should clamp fog mix via min(f, C)').not.toBeNull();
+    const ceiling = Number(match![1]);
+    expect(ceiling).toBeGreaterThan(0);
+    expect(ceiling).toBeLessThanOrEqual(0.5);
   });
 
   it('encode is a no-op after dispose', () => {
