@@ -77,7 +77,14 @@ DECK="#E8E4D8"; UNDER="#1E2A33"; COCK="#2A2A28"
 SEAT="#3E4348"; RAIL="#C8CCD0"; GATE="#1A1A1A"
 OAR_SHAFT="#F2F2F0"; OAR_BLADE="#C8102E"
 
-OARLOCK = (0.30, 0.15, 0.50)   # pivot offset from hull centre (right side; mirror X for left)
+# Pivot offset from hull centre (right side; mirror X for left). The gate sits
+# about 15 cm above the seat top (0.195 m), as on a real scull, so the hands
+# can hold the handles at a natural height (#672). It was 0.15 m, below the
+# seat, which left the hands floating ~19 cm above the oar.
+OARLOCK = (0.30, 0.34, 0.50)
+# The oar slopes down outboard so the blade sits at the waterline while the
+# handle rises to the hands, about 10 degrees on a real scull.
+OAR_DROOP_DEG = 10.0
 
 # --- sculling geometry, from the real thing (issue #232) ---
 # A single scull is rigged to a span of 158-162 cm between the pin centres;
@@ -155,7 +162,9 @@ def scull_hull():
     # oars, each placed at its gate
     for side, s in (("Left", -1), ("Right", 1)):
         oar = oar_assembly(f"{side}Oar", s)
-        oar.loc = cq.Location(cq.Vector(s*GATE_OFFSET, oy, oz))
+        # Rotate about +Z so the outboard end drops: -X (left) and +X (right)
+        # outboard need opposite signs.
+        oar.loc = cq.Location(cq.Vector(s*GATE_OFFSET, oy, oz), cq.Vector(0, 0, 1), -s * OAR_DROOP_DEG)
         a.add(oar)
     return a
 

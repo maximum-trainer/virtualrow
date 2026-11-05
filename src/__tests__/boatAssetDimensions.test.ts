@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
-import { readGlbWorldBounds, parseGlbJson } from '../lib/utils/glbBounds';
+import { readGlbWorldBounds, readGlbNodeBounds, parseGlbJson } from '../lib/utils/glbBounds';
 
 /**
  * The boat is the one model a rower looks at for the whole session, so it is
@@ -64,20 +64,22 @@ describe('the rig matches how a single is set up', () => {
   });
 
   it.each(ALL)('%s rows an oar of 284-290 cm, not a longer one', (file) => {
-    const oar = worldBounds(file, (name) => name.startsWith('RightOar'));
+    // Handle end to blade tip, along the oar itself: the rig droops it about
+    // the gate so the blade reaches the water (#672), which would shorten a
+    // measure taken across the boat.
+    const oar = readGlbNodeBounds(boat(file), 'RightOar');
 
-    // Handle end to blade tip, measured across the boat.
     expect(oar?.x).toBeGreaterThanOrEqual(2.84);
     expect(oar?.x).toBeLessThanOrEqual(2.9);
   });
 
   it.each(ALL)('%s carries sculling blades, not sweep blades', (file) => {
-    const blade = worldBounds(file, (name) => name === 'RightOar_Blade');
+    const blade = readGlbNodeBounds(boat(file), 'RightOar', (name) => name === 'RightOar_Blade');
 
     // Axes matter as much as sizes, and this test used to check the wrong ones:
     // it read the blade's length along the boat rather than along the oar, so
-    // it passed a spoon lying fore-aft like a fin. World x runs across the beam,
-    // which is the oar's own direction while it sits square to the boat (#232).
+    // it passed a spoon lying fore-aft like a fin (#232). Measured in the oar's
+    // own frame, x runs along the shaft whatever droop the gate sets (#672).
     expect(blade?.x, 'length, along the oar').toBeGreaterThanOrEqual(0.44);
     expect(blade?.x, 'length, along the oar').toBeLessThanOrEqual(0.48);
     expect(blade?.y, 'width, standing up').toBeGreaterThanOrEqual(0.16);
