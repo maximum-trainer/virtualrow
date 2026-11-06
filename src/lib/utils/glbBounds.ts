@@ -279,6 +279,39 @@ export interface WorldBounds extends Bounds {
  */
 export const readGlbWorldBounds = (glb: Buffer, nodeFilter?: (name: string) => boolean): WorldBounds | null => {
   const gltf = parseGlbJson(glb);
+  const roots = gltf.scenes?.[gltf.scene ?? 0]?.nodes ?? (gltf.nodes ?? []).map((_, i) => i);
+  return measureSubtrees(gltf, roots, nodeFilter);
+};
+
+/**
+ * A part's bounding box in its own frame: the named node's subtree, measured
+ * as if that node sat at the origin with no rotation. This is how long an oar
+ * is along its own shaft, however the rig droops or sweeps it (#672).
+ * `partFilter` narrows the measure to named parts inside it, still in that
+ * frame: the blade of an oar, for instance. Null when no node has that name or
+ * nothing in it has geometry.
+ */
+export const readGlbNodeBounds = (
+  glb: Buffer,
+  nodeName: string,
+  partFilter?: (name: string) => boolean,
+): WorldBounds | null => {
+  const gltf = parseGlbJson(glb);
+  const index = (gltf.nodes ?? []).findIndex((n) => (n as GltfNode & { name?: string }).name === nodeName);
+  if (index < 0) return null;
+  const node = gltf.nodes![index];
+  // Drop the node's own transform so it and its children are read in its frame.
+  const own: GltfNode = { ...node, matrix: undefined, translation: undefined, rotation: undefined, scale: undefined };
+  const nodes = [...gltf.nodes!];
+  nodes[index] = own;
+  return measureSubtrees({ ...gltf, nodes }, [index], partFilter);
+};
+
+const measureSubtrees = (
+  gltf: GltfJson,
+  roots: number[],
+  nodeFilter?: (name: string) => boolean,
+): WorldBounds | null => {
   const nodes = gltf.nodes ?? [];
   const accessors = gltf.accessors ?? [];
 
@@ -321,7 +354,6 @@ export const readGlbWorldBounds = (glb: Buffer, nodeFilter?: (name: string) => b
     for (const child of node.children ?? []) visit(child, world, included);
   };
 
-  const roots = gltf.scenes?.[gltf.scene ?? 0]?.nodes ?? nodes.map((_, i) => i);
   for (const root of roots) visit(root, IDENTITY, false);
 
   return measured

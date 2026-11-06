@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   readGlbBounds,
   readGlbWorldBounds,
+  readGlbNodeBounds,
   parseDeclaredDims,
   compareDims,
 } from '../lib/utils/glbBounds';
@@ -171,6 +172,48 @@ describe('readGlbWorldBounds', () => {
     const noScene = { ...placedTwice, scenes: undefined };
 
     expect(readGlbWorldBounds(makeGlb(noScene))?.x).toBeCloseTo(1.8, 3);
+  });
+});
+
+describe('readGlbNodeBounds', () => {
+  /** An oar 3.1 m long, pivoted at a gate and drooped 30 degrees about Z. */
+  const s = Math.sin(Math.PI / 12);
+  const c = Math.cos(Math.PI / 12);
+  const drooped = {
+    scenes: [{ nodes: [0] }],
+    nodes: [
+      { name: 'Oar', children: [1, 2], translation: [0.8, 0.3, 0.5], rotation: [0, 0, s, c] },
+      { name: 'Oar_Shaft', mesh: 0 },
+      { name: 'Oar_Blade', mesh: 1, translation: [1.8, 0, 0] },
+    ],
+    meshes: [
+      { primitives: [{ attributes: { POSITION: 0 } }] },
+      { primitives: [{ attributes: { POSITION: 1 } }] },
+    ],
+    accessors: [
+      { type: 'VEC3', min: [-0.9, -0.02, -0.02], max: [1.1, 0.02, 0.02] },
+      { type: 'VEC3', min: [0, -0.09, -0.01], max: [0.4, 0.09, 0.01] },
+    ],
+  };
+
+  it('measures a part along its own axes, however it is placed', () => {
+    const glb = makeGlb(drooped);
+    // In the world the tilted box no longer reads as the oar's length ...
+    expect(Math.abs(readGlbWorldBounds(glb, (n) => n.startsWith('Oar'))!.x - 3.1)).toBeGreaterThan(0.05);
+    // ... but along the oar it is the length it was built.
+    const oar = readGlbNodeBounds(glb, 'Oar')!;
+    expect(oar.x).toBeCloseTo(3.1, 5);
+    expect(oar.min[0]).toBeCloseTo(-0.9, 5);
+  });
+
+  it('keeps the transforms inside the part', () => {
+    const blade = readGlbNodeBounds(makeGlb(drooped), 'Oar', (n) => n === 'Oar_Blade')!;
+    expect(blade.min[0]).toBeCloseTo(1.8, 5);
+    expect(blade).toMatchObject({ x: expect.closeTo(0.4, 5), y: expect.closeTo(0.18, 5) });
+  });
+
+  it('returns nothing for a name the model does not have', () => {
+    expect(readGlbNodeBounds(makeGlb(drooped), 'Rudder')).toBeNull();
   });
 });
 

@@ -72,6 +72,7 @@ import {
   BOAT_BONE_TORSO,
 } from '../plan/boatMesh';
 import { loadBoatMesh } from '../plan/boatMeshLoader';
+import { crewPartTransform, crewStrokePose, oarSweep } from '../plan/crewStroke';
 import {
   classifyCrewSlot,
   DEFAULT_CREW_PALETTE,
@@ -1130,8 +1131,11 @@ export const createRideScene = async (
       const playing = rideFrame?.isPlaying ?? false;
       const phaseSweep = strokePhase(cadence, elapsed, playing);
       const ampSweep = strokeAmplitude(rideFrame);
-      const SWEEP_PEAK_RAD = Math.PI / 4;
-      const sweep = Math.sin(phaseSweep * Math.PI * 2) * SWEEP_PEAK_RAD * ampSweep;
+      // #672: the oar swings between the crew's catch (phase 0) and finish
+      // (phase 0.5), and the rower's seat, legs, body and arms follow it.
+      const crew = opts.crew === 'female' ? 'female' : 'male';
+      const sweep = oarSweep(crew, phaseSweep, ampSweep);
+      const stroke = crewStrokePose(crew, sweep);
 
       const nodeAfterSwing = mat4();
       const toPivot = mat4();
@@ -1162,7 +1166,13 @@ export const createRideScene = async (
           mat4Multiply(tmp, fromPivot, nodeAfterSwing);
           mat4Multiply(perInstance, boatTrs, tmp);
         } else {
-          mat4Multiply(perInstance, boatTrs, prim.nodeWorld);
+          const part = crewPartTransform(prim.nodeName, stroke);
+          if (part) {
+            mat4Multiply(tmp, part, prim.nodeWorld);
+            mat4Multiply(perInstance, boatTrs, tmp);
+          } else {
+            mat4Multiply(perInstance, boatTrs, prim.nodeWorld);
+          }
         }
         sceneryMeshPass.setInstances(
           prim.id,
