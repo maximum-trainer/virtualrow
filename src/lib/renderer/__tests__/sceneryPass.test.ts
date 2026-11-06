@@ -5,6 +5,7 @@ import { createInstancePool, type InstancePool } from '../plan/instancePools';
 import { mat4, mat4Identity } from '../math/mat4';
 import { vec3 } from '../math/vec3';
 import type { FrameContext } from '../engine/frameGraph';
+import sceneryWgsl from '../passes/scenery.wgsl?raw';
 
 const makeUniformBuffer = (device: ReturnType<typeof makeMockDevice>): GPUBuffer =>
   device.createBuffer({ size: 256, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
@@ -150,6 +151,22 @@ describe('sceneryPass', () => {
     expect(pass.name).toBe('scenery');
     pass.dispose();
     for (const p of pools) p.dispose();
+  });
+
+  // Dan reported sprite trees rendering as pale, washed-out silhouettes
+  // against a saturated bank and sky — the exponential fog ramp bleached
+  // them to near-pure `fogCol = (0.72, 0.78, 0.82)` even at short range,
+  // because the sprite's alpha is `fade * tex.a` so the premult RGB ends
+  // up mixed with the actual sky behind. Buildings and the bank don't
+  // apply fog at all. #678 followup drops fog from the sprite pass so the
+  // trees render at their authored brightness, matching the buildings.
+  it('sprite flora pass does not blend with a fog-colour constant', () => {
+    // Strip // line comments, then assert: no literal pale-blue fog
+    // colour, and no `mix(..., fogCol, …)` expression. The uniform struct
+    // still declares `fog` (shared Frame layout) — that's fine.
+    const code = sceneryWgsl.replace(/\/\/[^\n]*/g, '');
+    expect(code).not.toMatch(/fogCol/);
+    expect(code).not.toMatch(/vec3<f32>\s*\(\s*0\.72\s*,\s*0\.78\s*,\s*0\.82/);
   });
 
   it('refuses work after dispose', () => {

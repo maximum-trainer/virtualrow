@@ -189,13 +189,14 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   let paletteCol = mix(in.baseCol, in.crownCol, clamp(in.worldY, 0.0, 1.0)) * tintMul * lightMul;
   // Leaf texture's RGB is a grey leaf tone; multiply by the species palette.
   let col = paletteCol * tex.rgb * shade;
-  // Fog with the frame's exponential density.
-  let near = frame.fog.x;
-  let far = frame.fog.y;
-  let density = near + far * in.worldDist;
-  let f = 1.0 - exp(-density * in.worldDist);
-  let fogCol = vec3<f32>(0.72, 0.78, 0.82);
-  // Fade modulates alpha so the handoff with the solid pool is a soft blend;
-  // combined with the texture alpha so transparent leaves don't paint fog.
-  return vec4<f32>(mix(col, fogCol, clamp(f, 0.0, 1.0)), in.fade * tex.a);
+  // No fog on sprite trees. Dan reported trees rendering as pale, washed-out
+  // silhouettes while the buildings and bank next to them stayed saturated —
+  // the exponential ramp (`f ≈ 0.42` at 30 m, `0.84` at 60 m against the pale
+  // blue-grey `fogCol`) bleached the sprite leaves to near-pure sky even at
+  // short range, because the sprite's alpha is `fade * tex.a` and the premult
+  // colour blends with the actual sky behind. Buildings don't apply fog at
+  // all (bank/water/sky/buildings/boat declare `fog` but never consume it),
+  // so dropping it here matches that look. The sceneryMesh pass still haze-
+  // caps at 0.35 (#678) for the GLB kit scenery.
+  return vec4<f32>(col, in.fade * tex.a);
 }
