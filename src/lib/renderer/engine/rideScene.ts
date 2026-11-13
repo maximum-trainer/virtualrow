@@ -92,7 +92,23 @@ import { RouteCurve } from '../math/curve';
 import { GHOST_LANE_OFFSET_M } from '../../../components/rower3d/ghost';
 import { assetUrl } from '../../utils/assetUrl';
 import { createSceneryPass } from './sceneryPass';
-import { mergeSceneryPrimitives, scaleMeshColors, VEGETATION_ALBEDO_GAIN } from './sceneryMeshBuffers';
+import {
+  createGlbDecoderPool,
+  type GlbDecoderPool,
+  type GlbDecoderPoolOptions,
+} from '../../scenery/glbDecoderPool';
+import GlbDecodeWorker from '../../scenery/glbDecodeWorker?worker';
+
+/**
+ * Build the default scenery decoder options: a Worker factory in the browser,
+ * none in SSR / jsdom tests (the pool falls back to the inline decoder).
+ */
+const defaultSceneryDecoderOptions = (): GlbDecoderPoolOptions => {
+  if (typeof Worker === 'undefined') return {};
+  return {
+    workerFactory: () => new GlbDecodeWorker({ name: 'scenery-decode' }),
+  };
+};
 import {
   planSceneryStream,
   sceneryModelsToLoad,
@@ -231,6 +247,14 @@ export interface RideSceneOpts {
    * attach never sets it.
    */
   testMode?: boolean;
+  /**
+   * Override the Worker-backed scenery decoder (`glbDecoderPool`). Omitted,
+   * the scene builds a pool that off-loads fetch + GLB decode + primitive
+   * merge from the main thread, falling back to an inline decoder in SSR
+   * and jsdom tests. Tests and benchmarks can inject a stub to decode
+   * synchronously on the current thread.
+   */
+  glbDecoderPool?: GlbDecoderPoolOptions;
 }
 
 export interface RideSceneHandle {
@@ -582,34 +606,31 @@ export const createRideScene = async (
   // registered. The streaming controller built after placement drives it from
   // the boat's distance, so distant scenery isn't fetched until the boat nears
   // it — no up-front burst that blocks the first frame or trips a host 503.
+  //
+  // The fetch + GLB decode + primitive merge all run off-thread in a Worker
+  // pool so the main thread only pays for the final GPU buffer upload. On a
+  // tier-E tree the decode step was taking long enough to drop a frame each
+  // time new chunks streamed in; moving it to a worker removes that hitch.
+  // In SSR and jsdom tests the pool falls back to an inline decode, so the
+  // renderer behaves exactly as before where `Worker` is not available.
+  const decoderPool: GlbDecoderPool = createGlbDecoderPool(
+    opts.glbDecoderPool ?? defaultSceneryDecoderOptions(),
+  );
   const loadSceneryModel = async (id: string): Promise<boolean> => {
     try {
       const url = assetUrl(`/assets/scenery/${tierFolderFor(id)}/${id}.glb`);
-      const res = await fetch(url);
-      if (!res.ok) return false;
-      const bytes = new Uint8Array(await res.arrayBuffer());
-      const model = await loadGlb(bytes);
-      // Merge the model's primitives, baking each primitive's base colour per
-      // vertex so a multi-material model (trunk/leaves, walls/roof/windows)
-      // keeps its parts distinct instead of collapsing to primitive-0's colour.
-      const merged = mergeSceneryPrimitives(model.primitives);
-      // Tier-E is the vegetation/ground-cover kit. Its GLBs carry physically-
-      // dark LINEAR albedos that the HDR + ACES composite crushes toward
-      // black, so the detailed kit trees read far darker than the procedural
-      // flora. Lift them into the same effective range so leaves stay green
-      // and trunks brown; buildings (tier-D) are left alone (see
-      // VEGETATION_ALBEDO_GAIN).
-      const colors =
-        tierFolderFor(id) === 'tier-e'
-          ? scaleMeshColors(merged.colors, VEGETATION_ALBEDO_GAIN)
-          : merged.colors;
+      const applyVegetationGain = tierFolderFor(id) === 'tier-e';
+      // Decode + merge off-thread. Tier-E vegetation is lifted inside the
+      // worker via `VEGETATION_ALBEDO_GAIN` so the main thread never touches
+      // the raw colour buffer; buildings (tier-D) pass through unchanged.
+      const decoded = await decoderPool.decode(id, url, applyVegetationGain);
       sceneryMeshPass.register({
         id,
-        positions: merged.positions,
-        normals: merged.normals,
-        indices: merged.indices,
-        colors,
-        baseColor: model.primitives[0]?.baseColor ?? [1, 1, 1, 1],
+        positions: decoded.positions,
+        normals: decoded.normals,
+        indices: decoded.indices,
+        colors: decoded.colors,
+        baseColor: decoded.baseColor,
         maxInstances: COURSE_FURNITURE_MAX_INSTANCES,
       });
       return true;
@@ -1403,6 +1424,7 @@ export const createRideScene = async (
       disposed = true;
       graph.dispose();
       gpuTimer?.dispose();
+      decoderPool.dispose();
       for (const pool of scenePools) pool.dispose();
       buildingsPool?.dispose();
       postFx.dispose();

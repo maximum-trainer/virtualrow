@@ -10,4 +10,12 @@ declare global {
   }
 }
 
+// Vite `?worker` imports — the chunk's default export is a `Worker` constructor.
+declare module '*?worker' {
+  const WorkerConstructor: {
+    new (options?: { name?: string }): Worker;
+  };
+  export default WorkerConstructor;
+}
+
 export {};
