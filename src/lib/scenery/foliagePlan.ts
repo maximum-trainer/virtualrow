@@ -94,6 +94,53 @@ const speciesFor = (
   return byShape.length > 0 ? byShape : all;
 };
 
+/**
+ * #686 D3b — weighted species pick. Each profile declares a
+ * `biomeMix` alongside its allowed species; weights are matched to the
+ * profile's `species` list by position and then re-indexed onto the
+ * subset we actually plant (`speciesFor` may drop species the theme
+ * doesn't carry). An undefined mix, or one that doesn't line up with
+ * the resolved subset, falls back to uniform — today's behaviour.
+ *
+ * `draw` is in [0, 1). The algorithm maps it onto the cumulative weight
+ * sum so a mix of `[60, 30, 10]` picks the first species 60 % of the
+ * time, the second 30 %, the third 10 %.
+ *
+ * Exported for direct tests only — production code uses it via
+ * `layoutFoliage`.
+ */
+export const pickWeightedSpecies = (
+  profile: SceneryProfile,
+  speciesTypes: readonly string[],
+  choices: readonly number[],
+  draw: number,
+): number => {
+  if (choices.length === 0) return 0;
+  const profileSpecies = SCENERY_PROFILES[profile].trees.species;
+  const mix = SCENERY_PROFILES[profile].trees.biomeMix;
+  if (!mix || mix.length !== profileSpecies.length) {
+    return choices[Math.floor(draw * choices.length)];
+  }
+  // Translate each resolved choice into the weight for its species
+  // name on the profile's own list. A choice whose species name isn't
+  // on the list (shape-fallback branch of `speciesFor`) gets weight 0;
+  // if every weight is zero we fall back to uniform.
+  const weights = choices.map((i) => {
+    const name = speciesTypes[i];
+    const idx = profileSpecies.indexOf(name);
+    return idx >= 0 ? Math.max(0, mix[idx]) : 0;
+  });
+  const total = weights.reduce((a, b) => a + b, 0);
+  if (total <= 0) return choices[Math.floor(draw * choices.length)];
+  let acc = 0;
+  const pick = draw * total;
+  for (let i = 0; i < weights.length; i += 1) {
+    acc += weights[i];
+    if (pick < acc) return choices[i];
+  }
+  return choices[choices.length - 1];
+};
+
 const SHAPE_HEIGHT: Record<FoliageShape, number> = {
   broadleaf: 14,
   conifer: 17,
@@ -149,7 +196,7 @@ export const layoutFoliage = ({
       if (!clearOfHouses(x, z)) continue;
 
       const choices = speciesFor(profile, speciesTypes);
-      const pick = choices[Math.floor(draw(4) * choices.length)];
+      const pick = pickWeightedSpecies(profile, speciesTypes, choices, draw(4));
       const [scaleMin, scaleMax] = scaleRange;
       const shape = foliageShapeFor(speciesTypes[pick]);
       sample.position = [x, 0, z];
