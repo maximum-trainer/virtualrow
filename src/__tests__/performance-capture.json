@@ -1,0 +1,36 @@
+{
+  "$schemaVersion": 1,
+  "capturedAt": "2026-11-17T10:22Z",
+  "capturedBy": "Claude (automated laptop run)",
+  "scene": {
+    "route": "willowbrook-river",
+    "routeKind": "simulated",
+    "sampleStartMeters": 700,
+    "sampleDurationSeconds": 12,
+    "frameCount": 120
+  },
+  "device": {
+    "adapter": "intel / gen-9",
+    "backend": "webgpu",
+    "tier": "medium",
+    "isSoftware": false
+  },
+  "configuration": {
+    "shadowAtlasSize": 768,
+    "shadowCascades": 3
+  },
+  "gpuMs": {
+    "min": 8.06,
+    "p50": 9.44,
+    "p95": 11.47,
+    "p99": 11.67,
+    "max": 12.06,
+    "framesOver12MsPct": 0.8
+  },
+  "cpuMs": {
+    "p50": 2.80,
+    "p95": 4.60
+  },
+  "sceneTriangles": 1981656,
+  "shadowTriangles": 377568
+}
