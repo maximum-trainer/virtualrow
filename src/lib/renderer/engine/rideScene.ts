@@ -114,7 +114,11 @@ import {
   sceneryModelsToLoad,
   type CurveDistanceSample,
 } from './sceneryStreamPlan';
-import { paintFoliage, FOLIAGE_SHAPES } from '../../scenery/foliageTexture';
+import {
+  paintFoliage,
+  FOLIAGE_SHAPES,
+  FOLIAGE_VARIANT_COUNT,
+} from '../../scenery/foliageTexture';
 import { loadFloraAtlas } from './textureLoader';
 import { textureBytes } from './textures';
 import { createFrameGraph, type FrameGraph, type FrameUniforms, type Pass } from './frameGraph';
@@ -398,12 +402,14 @@ export const createRideScene = async (
   telemetry.buildings.footprintM2 = buildingsPool?.footprintM2 ?? 0;
   telemetry.buildings.resident = !!buildingsPool;
   telemetry.buildings.cast = !!buildingsCastingPool;
-  // Per-species leaf atlas (#549 slice 3). Three 256×256 RGBA layers (one per
-  // FoliageShape); `paintFoliage` generates the pixels, the fragment shader
-  // samples by species index. The pass alpha-tests transparent texels so the
-  // crossed quads read as individual trees instead of flat cards.
+  // Per-species leaf atlas (#549 slice 3; #686 D1c grew it to
+  // `species × variantCount` layers). Each layer is a 256×256 RGBA
+  // billboard. Layout: layer `s * FOLIAGE_VARIANT_COUNT + v` carries
+  // species `s`, variant `v`. The fragment shader picks the variant
+  // from the per-instance seed so two neighbouring broadleaves read as
+  // "the same species, different tree" instead of the same card.
   const foliageAtlasSize = 256;
-  const foliageAtlasLayers = FOLIAGE_SHAPES.length;
+  const foliageAtlasLayers = FOLIAGE_SHAPES.length * FOLIAGE_VARIANT_COUNT;
   const foliageAtlasTex = device.createTexture({
     label: 'foliage-atlas',
     size: { width: foliageAtlasSize, height: foliageAtlasSize, depthOrArrayLayers: foliageAtlasLayers },
@@ -414,14 +420,17 @@ export const createRideScene = async (
   // skipping the upload leaves the atlas blank there, which is fine — no
   // test depends on the leaf texture's content.
   if (typeof device.queue.writeTexture === 'function') {
-    for (let layer = 0; layer < foliageAtlasLayers; layer += 1) {
-      const pixels = paintFoliage(FOLIAGE_SHAPES[layer], foliageAtlasSize);
-      device.queue.writeTexture(
-        { texture: foliageAtlasTex, origin: { x: 0, y: 0, z: layer } },
-        pixels as BufferSource,
-        { bytesPerRow: foliageAtlasSize * 4, rowsPerImage: foliageAtlasSize },
-        { width: foliageAtlasSize, height: foliageAtlasSize, depthOrArrayLayers: 1 },
-      );
+    for (let s = 0; s < FOLIAGE_SHAPES.length; s += 1) {
+      for (let v = 0; v < FOLIAGE_VARIANT_COUNT; v += 1) {
+        const layer = s * FOLIAGE_VARIANT_COUNT + v;
+        const pixels = paintFoliage(FOLIAGE_SHAPES[s], foliageAtlasSize, v);
+        device.queue.writeTexture(
+          { texture: foliageAtlasTex, origin: { x: 0, y: 0, z: layer } },
+          pixels as BufferSource,
+          { bytesPerRow: foliageAtlasSize * 4, rowsPerImage: foliageAtlasSize },
+          { width: foliageAtlasSize, height: foliageAtlasSize, depthOrArrayLayers: 1 },
+        );
+      }
     }
   }
   const foliageAtlasView = foliageAtlasTex.createView({ dimension: '2d-array' });

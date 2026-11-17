@@ -17,6 +17,19 @@ import { seededRandom } from './seededRandom';
 export type FoliageShape = 'broadleaf' | 'conifer' | 'willow';
 export const FOLIAGE_SHAPES: readonly FoliageShape[] = ['broadleaf', 'conifer', 'willow'];
 
+/**
+ * #686 D1c — per-species variant count. The sprite pass samples a
+ * `texture_2d_array` whose layers are laid out as
+ * `[species * FOLIAGE_VARIANT_COUNT + variantIdx]`, and the fragment
+ * picks `variantIdx = floor(tintSeed * FOLIAGE_VARIANT_COUNT)` so
+ * neighbouring instances read different crown silhouettes without a
+ * per-instance texture array lookup.
+ *
+ * 6 variants per species × 3 species = 18 layers at 256² RGBA ≈ 4.7 MB.
+ * Lands with the shader-side layer-picker change in the same PR.
+ */
+export const FOLIAGE_VARIANT_COUNT = 6;
+
 interface Blob {
   x: number; y: number; rx: number; ry: number; tone: number;
 }
@@ -24,15 +37,21 @@ interface Blob {
 interface Trunk { top: number; halfWidth: number }
 interface ShapePlan { blobs: Blob[]; trunk: Trunk }
 
-const drawFor = (shape: FoliageShape) => {
+const drawFor = (shape: FoliageShape, variant = 0) => {
   const base = { broadleaf: 1, conifer: 5003, willow: 9011 }[shape];
-  return (i: number, k: number) => seededRandom(base + i * 7 + k);
+  // Each variant walks the seeded-random stream from a distinct offset
+  // so blob positions don't share hot-spots across variants. 100003 is
+  // a prime large enough to keep the offsets non-overlapping across the
+  // ~150-blob conifer plan, small enough to stay well inside the
+  // seededRandom uint range.
+  const variantOffset = variant * 100003;
+  return (i: number, k: number) => seededRandom(base + variantOffset + i * 7 + k);
 };
 
 const toneAt = (y: number, jitter: number): number => (0.8 + 0.2 * jitter) * (1.12 - 0.25 * y);
 
-const broadleafPlan = (): ShapePlan => {
-  const draw = drawFor('broadleaf');
+const broadleafPlan = (variant = 0): ShapePlan => {
+  const draw = drawFor('broadleaf', variant);
   const blobs = Array.from({ length: 70 }, (_, i): Blob => {
     const angle = draw(i, 1) * Math.PI * 2;
     const reach = Math.sqrt(draw(i, 2)) * 0.82;
@@ -43,8 +62,8 @@ const broadleafPlan = (): ShapePlan => {
   return { blobs, trunk: { top: 0.55, halfWidth: 0.03 } };
 };
 
-const coniferPlan = (): ShapePlan => {
-  const draw = drawFor('conifer');
+const coniferPlan = (variant = 0): ShapePlan => {
+  const draw = drawFor('conifer', variant);
   const tip = 0.04;
   const depth = 0.78;
   const blobs = Array.from({ length: 150 }, (_, i): Blob => {
@@ -57,8 +76,8 @@ const coniferPlan = (): ShapePlan => {
   return { blobs, trunk: { top: 0.7, halfWidth: 0.025 } };
 };
 
-const willowPlan = (): ShapePlan => {
-  const draw = drawFor('willow');
+const willowPlan = (variant = 0): ShapePlan => {
+  const draw = drawFor('willow', variant);
   const dome = Array.from({ length: 48 }, (_, i): Blob => {
     const angle = draw(i, 1) * Math.PI * 2;
     const reach = Math.sqrt(draw(i, 2)) * 0.85;
@@ -77,7 +96,7 @@ const willowPlan = (): ShapePlan => {
   return { blobs: [...dome, ...curtains], trunk: { top: 0.45, halfWidth: 0.035 } };
 };
 
-const PLANS: Record<FoliageShape, () => ShapePlan> = {
+const PLANS: Record<FoliageShape, (variant?: number) => ShapePlan> = {
   broadleaf: broadleafPlan,
   conifer: coniferPlan,
   willow: willowPlan,
@@ -90,10 +109,20 @@ const PAINT_OVER = 0.25;
  * The RGBA pixels of a `shape`'s billboard, `size` square, top row first.
  * Alpha is the silhouette; RGB is a leaf-grey tone shaded lighter to the
  * top of each clump. Mirrors `src/components/rower3d/foliageTexture.ts`.
+ *
+ * `variant` (default 0) picks one of `FOLIAGE_VARIANT_COUNT` seeded
+ * crown silhouettes per species (#686 D1c). Variant 0 is the historical
+ * texture; variants 1..N-1 shift the blob-plan seed so the silhouette
+ * differs while the species identity (broadleaf vs conifer vs willow)
+ * stays recognisable.
  */
-export const paintFoliage = (shape: FoliageShape, size: number): Uint8ClampedArray => {
+export const paintFoliage = (
+  shape: FoliageShape,
+  size: number,
+  variant = 0,
+): Uint8ClampedArray => {
   const pixels = new Uint8ClampedArray(size * size * 4);
-  const { blobs, trunk } = PLANS[shape]();
+  const { blobs, trunk } = PLANS[shape](variant);
 
   const x0 = Math.floor(size * (0.5 - trunk.halfWidth));
   const x1 = Math.ceil(size * (0.5 + trunk.halfWidth));
@@ -103,7 +132,11 @@ export const paintFoliage = (shape: FoliageShape, size: number): Uint8ClampedArr
     }
   }
 
-  const grainSeed = { broadleaf: 17, conifer: 29, willow: 41 }[shape];
+  // Variant perturbs the per-pixel grain seed as well so two variants
+  // of the same species don't share the same leaf mottling even where
+  // their blob layouts happen to overlap.
+  const grainSeed =
+    { broadleaf: 17, conifer: 29, willow: 41 }[shape] + variant * 103;
   for (const blob of blobs) {
     const cx = blob.x * size;
     const cy = blob.y * size;
