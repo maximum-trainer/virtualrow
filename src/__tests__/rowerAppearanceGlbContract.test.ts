@@ -41,9 +41,16 @@ const dryRunAvailable = hasPython3 && fs.existsSync(SCRIPT_PATH);
 describe('rower appearance GLB contract (#474 Phase 2)', () => {
   it.skipIf(!dryRunAvailable)(
     'build_crew.py --dry-run lists every hairstyle and hat sibling the renderer toggles',
-    { timeout: 30_000 }, // Python startup + import takes several seconds; the
-                        // pre-commit's parallel vitest workers push it past
-                        // the default 5 s, so give the dry run room.
+    { timeout: 90_000 }, // Python startup + CadQuery/OCCT import takes several
+                        // seconds on its own; under the full parallel node-
+                        // env suite on a slow laptop (Windows, Intel Gen-9)
+                        // it has needed up to ~60 s. The 30 s cap kept
+                        // tripping `pre-push verify` even though every solo
+                        // run passed in a fraction of that time, so widen
+                        // the ceiling to 90 s. The work is deterministic
+                        // CPU; a genuine regression (hang, infinite import
+                        // loop) still trips the test long before 90 s runs
+                        // out.
     () => {
       let out: string;
       try {

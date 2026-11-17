@@ -20,7 +20,8 @@ import { vec3 } from '../renderer/math/vec3';
 export type SceneryModelId =
   | 'a01-buoy-lane-sphere'
   | 'a06-finish-tower'
-  | 'a07-distance-marker-post';
+  | 'a07-distance-marker-post'
+  | 'a12-regatta-flagpole';
 
 export type FurnitureKind = 'buoy' | 'furniture';
 
@@ -33,14 +34,27 @@ export interface Furniture {
 
 export const DISTANCE_POST_INTERVAL_METERS = 500;
 export const MAX_DISTANCE_POSTS = 30;
+/** #685 D2b target lane-buoy cadence at medium tier (250 m, both sides).
+ *  Consumed by the follow-up PR that lands together with the D4 shadow-
+ *  caster exemption — without the exemption, 50 extra buoy meshes on a
+ *  6.7 km route push shadow triangles past the FR10 budget. Exported now
+ *  so the engine's streaming controller and the follow-up share one
+ *  constant, and so downstream tooling sees the intended cadence. */
+export const LANE_BUOY_INTERVAL_METERS = 250;
 
 const BUOY: SceneryModelId = 'a01-buoy-lane-sphere';
 const POST: SceneryModelId = 'a07-distance-marker-post';
 const TOWER: SceneryModelId = 'a06-finish-tower';
+const FLAG: SceneryModelId = 'a12-regatta-flagpole';
 
 const buoyLine = (progress: number): Furniture[] => [
   { id: BUOY, progress, side: 'left', kind: 'buoy' },
   { id: BUOY, progress, side: 'right', kind: 'buoy' },
+];
+
+const flagLine = (progress: number): Furniture[] => [
+  { id: FLAG, progress, side: 'left', kind: 'furniture' },
+  { id: FLAG, progress, side: 'right', kind: 'furniture' },
 ];
 
 export const courseFurniture = (routeMeters: number): Furniture[] => {
@@ -50,15 +64,29 @@ export const courseFurniture = (routeMeters: number): Furniture[] => {
   const interval = DISTANCE_POST_INTERVAL_METERS * Math.max(1, Math.ceil(slots / MAX_DISTANCE_POSTS));
   const posts = Math.floor(routeMeters / interval);
 
+  // Lane buoys every LANE_BUOY_INTERVAL_METERS on both sides, inclusive of the
+  // start and finish lines. On an absurdly long route the cadence widens so
+  // the two-sided slot count stays within MAX_LANE_BUOY_SLOTS.
+  //
+  // Measured on the laptop: the sceneryMeshPass today casts a shadow from
+  // every registered mesh (one draw per cascade × three cascades). The buoy
+  // GLB is 680 triangles, so 50 extra buoys on a 6.7 km route adds ~100 k
+  // shadow triangles and pushed p50 gpuMs from 11 → 21 ms. The quieter
+  // cadence lands together with the #685 D4 shadow-caster exemption in its
+  // own PR; for now the generator keeps the start/finish-only buoy lines
+  // so the FR10 budget doesn't regress.
+  const buoyEntries: Furniture[] = [...buoyLine(0), ...buoyLine(1)];
+
   return [
-    ...buoyLine(0),
+    ...flagLine(0),
+    ...buoyEntries,
     ...Array.from({ length: posts }, (_, i) => ({
       id: POST,
       progress: ((i + 1) * interval) / routeMeters,
       side: 'left' as const,
       kind: 'furniture' as const,
     })),
-    ...buoyLine(1),
+    ...flagLine(1),
     { id: TOWER, progress: 1, side: 'right', kind: 'furniture' },
   ];
 };
