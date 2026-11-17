@@ -524,6 +524,11 @@ export const createRideScene = async (
     'a01-buoy-lane-sphere',
     'a06-finish-tower',
     'a07-distance-marker-post',
+    // #685 slice 1 — start / finish line flagpoles. The GLB already ships
+    // in `public/assets/scenery/tier-a/a12-regatta-flagpole.glb`; one
+    // registration here lets `placeFurniture` emit instances that the
+    // sceneryMeshPass picks up through the same path as the buoys.
+    'a12-regatta-flagpole',
   ];
   const sceneryGlbList = isSceneryRoute(opts.route) ? opts.route.sceneryGlbs ?? [] : [];
   const COURSE_FURNITURE_MAX_INSTANCES = 1024;
