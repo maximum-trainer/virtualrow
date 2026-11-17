@@ -25,6 +25,19 @@ export interface SceneryProfileConfig {
      * used as a fallback.
      */
     species: string[];
+    /**
+     * #686 D3b — per-species planting weights, same length as `species`.
+     * Weights are normalised at pick time so `[6, 3, 1]`, `[60, 30, 10]`
+     * and `[0.6, 0.3, 0.1]` all mean the same thing. Undefined means
+     * uniform across the allowed species (today's behaviour).
+     *
+     * Pattern: the first entry is the dominant species, the second the
+     * co-dominant, then any long-tail. Dan asked for a non-uniform mix
+     * so a bank reads as "mostly oak, some willow, a few ornamental"
+     * instead of the monoculture that uniform selection gave when the
+     * species list had one broadleaf dominating the three.
+     */
+    biomeMix?: readonly number[];
     /** [min, max] scale multiplier applied to each tree instance. */
     scaleRange: [number, number];
   };
@@ -57,6 +70,9 @@ export const SCENERY_PROFILES: Record<SceneryProfile, SceneryProfileConfig> = {
     trees: {
       density: 1.0,
       species: ['pine', 'oak', 'willow', 'cypress'],
+      // Pine-dominated forest, oak co-dominant, willow + cypress as
+      // long-tail markers. 50 / 30 / 15 / 5 descending.
+      biomeMix: [50, 30, 15, 5],
       scaleRange: [0.85, 1.4],
     },
     groundCover: {
@@ -73,6 +89,9 @@ export const SCENERY_PROFILES: Record<SceneryProfile, SceneryProfileConfig> = {
     trees: {
       density: 0.55,
       species: ['oak', 'willow', 'ornamental'],
+      // Oak-dominated residential, willow second, ornamental accent.
+      // 60 / 30 / 10 — Dan's recommended default for a three-species mix.
+      biomeMix: [60, 30, 10],
       scaleRange: [0.7, 1.1],
     },
     groundCover: {
@@ -105,6 +124,9 @@ export const SCENERY_PROFILES: Record<SceneryProfile, SceneryProfileConfig> = {
     trees: {
       density: 0.22,
       species: ['oak', 'willow', 'bare'],
+      // Hedgerow oak + willow dominant, bare (stumps / dead trees) a
+      // sparse accent. 60 / 30 / 10.
+      biomeMix: [60, 30, 10],
       scaleRange: [0.7, 1.0],
     },
     groundCover: {
@@ -121,6 +143,9 @@ export const SCENERY_PROFILES: Record<SceneryProfile, SceneryProfileConfig> = {
     trees: {
       density: 0.18,
       species: ['palm', 'ornamental'],
+      // Palms dominate a beach silhouette; ornamentals as accent.
+      // Two-species mix at 75 / 25.
+      biomeMix: [75, 25],
       scaleRange: [0.6, 1.0],
     },
     groundCover: {
@@ -137,6 +162,8 @@ export const SCENERY_PROFILES: Record<SceneryProfile, SceneryProfileConfig> = {
     trees: {
       density: 0.3,
       species: ['willow', 'bare'],
+      // Willow-heavy wetland, bare stumps as accent. 80 / 20.
+      biomeMix: [80, 20],
       scaleRange: [0.65, 1.0],
     },
     groundCover: {
@@ -153,6 +180,9 @@ export const SCENERY_PROFILES: Record<SceneryProfile, SceneryProfileConfig> = {
     trees: {
       density: 0.45,
       species: ['pine', 'oak', 'willow'],
+      // Generic mixed-wood fallback — oak-majority with pine and willow
+      // co-dominant enough to break the monoculture read. 50 / 30 / 20.
+      biomeMix: [50, 30, 20],
       scaleRange: [0.7, 1.1],
     },
     groundCover: {
