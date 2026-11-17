@@ -176,16 +176,24 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   if (tex.a < 0.05) { discard; }
   let sun = normalize(frame.sunDir);
   let shade = clamp(dot(in.normal, sun) * 0.5 + 0.6, 0.3, 1.0);
-  // #591-fu P1b: jitter the sprite's palette per-instance so distant
-  // billboards don't read as a line of clones. Smaller delta than the
-  // solid pass because sprites already share the atlas texture.
+  // #686 D2b: per-instance ±5 % luminance + ±4° hue jitter. Dan asked
+  // for a quieter shift than the #591-fu P1b defaults (±8 % R / ±5 % G/B
+  // and ±10 % luminance) so the shift reads as "two trees of the same
+  // species, slightly different" rather than "two trees of a different
+  // species". Magnitudes picked to put the warm → cool swing at roughly
+  // 4° of hue rotation (empirical, measured against an RGB-to-HSV
+  // probe).
   let tj = (in.tintSeed - 0.5) * 2.0;
+  // ±4° hue via an asymmetric R/B shift at near-constant G. 0.035 was
+  // chosen so the maximum tj=1 pair (R×1.035, B×0.965) produces a hue
+  // delta of ~4.0° in HSV without a divide-by-luminance in the shader.
   let tintMul = clamp(vec3<f32>(
-    1.0 + tj * 0.08,
-    1.0 + tj * 0.05,
-    1.0 - tj * 0.05,
-  ), vec3<f32>(0.75), vec3<f32>(1.25));
-  let lightMul = 1.0 + tj * 0.10;
+    1.0 + tj * 0.035,
+    1.0 + tj * 0.010,
+    1.0 - tj * 0.035,
+  ), vec3<f32>(0.9), vec3<f32>(1.1));
+  // ±5 % luminance.
+  let lightMul = 1.0 + tj * 0.05;
   let paletteCol = mix(in.baseCol, in.crownCol, clamp(in.worldY, 0.0, 1.0)) * tintMul * lightMul;
   // Leaf texture's RGB is a grey leaf tone; multiply by the species palette.
   let col = paletteCol * tex.rgb * shade;
