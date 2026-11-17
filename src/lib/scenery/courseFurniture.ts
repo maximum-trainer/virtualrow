@@ -34,13 +34,13 @@ export interface Furniture {
 
 export const DISTANCE_POST_INTERVAL_METERS = 500;
 export const MAX_DISTANCE_POSTS = 30;
-/** #685 D2b target lane-buoy cadence at medium tier (250 m, both sides).
- *  Consumed by the follow-up PR that lands together with the D4 shadow-
- *  caster exemption — without the exemption, 50 extra buoy meshes on a
- *  6.7 km route push shadow triangles past the FR10 budget. Exported now
- *  so the engine's streaming controller and the follow-up share one
- *  constant, and so downstream tooling sees the intended cadence. */
+/** #685 D2b lane-buoy cadence: 250 m on both sides. Live after #689. */
 export const LANE_BUOY_INTERVAL_METERS = 250;
+/** Hard cap on the two-sided buoy count so an absurdly long route
+ *  (1 000+ km) can't blow the engine's `COURSE_FURNITURE_MAX_INSTANCES`
+ *  pool budget. 1024 ÷ 2 sides = 512 slots, minus the start/finish pair
+ *  leaves room for 510 regular slots — leave a safety margin at 500. */
+export const MAX_LANE_BUOY_SLOTS = 500;
 
 const BUOY: SceneryModelId = 'a01-buoy-lane-sphere';
 const POST: SceneryModelId = 'a07-distance-marker-post';
@@ -64,18 +64,28 @@ export const courseFurniture = (routeMeters: number): Furniture[] => {
   const interval = DISTANCE_POST_INTERVAL_METERS * Math.max(1, Math.ceil(slots / MAX_DISTANCE_POSTS));
   const posts = Math.floor(routeMeters / interval);
 
-  // Lane buoys every LANE_BUOY_INTERVAL_METERS on both sides, inclusive of the
-  // start and finish lines. On an absurdly long route the cadence widens so
-  // the two-sided slot count stays within MAX_LANE_BUOY_SLOTS.
+  // Lane buoys every LANE_BUOY_INTERVAL_METERS on both sides, inclusive of
+  // the start and finish lines. On an absurdly long route the cadence
+  // widens so the two-sided slot count stays within MAX_LANE_BUOY_SLOTS
+  // (the engine's COURSE_FURNITURE_MAX_INSTANCES pool budget allows 1024
+  // instances per model; 500 slots × 2 sides keeps a safety margin).
   //
-  // Measured on the laptop: the sceneryMeshPass today casts a shadow from
-  // every registered mesh (one draw per cascade × three cascades). The buoy
-  // GLB is 680 triangles, so 50 extra buoys on a 6.7 km route adds ~100 k
-  // shadow triangles and pushed p50 gpuMs from 11 → 21 ms. The quieter
-  // cadence lands together with the #685 D4 shadow-caster exemption in its
-  // own PR; for now the generator keeps the start/finish-only buoy lines
-  // so the FR10 budget doesn't regress.
-  const buoyEntries: Furniture[] = [...buoyLine(0), ...buoyLine(1)];
+  // #689 unblocked on #688 — the sceneryMeshPass now flags
+  // `a01-buoy-lane-sphere` as shadow-neutral, so the extra buoy
+  // instances no longer inflate the shadow-depth pass's triangle count.
+  const rawBuoySlots = Math.floor(routeMeters / LANE_BUOY_INTERVAL_METERS);
+  // `rawBuoySlots + 1` because the slots run `[0, 1, ..., N]` inclusive
+  // at both start and finish. The stride widens the step size enough to
+  // bring the slot count under the cap.
+  const buoyStride = Math.max(1, Math.ceil((rawBuoySlots + 1) / MAX_LANE_BUOY_SLOTS));
+  const buoyInterval = LANE_BUOY_INTERVAL_METERS * buoyStride;
+  const buoySlots = Math.floor(routeMeters / buoyInterval);
+  const buoyEntries: Furniture[] = [];
+  buoyEntries.push(...buoyLine(0));
+  for (let i = 1; i < buoySlots; i += 1) {
+    buoyEntries.push(...buoyLine((i * buoyInterval) / routeMeters));
+  }
+  buoyEntries.push(...buoyLine(1));
 
   return [
     ...flagLine(0),
