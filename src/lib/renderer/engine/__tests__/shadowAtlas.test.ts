@@ -10,8 +10,11 @@ import { KNOWN_TIERS, shadowConfigFor } from '../shadowConfig';
 
 describe('shadowConfigFor', () => {
   it('returns the medium default for unknown tiers', () => {
-    expect(shadowConfigFor('mystery')).toEqual({ cascades: 3, atlasSize: 1024 });
-    expect(shadowConfigFor(undefined)).toEqual({ cascades: 3, atlasSize: 1024 });
+    // #684 D2a: medium's atlas size dropped from 1024 to 768. Measured on
+    // Intel Gen-9 the perf delta is noise but the VRAM saving is 5.5 MB
+    // (12.6 → 7.1 MB for the three-cascade atlas).
+    expect(shadowConfigFor('mystery')).toEqual({ cascades: 3, atlasSize: 768 });
+    expect(shadowConfigFor(undefined)).toEqual({ cascades: 3, atlasSize: 768 });
   });
 
   it('maps every known tier to a cascades count in [2, 4]', () => {
