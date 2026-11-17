@@ -11,7 +11,16 @@
  * workflow (FR5 / NFR2).
  */
 
-export const ROUTE_PLACEMENTS_SCHEMA_VERSION = 1 as const;
+/**
+ * Schema versions this parser accepts. #692 FR6 adds v2 with an optional
+ * `castsShadow` per placement so an llm-cad placement can opt a prop out
+ * of the shadow-depth cascade without the engine having to hard-code a
+ * SHADOW_NEUTRAL set. v1 payloads continue to parse unchanged.
+ */
+export const ROUTE_PLACEMENTS_SCHEMA_VERSIONS = [1, 2] as const;
+export type RoutePlacementsSchemaVersion = (typeof ROUTE_PLACEMENTS_SCHEMA_VERSIONS)[number];
+/** The newest version this parser emits when it normalises a payload. */
+export const ROUTE_PLACEMENTS_SCHEMA_VERSION: RoutePlacementsSchemaVersion = 2;
 
 /** One placement entry as emitted by llm-cad per course (FR6). */
 export interface RoutePlacement {
@@ -23,11 +32,18 @@ export interface RoutePlacement {
   readonly orientationDegrees: number;
   readonly scale: number;
   readonly sourceRun?: string;
+  /**
+   * #692 FR5 — opt this placement out of the shadow-depth cascade.
+   * Undefined falls through to the per-model default
+   * (`SHADOW_NEUTRAL_MODEL_IDS` on the engine side, #688). Only v2
+   * payloads carry it.
+   */
+  readonly castsShadow?: boolean;
 }
 
 /** Shape on disk (`route-placements.json`). */
 export interface RoutePlacementsRegistry {
-  readonly $schemaVersion: typeof ROUTE_PLACEMENTS_SCHEMA_VERSION;
+  readonly $schemaVersion: RoutePlacementsSchemaVersion;
   readonly placements: Readonly<Record<string, readonly RoutePlacement[]>>;
 }
 
@@ -44,9 +60,13 @@ export const parseRoutePlacements = (value: unknown): RoutePlacementsRegistry =>
     throw new Error('route-placements: root must be an object');
   }
   const root = value as Record<string, unknown>;
-  if (root.$schemaVersion !== ROUTE_PLACEMENTS_SCHEMA_VERSION) {
+  const version = root.$schemaVersion;
+  if (
+    typeof version !== 'number' ||
+    !ROUTE_PLACEMENTS_SCHEMA_VERSIONS.includes(version as RoutePlacementsSchemaVersion)
+  ) {
     throw new Error(
-      `route-placements: unsupported $schemaVersion ${String(root.$schemaVersion)}`,
+      `route-placements: unsupported $schemaVersion ${String(version)}`,
     );
   }
   const rawPlacements = root.placements;
@@ -63,7 +83,7 @@ export const parseRoutePlacements = (value: unknown): RoutePlacementsRegistry =>
     }
     out[routeId] = list.map((raw, i) => validatePlacement(routeId, i, raw));
   }
-  return { $schemaVersion: ROUTE_PLACEMENTS_SCHEMA_VERSION, placements: out };
+  return { $schemaVersion: version as RoutePlacementsSchemaVersion, placements: out };
 };
 
 const validatePlacement = (routeId: string, index: number, raw: unknown): RoutePlacement => {
@@ -110,6 +130,12 @@ const validatePlacement = (routeId: string, index: number, raw: unknown): RouteP
     throw new Error(`route-placements: ${routeId}[${index}].scale must be > 0`);
   }
   const sourceRun = p.sourceRun;
+  const castsShadowRaw = p.castsShadow;
+  if (castsShadowRaw !== undefined && typeof castsShadowRaw !== 'boolean') {
+    throw new Error(
+      `route-placements: ${routeId}[${index}].castsShadow must be a boolean when present`,
+    );
+  }
   return {
     modelId,
     assetPath,
@@ -119,6 +145,7 @@ const validatePlacement = (routeId: string, index: number, raw: unknown): RouteP
     orientationDegrees: num('orientationDegrees'),
     scale,
     ...(typeof sourceRun === 'string' && sourceRun ? { sourceRun } : {}),
+    ...(typeof castsShadowRaw === 'boolean' ? { castsShadow: castsShadowRaw } : {}),
   };
 };
 

@@ -8,7 +8,7 @@
   "properties": {
     "$schemaVersion": {
       "type": "integer",
-      "const": 1
+      "enum": [1, 2]
     },
     "placements": {
       "type": "object",
@@ -43,7 +43,11 @@
         "lateralOffsetMeters": { "type": "number" },
         "orientationDegrees": { "type": "number", "minimum": -360, "maximum": 360 },
         "scale": { "type": "number", "exclusiveMinimum": 0 },
-        "sourceRun": { "type": "string" }
+        "sourceRun": { "type": "string" },
+        "castsShadow": {
+          "description": "#692 FR5 (v2) — opt this placement out of (false) or into (true) the shadow-depth cascade. Undefined falls through to the engine's per-model default.",
+          "type": "boolean"
+        }
       }
     }
   }
