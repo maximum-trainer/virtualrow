@@ -132,19 +132,18 @@ describe('#690 routeExtras — hand-authored per-route placements', () => {
     for (const bridge of bridges) expect(bridge.kind).toBe('span');
   });
 
-  it('courseFurniture with a known routeId includes that route\'s extras', () => {
+  it('courseFurniture stays generic regardless of routeId after the #685 wire-up', () => {
+    // Pre-#685-wire-up, `courseFurniture('1')` folded `ROUTE_EXTRAS['1']`
+    // into its output. The engine now composes per-route placements via
+    // `composePlacementsForRoute` and passes them as `extras` into
+    // `placeFurniture`, so `courseFurniture` returns the same generic
+    // items for every routeId. The parameter is kept for backward
+    // compatibility with legacy callers (eg
+    // `sceneryStructures.computeStructurePlacements`).
     const generic = courseFurniture(6_000);
-    const withExtras = courseFurniture(6_000, '1');
-    expect(withExtras.length).toBeGreaterThan(generic.length);
-    // Extras are additive — the generic items stay.
-    const genericBuoys = generic.filter((it) => it.kind === 'buoy').length;
-    const extraBuoys = withExtras.filter((it) => it.kind === 'buoy').length;
-    expect(extraBuoys).toBe(genericBuoys);
-  });
-
-  it('courseFurniture with an unknown routeId matches the generic output', () => {
-    const generic = courseFurniture(6_000);
+    const willow = courseFurniture(6_000, '1');
     const unknown = courseFurniture(6_000, 'no-such-route');
+    expect(willow).toEqual(generic);
     expect(unknown).toEqual(generic);
   });
 });
