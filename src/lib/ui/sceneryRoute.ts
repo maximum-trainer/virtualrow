@@ -143,6 +143,13 @@ export interface EngineRoute {
    * the polygon-water flag is off.
    */
   lakePolygons?: Array<{ outer: { x: number; z: number }[]; holes: { x: number; z: number }[][] }>;
+  /**
+   * #685 wire-up — OSM bridge crossings along the route, consumed by the
+   * synthetic placement generator (#691). Already computed by the
+   * enrichment service via `findCrossings`; omitted when the route has
+   * no enrichment, or no bridges above the water.
+   */
+  crossings?: readonly { readonly progress: number; readonly kind: string }[];
 }
 
 /** Default OSM building height when the tags carry neither `height` nor levels. */
@@ -348,6 +355,7 @@ export const toEngineRoute = (
       .filter((p) => p.outer.length >= 3);
   }
 
+  const crossings = enrichment?.crossings;
   return {
     pools,
     ...(buildings.length > 0 ? { buildings } : {}),
@@ -356,6 +364,7 @@ export const toEngineRoute = (
     ...(totalDistanceMeters !== undefined ? { totalDistanceMeters } : {}),
     ...(isClosedLoop ? { isClosedLoop } : {}),
     ...(lakePolygons.length > 0 ? { lakePolygons } : {}),
+    ...(crossings && crossings.length > 0 ? { crossings } : {}),
     waterEdgesForProgress,
     dominantProfile,
   };

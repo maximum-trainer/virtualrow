@@ -59,9 +59,18 @@ import { createSceneryMeshPass } from '../passes/sceneryMesh';
 import { loadGlb } from '../../scenery/glbLoader';
 import {
   placeFurniture,
+  routeExtras,
+  type Furniture,
   type FurniturePlacement,
   type SceneryModelId,
 } from '../../scenery/courseFurniture';
+import {
+  composePlacementsForRoute,
+  fetchRoutePlacementsRegistry,
+} from '../../scenery/placementsForRoute';
+import { synthesisePlacementsForRoute } from '../../scenery/syntheticPlacements';
+import type { BridgeKind } from '../../utils/bridgeCrossings';
+import type { RoutePlacementsRegistry } from '../../scenery/routePlacements';
 import { createInstancePool, type InstancePool, type PoolInput } from '../plan/instancePools';
 import { createBuildingPool, type BuildingPool, type BuildingSpec } from '../plan/buildings';
 import {
@@ -194,6 +203,12 @@ export interface SceneryRoute {
    * tessellates and disc-clips at attach time.
    */
   lakePolygons?: Array<{ outer: { x: number; z: number }[]; holes: { x: number; z: number }[][] }>;
+  /**
+   * #685 wire-up — OSM bridge crossings along the route (progress + kind).
+   * Already computed by the enrichment service; the synthetic placement
+   * generator (#691) turns each into a tier-c bridge at the river centre.
+   */
+  crossings?: readonly { readonly progress: number; readonly kind: string }[];
   /**
    * On-land route samples in scene XZ (#493 Phase 3d / FR22). Drawn by
    * the diagnostics overlay as plus-sign markers when the water-debug
@@ -540,15 +555,24 @@ export const createRideScene = async (
     // registration here lets `placeFurniture` emit instances that the
     // sceneryMeshPass picks up through the same path as the buoys.
     'a12-regatta-flagpole',
-    // #690 — hand-authored per-route additions (Willowbrook etc.). These
-    // only produce instances on routes that opt in via `ROUTE_EXTRAS`;
-    // routes without entries get an empty mat4 list per model, which
-    // registers nothing with the pass.
+    // #690 — hand-authored per-route additions (Willowbrook etc.).
     'a03-pontoon-floating-dock',
     'a09-gazebo-hexagonal',
     'b01-boathouse-new-england',
     'b03-clubhouse-modern',
     'c01-bridge-arch-masonry',
+    // #685 wire-up — every tier-c bridge model the synthetic generator
+    // may emit for an OSM crossing. Routes with no crossings produce
+    // zero instances; a route with a `rail` crossing emits an instance
+    // of c04, and so on. Registering all of them up front lets the
+    // streaming controller load them lazily as they come into range.
+    'c02-bridge-road-concrete',
+    'c03-bridge-truss-steel',
+    'c04-bridge-rail-girder',
+    'c05-bridge-bascule',
+    'c06-bridge-foot-suspension',
+    'c07-bridge-dutch-lift',
+    'c08-bridge-cantilever',
   ];
   const sceneryGlbList = isSceneryRoute(opts.route) ? opts.route.sceneryGlbs ?? [] : [];
   const COURSE_FURNITURE_MAX_INSTANCES = 1024;
@@ -922,6 +946,47 @@ export const createRideScene = async (
   telemetry.route.totalDistance = totalDistanceMeters;
   telemetry.route.curveLength = curveLength;
 
+  // #685 wire-up — compose per-route extras from the three sources
+  // (`composePlacementsForRoute`): tier-r llm-cad (fetched from the
+  // served registry, empty today until #449 populates it), hand-
+  // authored `ROUTE_EXTRAS` (via `routeExtras`), synthetic bridges
+  // from the route's OSM crossings. The winning source feeds
+  // `placeFurniture` as its `extras` list; the function stays purely
+  // generic otherwise. The fetch resolves to an empty registry on a
+  // 404 / parse failure / network error so the engine still boots.
+  const placementsRegistry: RoutePlacementsRegistry = await fetchRoutePlacementsRegistry(
+    assetUrl('').replace(/\/$/, ''),
+  );
+  const routeCrossings = isSceneryRoute(opts.route) && opts.route.crossings
+    ? (opts.route.crossings as readonly { progress: number; kind: BridgeKind }[])
+    : [];
+  const syntheticExtras = synthesisePlacementsForRoute({
+    routeId: opts.routeId,
+    crossings: routeCrossings,
+  });
+  const handAuthoredExtras = routeExtras(opts.routeId);
+  const composed = composePlacementsForRoute({
+    routeId: opts.routeId,
+    routeMeters: totalDistanceMeters,
+    tierR: placementsRegistry,
+    handAuthored: handAuthoredExtras,
+    synthetic: syntheticExtras,
+  });
+  // Normalise composed items back into the `Furniture` shape
+  // `placeFurniture` accepts. Hand-authored items already carry a
+  // `kind`; the tier-r / synthetic paths map the centreline flag onto
+  // the `'span'` kind and anything else onto `'furniture'`.
+  const composedFurniture: Furniture[] = composed.map((p) => {
+    // Resolve back to the hand-authored kind if the source was hand-
+    // authored (so bridges stay `'span'` on the Willowbrook author plot).
+    const handMatch = handAuthoredExtras.find(
+      (h) => h.id === p.modelId && Math.abs(h.progress - p.progress) < 1e-6,
+    );
+    const kind = handMatch?.kind ?? (p.bankSide === 'centre' ? 'span' : 'furniture');
+    const side: 'left' | 'right' = p.bankSide === 'right' ? 'right' : 'left';
+    return { id: p.modelId as SceneryModelId, progress: p.progress, side, kind };
+  });
+
   const furniture: FurniturePlacement[] = placeFurniture({
     curve: routeCurve,
     routeMeters: totalDistanceMeters,
@@ -931,6 +996,7 @@ export const createRideScene = async (
       return side === 'left' ? edges.left : edges.right;
     },
     routeId: opts.routeId,
+    extras: composedFurniture,
   });
   const byModel = new Map<SceneryModelId, Mat4[]>();
   for (const model of COURSE_FURNITURE_MODELS) byModel.set(model, []);

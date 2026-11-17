@@ -26,7 +26,19 @@ export type SceneryModelId =
   | 'a12-regatta-flagpole'
   | 'b01-boathouse-new-england'
   | 'b03-clubhouse-modern'
-  | 'c01-bridge-arch-masonry';
+  // #685 wire-up — every tier-c bridge model the synthetic generator
+  // may pick for an OSM crossing (`BRIDGE_MODEL_FOR_KIND` in
+  // `syntheticPlacements.ts`). Hand-authored routes use `c01` today;
+  // the rest surface when a real `rail` / `bascule` / … crossing is
+  // found along the river.
+  | 'c01-bridge-arch-masonry'
+  | 'c02-bridge-road-concrete'
+  | 'c03-bridge-truss-steel'
+  | 'c04-bridge-rail-girder'
+  | 'c05-bridge-bascule'
+  | 'c06-bridge-foot-suspension'
+  | 'c07-bridge-dutch-lift'
+  | 'c08-bridge-cantilever';
 
 export type FurnitureKind = 'buoy' | 'furniture' | 'span';
 
@@ -96,7 +108,14 @@ const flagLine = (progress: number): Furniture[] => [
 
 export const courseFurniture = (
   routeMeters: number,
-  routeId?: string | null,
+  // `routeId` was consumed here pre-#685-wire-up to fold `ROUTE_EXTRAS`
+  // into the output. The engine now composes per-route placements
+  // through `composePlacementsForRoute` and feeds them to
+  // `placeFurniture` as `extras`. The parameter is kept for backward
+  // compatibility with legacy callers that pass an id (eg
+  // `sceneryStructures.computeStructurePlacements`), and intentionally
+  // unused here — prefixed `_` so the lint stays happy.
+  _routeId?: string | null,
 ): Furniture[] => {
   if (!Number.isFinite(routeMeters) || routeMeters <= 0) return [];
 
@@ -138,9 +157,14 @@ export const courseFurniture = (
     })),
     ...flagLine(1),
     { id: TOWER, progress: 1, side: 'right', kind: 'furniture' as const },
-    // Hand-authored per-route additions (#690). Empty for routes we
-    // haven't authored yet; llm-cad output lives elsewhere (#692).
-    ...routeExtras(routeId),
+    // #685 wire-up — hand-authored per-route additions used to land
+    // here via `routeExtras(routeId)`. The engine now composes them
+    // through `composePlacementsForRoute` (tier-r llm-cad > hand-
+    // authored > synthetic) and feeds the result into `placeFurniture`
+    // as `extras`, so this function stays purely generic. Legacy
+    // callers that pass a routeId still get the same generic output —
+    // the parameter is kept for backward compatibility (eg the React-
+    // side `sceneryStructures.computeStructurePlacements`).
   ];
 };
 
@@ -171,8 +195,18 @@ export interface PlaceFurnitureInput {
   routeMeters: number;
   /** Per-side waterline half-width (scene units). Default: a symmetric 20 m channel. */
   shoreHalfWidth?: (progress: number, side: 'left' | 'right') => number;
-  /** #690 — engine route id, so the hand-authored extras for a named route (Willowbrook etc.) get placed. */
+  /** #690 — engine route id. Kept for symmetry with other scene seams; the
+   *  per-route placements are now supplied through `extras` instead of
+   *  looked up by id inside the function (#685 wire-up). */
   routeId?: string | null;
+  /**
+   * #685 wire-up — per-route placements composed by the engine from the
+   * three sources (`composePlacementsForRoute`): tier-r llm-cad,
+   * hand-authored `ROUTE_EXTRAS`, synthetic bridges. Each entry is
+   * positioned exactly like the generic items — on the lane for buoys,
+   * at the river centre for spans, on the shore for everything else.
+   */
+  extras?: readonly Furniture[];
 }
 
 export const placeFurniture = ({
@@ -180,10 +214,14 @@ export const placeFurniture = ({
   routeMeters,
   shoreHalfWidth,
   routeId,
+  extras,
 }: PlaceFurnitureInput): FurniturePlacement[] => {
   const defaults = (_t: number, _side: 'left' | 'right'): number => 10;
   const shore = shoreHalfWidth ?? defaults;
-  const items = courseFurniture(routeMeters, routeId);
+  const items: Furniture[] = [
+    ...courseFurniture(routeMeters, routeId),
+    ...(extras ?? []),
+  ];
   const out: FurniturePlacement[] = [];
   const sample = { position: vec3(), tangent: vec3(0, 0, -1), angle: 0 };
   for (const f of items) {
