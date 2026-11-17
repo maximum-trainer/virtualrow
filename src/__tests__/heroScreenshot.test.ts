@@ -119,16 +119,27 @@ describe('every published screenshot', () => {
 });
 
 describe('measurement, for the record', () => {
-  it('reports what each published screenshot contains', () => {
-    for (const file of PUBLISHED) {
-      const d = describeImageContent(load(file));
-      console.log(
-        `${file}: colours=${d.uniqueColours} hEnergy=${d.horizontalEnergy.toFixed(3)} ` +
-          `vEnergy=${d.verticalEnergy.toFixed(3)} dominant=${(d.dominantShare * 100).toFixed(1)}%`,
-      );
-    }
-    expect(PUBLISHED.length).toBeGreaterThan(0);
-  });
+  // `describeImageContent` walks every pixel of each 1600×900 PNG; on a slow
+  // laptop running the full node-env suite in parallel it has taken up to
+  // ~1.3 s per file, so the five-screenshot loop overran the default 5 s
+  // timeout under contention and failed `pre-push verify` while individual
+  // runs passed. The work is deterministic CPU-only — a 30 s ceiling keeps
+  // a genuine regression (an inflated PNG, a hang) visible without flaking
+  // on a developer machine.
+  it(
+    'reports what each published screenshot contains',
+    () => {
+      for (const file of PUBLISHED) {
+        const d = describeImageContent(load(file));
+        console.log(
+          `${file}: colours=${d.uniqueColours} hEnergy=${d.horizontalEnergy.toFixed(3)} ` +
+            `vEnergy=${d.verticalEnergy.toFixed(3)} dominant=${(d.dominantShare * 100).toFixed(1)}%`,
+        );
+      }
+      expect(PUBLISHED.length).toBeGreaterThan(0);
+    },
+    30_000,
+  );
 });
 
 describe('the hero shows a river with two banks (#290)', () => {
