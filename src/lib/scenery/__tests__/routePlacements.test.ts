@@ -43,7 +43,10 @@ describe('route-placements parser (#449 AC6)', () => {
   });
 
   it('rejects an unsupported schema version', () => {
-    expect(() => parseRoutePlacements({ $schemaVersion: 2, placements: {} })).toThrow(/schemaVersion/);
+    // #692 FR6: v2 is now a valid schema version (adds optional
+    // `castsShadow`). Exercise the rejection path with a version that
+    // isn't in the accepted set.
+    expect(() => parseRoutePlacements({ $schemaVersion: 99, placements: {} })).toThrow(/schemaVersion/);
   });
 
   it('rejects a non-object root', () => {
