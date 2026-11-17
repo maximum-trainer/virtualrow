@@ -33,6 +33,15 @@ export interface SceneryMeshInput {
   colors?: Float32Array;
   /** Upper bound on the per-mesh instance count, so the buffer is allocated once. */
   maxInstances: number;
+  /**
+   * #688 — whether this mesh should drop into the shadow-depth cascade.
+   * Defaults to `true`. Set `false` for small, shadow-neutral props
+   * (buoys, flagpoles, distance markers, bank railings) so their
+   * geometry doesn't inflate the shadow-pass triangle count every
+   * cascade for a shadow nobody can see anyway. The lit colour pass
+   * draws them exactly the same regardless.
+   */
+  castsShadow?: boolean;
 }
 
 interface RegisteredMesh {
@@ -48,6 +57,8 @@ interface RegisteredMesh {
   maxInstances: number;
   instanceCount: number;
   bindGroup: GPUBindGroup;
+  /** #688 — included in the shadow-depth iteration; defaults to true. */
+  castsShadow: boolean;
 }
 
 /**
@@ -64,6 +75,8 @@ export interface SceneryMeshSnapshot {
   readonly indexCount: number;
   readonly instanceBuffer: GPUBuffer;
   readonly instanceCount: number;
+  /** #688 — whether this mesh opts into the shadow-depth cascade. */
+  readonly castsShadow: boolean;
 }
 
 export interface SceneryMeshPass extends Pass {
@@ -81,11 +94,20 @@ export interface SceneryMeshPass extends Pass {
   readonly meshCount: number;
   /**
    * Iterate every registered mesh with a non-zero instance count. The
-   * shadow stage uses this to run its own depth-only pipeline over the
-   * same buffers (#591-fu P1c). Callback-based so the pass keeps buffer
-   * ownership and the shadow stage can't accidentally mutate state.
+   * lit scenery pass uses this; the shadow stage uses
+   * `forEachActiveShadowCaster` instead so shadow-neutral props are
+   * skipped. Callback-based so the pass keeps buffer ownership and
+   * callers can't accidentally mutate state.
    */
   forEachActiveMesh(cb: (snapshot: SceneryMeshSnapshot) => void): void;
+  /**
+   * #688 — like `forEachActiveMesh`, but skips meshes registered with
+   * `castsShadow: false`. The shadow stage runs its own depth-only
+   * pipeline over this subset so small props (buoys, flagpoles,
+   * distance markers) don't inflate the per-cascade raster cost for
+   * shadows nobody can see.
+   */
+  forEachActiveShadowCaster(cb: (snapshot: SceneryMeshSnapshot) => void): void;
 }
 
 export interface CreateSceneryMeshPassOptions {
@@ -206,6 +228,7 @@ export const createSceneryMeshPass = ({
       maxInstances: Math.max(1, input.maxInstances),
       instanceCount: 0,
       bindGroup,
+      castsShadow: input.castsShadow ?? true,
     });
   };
 
@@ -245,6 +268,23 @@ export const createSceneryMeshPass = ({
           indexCount: mesh.indexCount,
           instanceBuffer: mesh.instanceBuffer,
           instanceCount: mesh.instanceCount,
+          castsShadow: mesh.castsShadow,
+        });
+      }
+    },
+    forEachActiveShadowCaster(cb) {
+      for (const mesh of registry.values()) {
+        if (mesh.instanceCount === 0) continue;
+        if (!mesh.castsShadow) continue;
+        cb({
+          id: mesh.id,
+          positionBuffer: mesh.positionBuffer,
+          indexBuffer: mesh.indexBuffer,
+          indexFormat: mesh.indexFormat,
+          indexCount: mesh.indexCount,
+          instanceBuffer: mesh.instanceBuffer,
+          instanceCount: mesh.instanceCount,
+          castsShadow: mesh.castsShadow,
         });
       }
     },

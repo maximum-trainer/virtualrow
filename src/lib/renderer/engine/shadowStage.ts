@@ -365,7 +365,10 @@ export const createShadowStage = (
         if (sceneryMesh && sceneryMeshPass && sceneryMeshCascadeBindGroups[i]) {
           pass.setPipeline(sceneryMesh.pipeline);
           pass.setBindGroup(0, sceneryMeshCascadeBindGroups[i]);
-          sceneryMeshPass.forEachActiveMesh((m) => {
+          // #688 — skip shadow-neutral props (buoys, flagpoles,
+          // distance markers, bank railings). The lit pass still draws
+          // them via `forEachActiveMesh` below the shadow stage.
+          sceneryMeshPass.forEachActiveShadowCaster((m) => {
             let bg = sceneryMeshBindGroupCache.get(m.instanceBuffer);
             if (!bg) {
               bg = createSceneryMeshDepthMeshBindGroup(

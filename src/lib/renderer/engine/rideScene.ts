@@ -630,6 +630,19 @@ export const createRideScene = async (
   const decoderPool: GlbDecoderPool = createGlbDecoderPool(
     opts.glbDecoderPool ?? defaultSceneryDecoderOptions(),
   );
+  // #688 — the sceneryMeshPass's shadow-depth loop iterates every
+  // registered mesh with instances; small props (buoys, flagpoles,
+  // distance markers, bank railings) drop tiny, invisible-at-tier shadows
+  // whose depth raster outweighs the visual benefit. Flag them here so
+  // the pass skips them in `forEachActiveShadowCaster` while still
+  // drawing them in the lit colour pass.
+  const SHADOW_NEUTRAL_MODEL_IDS = new Set<string>([
+    'a01-buoy-lane-sphere',
+    'a02-buoy-turn-cylinder',
+    'a07-distance-marker-post',
+    'a11-bank-railing',
+    'a12-regatta-flagpole',
+  ]);
   const loadSceneryModel = async (id: string): Promise<boolean> => {
     try {
       const url = assetUrl(`/assets/scenery/${tierFolderFor(id)}/${id}.glb`);
@@ -646,6 +659,7 @@ export const createRideScene = async (
         colors: decoded.colors,
         baseColor: decoded.baseColor,
         maxInstances: COURSE_FURNITURE_MAX_INSTANCES,
+        castsShadow: !SHADOW_NEUTRAL_MODEL_IDS.has(id),
       });
       return true;
     } catch {
