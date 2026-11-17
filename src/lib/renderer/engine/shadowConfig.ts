@@ -21,7 +21,7 @@ export interface ShadowTierConfig {
 const TIERS: Record<PerformanceTier, ShadowTierConfig> = {
   basic: { cascades: 2, atlasSize: 512 },
   low: { cascades: 2, atlasSize: 1024 },
-  medium: { cascades: 3, atlasSize: 768 },
+  medium: { cascades: 3, atlasSize: 1024 },
   high: { cascades: 3, atlasSize: 2048 },
   'extra-high': { cascades: 4, atlasSize: 2048 },
 };
