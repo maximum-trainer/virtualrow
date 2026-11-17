@@ -34,6 +34,8 @@
     distanceTier?: string;
     /** The selected route the ride draws, passed through to the engine. */
     route?: unknown;
+    /** #690 — stable engine route id, passed to `placeFurniture` so hand-authored per-route extras appear. */
+    routeId?: string;
     /** True under Playwright. */
     testMode?: boolean;
     /** Live row state the engine pulls each frame (#542 workout slice). */
@@ -68,6 +70,7 @@
     tier,
     distanceTier,
     route,
+    routeId,
     testMode = false,
     getFrame,
     crew,
@@ -118,7 +121,7 @@
     // in the catch path alongside a rejected promise, instead of escaping the
     // effect — AC11 wants the renderer-unavailable telemetry either way.
     Promise.resolve()
-      .then(() => attach(canvas!, { tier, distanceTier, route, testMode, getFrame, crew, appearance }))
+      .then(() => attach(canvas!, { tier, distanceTier, route, routeId, testMode, getFrame, crew, appearance }))
       .then((r) => {
         if (disposed) {
           r?.dispose();

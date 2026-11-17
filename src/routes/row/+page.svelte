@@ -189,6 +189,7 @@
             tier={resolvedTier}
             distanceTier={resolvedDistance}
             route={engineRoute}
+            routeId={routes.selectedRoute?.id}
             {testMode}
             getFrame={() => ({ ...ride.frame(), view: cameraView.view })}
             crew={resolvedCrew}

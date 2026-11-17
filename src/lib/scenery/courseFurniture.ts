@@ -19,15 +19,21 @@ import { vec3 } from '../renderer/math/vec3';
 /** The exact model-id set course furniture draws from. */
 export type SceneryModelId =
   | 'a01-buoy-lane-sphere'
+  | 'a03-pontoon-floating-dock'
   | 'a06-finish-tower'
   | 'a07-distance-marker-post'
-  | 'a12-regatta-flagpole';
+  | 'a09-gazebo-hexagonal'
+  | 'a12-regatta-flagpole'
+  | 'b01-boathouse-new-england'
+  | 'b03-clubhouse-modern'
+  | 'c01-bridge-arch-masonry';
 
-export type FurnitureKind = 'buoy' | 'furniture';
+export type FurnitureKind = 'buoy' | 'furniture' | 'span';
 
 export interface Furniture {
   id: SceneryModelId;
   progress: number;
+  /** `span` furniture (bridges) sits at the centreline, so the side is not meaningful; author it as 'left' and the engine still centres it. */
   side: 'left' | 'right';
   kind: FurnitureKind;
 }
@@ -47,6 +53,37 @@ const POST: SceneryModelId = 'a07-distance-marker-post';
 const TOWER: SceneryModelId = 'a06-finish-tower';
 const FLAG: SceneryModelId = 'a12-regatta-flagpole';
 
+/**
+ * #690 — hand-authored per-route furniture additions. Keyed by the
+ * route's engine id (e.g. the Willowbrook demo uses `'1'` per
+ * `WILLOWBROOK_ROUTE_ID`). Kept in-file rather than a JSON schema so
+ * adding a route is one TS edit; the existing tier-r route-placements
+ * JSON stays reserved for #449's llm-cad output.
+ *
+ * Progress values are the fraction along the route; side is the bank
+ * the prop stands on (bridges use 'left' and the engine centres them).
+ * Keep the list to the scale a chase-camera actually reads — one
+ * boathouse near the start, one bridge mid-route, a pontoon or two, a
+ * gazebo as a landmark, a clubhouse near the finish — rather than
+ * trying to cover every hundred metres.
+ */
+const ROUTE_EXTRAS: Record<string, readonly Furniture[]> = {
+  // Willowbrook demo (simulated 6.671 km).
+  '1': [
+    { id: 'b01-boathouse-new-england', progress: 0.02, side: 'left', kind: 'furniture' },
+    { id: 'a03-pontoon-floating-dock', progress: 0.03, side: 'right', kind: 'furniture' },
+    { id: 'c01-bridge-arch-masonry', progress: 0.15, side: 'left', kind: 'span' },
+    { id: 'a03-pontoon-floating-dock', progress: 0.32, side: 'right', kind: 'furniture' },
+    { id: 'a09-gazebo-hexagonal', progress: 0.55, side: 'left', kind: 'furniture' },
+    { id: 'c01-bridge-arch-masonry', progress: 0.72, side: 'left', kind: 'span' },
+    { id: 'b03-clubhouse-modern', progress: 0.93, side: 'left', kind: 'furniture' },
+  ],
+};
+
+/** Hand-authored per-route additions for the given engine route id. */
+export const routeExtras = (routeId: string | null | undefined): readonly Furniture[] =>
+  routeId && routeId in ROUTE_EXTRAS ? ROUTE_EXTRAS[routeId] : [];
+
 const buoyLine = (progress: number): Furniture[] => [
   { id: BUOY, progress, side: 'left', kind: 'buoy' },
   { id: BUOY, progress, side: 'right', kind: 'buoy' },
@@ -57,7 +94,10 @@ const flagLine = (progress: number): Furniture[] => [
   { id: FLAG, progress, side: 'right', kind: 'furniture' },
 ];
 
-export const courseFurniture = (routeMeters: number): Furniture[] => {
+export const courseFurniture = (
+  routeMeters: number,
+  routeId?: string | null,
+): Furniture[] => {
   if (!Number.isFinite(routeMeters) || routeMeters <= 0) return [];
 
   const slots = Math.floor(routeMeters / DISTANCE_POST_INTERVAL_METERS);
@@ -97,7 +137,10 @@ export const courseFurniture = (routeMeters: number): Furniture[] => {
       kind: 'furniture' as const,
     })),
     ...flagLine(1),
-    { id: TOWER, progress: 1, side: 'right', kind: 'furniture' },
+    { id: TOWER, progress: 1, side: 'right', kind: 'furniture' as const },
+    // Hand-authored per-route additions (#690). Empty for routes we
+    // haven't authored yet; llm-cad output lives elsewhere (#692).
+    ...routeExtras(routeId),
   ];
 };
 
@@ -128,16 +171,19 @@ export interface PlaceFurnitureInput {
   routeMeters: number;
   /** Per-side waterline half-width (scene units). Default: a symmetric 20 m channel. */
   shoreHalfWidth?: (progress: number, side: 'left' | 'right') => number;
+  /** #690 — engine route id, so the hand-authored extras for a named route (Willowbrook etc.) get placed. */
+  routeId?: string | null;
 }
 
 export const placeFurniture = ({
   curve,
   routeMeters,
   shoreHalfWidth,
+  routeId,
 }: PlaceFurnitureInput): FurniturePlacement[] => {
   const defaults = (_t: number, _side: 'left' | 'right'): number => 10;
   const shore = shoreHalfWidth ?? defaults;
-  const items = courseFurniture(routeMeters);
+  const items = courseFurniture(routeMeters, routeId);
   const out: FurniturePlacement[] = [];
   const sample = { position: vec3(), tangent: vec3(0, 0, -1), angle: 0 };
   for (const f of items) {
@@ -148,10 +194,20 @@ export const placeFurniture = ({
     const px = perpX / perpLen;
     const pz = perpZ / perpLen;
     const sideSign = f.side === 'left' ? -1 : 1;
+    // Span furniture (bridges) sits at the river centre, oriented
+    // perpendicular to the tangent so the arch crosses the water.
+    // Buoys live on the lane; everything else stands on the shore.
     const laneOffset = f.kind === 'buoy'
       ? BUOY_LANE_HALF_WIDTH_METRES
-      : shore(f.progress, f.side) + FURNITURE_BANK_OFFSET_METRES;
+      : f.kind === 'span'
+        ? 0
+        : shore(f.progress, f.side) + FURNITURE_BANK_OFFSET_METRES;
     const tangentAngle = Math.atan2(sample.tangent[0], sample.tangent[2]);
+    const rotationY = f.kind === 'buoy'
+      ? tangentAngle
+      : f.kind === 'span'
+        ? tangentAngle + Math.PI / 2
+        : tangentAngle + sideSign * (Math.PI / 2);
     out.push({
       id: f.id,
       position: [
@@ -159,9 +215,7 @@ export const placeFurniture = ({
         0,
         sample.position[2] + pz * sideSign * laneOffset,
       ],
-      // Buoys face the tangent (streamlined with the current); bank furniture
-      // faces the water (perp inward), so rotate 90° off the tangent.
-      rotationY: f.kind === 'buoy' ? tangentAngle : tangentAngle + sideSign * (Math.PI / 2),
+      rotationY,
       progress: f.progress,
       side: f.side,
       kind: f.kind,
