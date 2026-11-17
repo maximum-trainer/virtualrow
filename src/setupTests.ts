@@ -37,10 +37,21 @@ const hasWorkingStorage = STORAGE_METHODS.every(
 
 if (!hasWorkingStorage) {
   const entries = new Map<string, string>();
-  // Methods go on Storage.prototype, not the instance, so tests that spy on
-  // Storage.prototype.setItem to simulate a full quota still work.
-  const prototype: Storage = typeof globalThis.Storage === 'function'
+  // Methods go on Storage.prototype where that prototype is actually
+  // augmentable, so tests that spy on `Storage.prototype.setItem` to simulate
+  // a full quota still work. Node 22+'s built-in `Storage` ships with a
+  // non-configurable `length` getter on its prototype, so attempting to
+  // redefine it throws — detect that and fall back to a synthetic prototype.
+  const builtInProto = typeof globalThis.Storage === 'function'
     ? globalThis.Storage.prototype
+    : null;
+  const lengthDescriptor = builtInProto
+    ? Object.getOwnPropertyDescriptor(builtInProto, 'length')
+    : undefined;
+  const canAugmentBuiltIn = builtInProto !== null
+    && (lengthDescriptor === undefined || lengthDescriptor.configurable === true);
+  const prototype: Storage = canAugmentBuiltIn
+    ? (builtInProto as Storage)
     : ({} as Storage);
 
   Object.assign(prototype, {
