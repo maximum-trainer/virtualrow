@@ -230,6 +230,8 @@ export interface RideSceneOpts {
    */
   distanceTier?: string;
   route?: unknown;
+  /** #690 — engine route id. See RideAttachOpts.routeId for the story. */
+  routeId?: string;
   getFrame?: () => RideFrame;
   crew?: 'male' | 'female';
   /** #571 — stable athlete identifier. When supplied, drives the shell
@@ -538,6 +540,15 @@ export const createRideScene = async (
     // registration here lets `placeFurniture` emit instances that the
     // sceneryMeshPass picks up through the same path as the buoys.
     'a12-regatta-flagpole',
+    // #690 — hand-authored per-route additions (Willowbrook etc.). These
+    // only produce instances on routes that opt in via `ROUTE_EXTRAS`;
+    // routes without entries get an empty mat4 list per model, which
+    // registers nothing with the pass.
+    'a03-pontoon-floating-dock',
+    'a09-gazebo-hexagonal',
+    'b01-boathouse-new-england',
+    'b03-clubhouse-modern',
+    'c01-bridge-arch-masonry',
   ];
   const sceneryGlbList = isSceneryRoute(opts.route) ? opts.route.sceneryGlbs ?? [] : [];
   const COURSE_FURNITURE_MAX_INSTANCES = 1024;
@@ -919,6 +930,7 @@ export const createRideScene = async (
       const edges = waterEdgesForProgress(progress);
       return side === 'left' ? edges.left : edges.right;
     },
+    routeId: opts.routeId,
   });
   const byModel = new Map<SceneryModelId, Mat4[]>();
   for (const model of COURSE_FURNITURE_MODELS) byModel.set(model, []);

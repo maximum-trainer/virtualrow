@@ -9,6 +9,7 @@ import {
   DISTANCE_POST_INTERVAL_METERS,
   LANE_BUOY_INTERVAL_METERS,
   MAX_LANE_BUOY_SLOTS,
+  routeExtras,
 } from '../courseFurniture';
 
 describe('#689 courseFurniture — 250 m lane-buoy cadence', () => {
@@ -92,5 +93,58 @@ describe('#689 courseFurniture — 250 m lane-buoy cadence', () => {
     // widening.
     expect(buoys.some((b) => b.progress === 0 && b.side === 'left')).toBe(true);
     expect(buoys.some((b) => b.progress === 1 && b.side === 'right')).toBe(true);
+  });
+});
+
+describe('#690 routeExtras — hand-authored per-route placements', () => {
+  it('returns an empty list for a route with no authored extras', () => {
+    expect(routeExtras(undefined)).toEqual([]);
+    expect(routeExtras(null)).toEqual([]);
+    expect(routeExtras('')).toEqual([]);
+    expect(routeExtras('some-unregistered-route')).toEqual([]);
+  });
+
+  it('returns the Willowbrook demo extras for route id "1"', () => {
+    const extras = routeExtras('1');
+    expect(extras.length).toBeGreaterThan(0);
+    const ids = new Set(extras.map((e) => e.id));
+    // The Willowbrook author plot (see ROUTE_EXTRAS in courseFurniture.ts).
+    expect(ids.has('b01-boathouse-new-england')).toBe(true);
+    expect(ids.has('a03-pontoon-floating-dock')).toBe(true);
+    expect(ids.has('c01-bridge-arch-masonry')).toBe(true);
+    expect(ids.has('a09-gazebo-hexagonal')).toBe(true);
+    expect(ids.has('b03-clubhouse-modern')).toBe(true);
+  });
+
+  it('every Willowbrook extra sits inside [0, 1] progress and uses a bank side', () => {
+    const extras = routeExtras('1');
+    for (const extra of extras) {
+      expect(extra.progress).toBeGreaterThanOrEqual(0);
+      expect(extra.progress).toBeLessThanOrEqual(1);
+      expect(['left', 'right']).toContain(extra.side);
+    }
+  });
+
+  it('span furniture (bridges) uses the span kind so the engine centres them', () => {
+    const extras = routeExtras('1');
+    const bridges = extras.filter((e) => e.id === 'c01-bridge-arch-masonry');
+    expect(bridges.length).toBeGreaterThanOrEqual(1);
+    for (const bridge of bridges) expect(bridge.kind).toBe('span');
+  });
+
+  it('courseFurniture with a known routeId includes that route\'s extras', () => {
+    const generic = courseFurniture(6_000);
+    const withExtras = courseFurniture(6_000, '1');
+    expect(withExtras.length).toBeGreaterThan(generic.length);
+    // Extras are additive — the generic items stay.
+    const genericBuoys = generic.filter((it) => it.kind === 'buoy').length;
+    const extraBuoys = withExtras.filter((it) => it.kind === 'buoy').length;
+    expect(extraBuoys).toBe(genericBuoys);
+  });
+
+  it('courseFurniture with an unknown routeId matches the generic output', () => {
+    const generic = courseFurniture(6_000);
+    const unknown = courseFurniture(6_000, 'no-such-route');
+    expect(unknown).toEqual(generic);
   });
 });

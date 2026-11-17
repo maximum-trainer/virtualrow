@@ -72,6 +72,13 @@ export type RideAttachOpts = {
    */
   distanceTier?: string;
   route?: unknown;
+  /**
+   * #690 — stable engine route id, used by `placeFurniture` to attach
+   * hand-authored per-route extras (boathouse, bridge, pontoon, …) for
+   * a named route like the Willowbrook demo. Omitted = only the generic
+   * course furniture (buoys, posts, finish tower, flagpoles) is placed.
+   */
+  routeId?: string;
   testMode?: boolean;
   /**
    * Per-frame data from the UI shell (#570 FR7). Optional — the smoke
