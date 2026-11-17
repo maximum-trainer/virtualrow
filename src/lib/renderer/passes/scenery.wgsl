@@ -170,7 +170,16 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   // Sample the per-species leaf texture atlas. Alpha carries the silhouette;
   // use it to mask the quad into a tree shape via alpha blending (the pass's
   // blend state is premult-friendly src-alpha / one-minus-src-alpha).
-  let tex = textureSample(foliageAtlas, foliageSampler, in.uv, i32(in.species));
+  //
+  // #686 D1c — the atlas now carries FOLIAGE_VARIANT_COUNT (= 6) crown
+  // silhouettes per species, laid out as
+  // `layer = species * FOLIAGE_VARIANT_COUNT + variantIdx`. Pick the
+  // variant from the per-instance seed so two broadleaves next to each
+  // other read as "the same species, different tree" — Biketerra's
+  // trick for breaking a monoculture bank.
+  let variantIdx = u32(floor(in.tintSeed * 6.0));
+  let layer = i32(in.species * 6u + min(variantIdx, 5u));
+  let tex = textureSample(foliageAtlas, foliageSampler, in.uv, layer);
   // Discard pixels that are mostly transparent so the depth test still carves
   // the tree silhouette (otherwise distant foliage occludes the water behind).
   if (tex.a < 0.05) { discard; }
