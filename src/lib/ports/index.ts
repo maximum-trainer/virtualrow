@@ -33,6 +33,18 @@ import type { CrashReportsPreferenceStore } from '../services/crashReportsPrefer
 import type { RowerAppearanceService } from '../services/rowerAppearanceService';
 import type { DemoWorkoutService } from '../services/demoWorkoutService';
 import type { ChallengesService } from '../services/challengesService';
+import type { PersistenceService } from '../services/persistenceService';
+
+/**
+ * Server-side persistence port (#670 FR7).
+ *
+ * Future adapters — Cloudflare D1 via the Worker in `workers/api/`, or any
+ * replacement — implement `PersistenceService`; call-sites depend on this
+ * `Pick` so adapters swap without a wider refactor. Today's localStorage
+ * stores (#37 workouts, #477 appearance, #650 customisation) each adapt
+ * onto this contract in their own follow-up PR.
+ */
+export type PersistencePort = Pick<PersistenceService, 'healthcheck' | 'get' | 'set' | 'delete'>;
 
 /** Port for the PM5 Bluetooth integration. */
 export type PM5BluetoothPort = Pick<
