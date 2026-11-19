@@ -9,6 +9,7 @@ import {
   createFleet,
   FLEET_HULL_PALETTE,
   fleetHullTintFor,
+  fleetPaletteIndexForColor,
   fleetProgressForMembers,
   FLEET_MAX,
   FLEET_WINDOW_AHEAD_M,
@@ -200,5 +201,42 @@ describe('#577 D6b fleetHullTintFor — per-member palette variation', () => {
     // (bound keeps the test honest if a seed collision happens on a
     // particular routeId; the point is "the pack reads as varied").
     expect(unique.size).toBeGreaterThanOrEqual(6);
+  });
+});
+
+describe('#577 D6b fleetPaletteIndexForColor — map the player top to a palette index', () => {
+  it('returns the exact palette index for an exact palette entry', () => {
+    for (let i = 0; i < FLEET_HULL_PALETTE.length; i += 1) {
+      const c = FLEET_HULL_PALETTE[i];
+      const rgba: [number, number, number, number] = [c[0], c[1], c[2], 1];
+      expect(fleetPaletteIndexForColor(rgba)).toBe(i);
+    }
+  });
+
+  it('returns the nearest palette index for an off-palette colour', () => {
+    // The "club red" entry at FLEET_HULL_PALETTE[0] is [0.78, 0.22, 0.22, 1].
+    // A slightly off-colour red should still land on it.
+    const nearRed: [number, number, number, number] = [0.80, 0.24, 0.20, 1];
+    expect(fleetPaletteIndexForColor(nearRed)).toBe(0);
+  });
+
+  it("composes with fleetHullTintFor so a fleet member never shares the player's palette index", () => {
+    // Pick a palette index as the player's current top; sweep every
+    // possible raw seed-mod-8 result and verify the member never
+    // lands on the excluded index.
+    for (let playerIndex = 0; playerIndex < FLEET_HULL_PALETTE.length; playerIndex += 1) {
+      const playerTop: [number, number, number, number] = [
+        FLEET_HULL_PALETTE[playerIndex][0],
+        FLEET_HULL_PALETTE[playerIndex][1],
+        FLEET_HULL_PALETTE[playerIndex][2],
+        1,
+      ];
+      const excludeIndex = fleetPaletteIndexForColor(playerTop);
+      expect(excludeIndex).toBe(playerIndex);
+      for (let seed = 0; seed < FLEET_HULL_PALETTE.length; seed += 1) {
+        const tint = fleetHullTintFor(seed, excludeIndex);
+        expect(Array.from(tint)).not.toEqual(Array.from(FLEET_HULL_PALETTE[playerIndex]));
+      }
+    }
   });
 });

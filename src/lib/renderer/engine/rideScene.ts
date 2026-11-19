@@ -99,7 +99,13 @@ import { createDistanceSmoother } from './distanceSmoother';
 import type { RideFrame } from './rideFrame';
 import { RouteCurve } from '../math/curve';
 import { GHOST_LANE_OFFSET_M } from '../../../components/rower3d/ghost';
-import { advanceFleet, createFleet, fleetHullTintFor, type FleetState } from './fleet';
+import {
+  advanceFleet,
+  createFleet,
+  fleetHullTintFor,
+  fleetPaletteIndexForColor,
+  type FleetState,
+} from './fleet';
 import { FLEET_INSTANCE_CAPACITY } from '../passes/boat';
 import { assetUrl } from '../../utils/assetUrl';
 import { createSceneryPass } from './sceneryPass';
@@ -1368,6 +1374,10 @@ export const createRideScene = async (
     );
     lastFleetTime = frame.time;
     const visibleFleet = Math.min(FLEET_INSTANCE_CAPACITY, fleetState.current.members.length);
+    // #577 D6b — compute the "avoid this palette entry" index once per
+    // frame from the player's current unisuit top, so no fleet member
+    // wears the same top colour as the player.
+    const fleetExcludeIndex = fleetPaletteIndexForColor(currentAppearance.top);
     for (let i = 0; i < visibleFleet; i += 1) {
       const member = fleetState.current.members[i];
       const syntheticFrame: RideFrame = {
@@ -1392,7 +1402,7 @@ export const createRideScene = async (
       boatPass.fleet[i].write(device, {
         model: fleetPlacements[i].modelMatrix,
         bones: fleetBones,
-        tintRGBA: fleetHullTintFor(member.seed),
+        tintRGBA: fleetHullTintFor(member.seed, fleetExcludeIndex),
         ghost: false,
         visible: true,
       });

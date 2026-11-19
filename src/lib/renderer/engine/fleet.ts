@@ -66,6 +66,38 @@ export const FLEET_HULL_PALETTE: readonly Float32Array[] = [
   new Float32Array([0.70, 0.70, 0.68, 1.0]), // neutral light grey
 ];
 
+/**
+ * Index of the palette entry closest (RGB Euclidean) to an RGBA input.
+ * Used by the engine to derive the `excludeIndex` for
+ * `fleetHullTintFor` from the player's current unisuit top colour, so
+ * the fleet's hull colour never matches the player's kit (D6b "exclude
+ * player's current top").
+ *
+ * The distance threshold is implicit: whichever palette entry is
+ * numerically closest wins, even if the colours aren't particularly
+ * close — the engine treats every nearby pick as a potential clash
+ * and the picker nudges off it. For an exact non-match, the player
+ * can pick a palette entry that sits far from every fleet colour.
+ */
+export const fleetPaletteIndexForColor = (
+  rgb: readonly [number, number, number, number],
+): number => {
+  let best = 0;
+  let bestDist = Infinity;
+  for (let i = 0; i < FLEET_HULL_PALETTE.length; i += 1) {
+    const c = FLEET_HULL_PALETTE[i];
+    const dr = rgb[0] - c[0];
+    const dg = rgb[1] - c[1];
+    const db = rgb[2] - c[2];
+    const d = dr * dr + dg * dg + db * db;
+    if (d < bestDist) {
+      bestDist = d;
+      best = i;
+    }
+  }
+  return best;
+};
+
 /** Pick a hull tint for a fleet member deterministically from its seed. */
 export const fleetHullTintFor = (seed: number, excludeIndex?: number): Float32Array => {
   // Round the seed through the same hash the state module uses so a
