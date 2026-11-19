@@ -23,6 +23,9 @@ export default defineConfig([
     // headers; those are tooling-generated and must not be linted.
     '.stryker-tmp',
     'reports',
+    // #670: the Cloudflare Worker has its own tsconfig + test runner under
+    // workers/api/. Root lint has no @cloudflare/workers-types in scope.
+    'workers',
   ]),
 
   // Baseline for every TypeScript file in the repo, React or not.
