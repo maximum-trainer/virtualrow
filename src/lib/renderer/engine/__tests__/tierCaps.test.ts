@@ -23,6 +23,7 @@ const basic = {
   drawOarSplash: false,
   polygonWaterMaxVertices: 256,
   fleetCount: 0,
+  castFleetShadows: false,
 };
 const low = {
   drawBuildings: true,
@@ -44,6 +45,7 @@ const low = {
   drawOarSplash: true,
   polygonWaterMaxVertices: 512,
   fleetCount: 2,
+  castFleetShadows: false,
 };
 const medium = {
   drawBuildings: true,
@@ -65,6 +67,7 @@ const medium = {
   drawOarSplash: true,
   polygonWaterMaxVertices: 1024,
   fleetCount: 4,
+  castFleetShadows: true,
 };
 const high = {
   drawBuildings: true,
@@ -86,6 +89,7 @@ const high = {
   drawOarSplash: true,
   polygonWaterMaxVertices: 2048,
   fleetCount: 6,
+  castFleetShadows: true,
 };
 const extraHigh = {
   drawBuildings: true,
@@ -107,6 +111,7 @@ const extraHigh = {
   drawOarSplash: true,
   polygonWaterMaxVertices: 4096,
   fleetCount: 8,
+  castFleetShadows: true,
 };
 
 describe('tierCaps (P6 D8 + P7 D9 + P8 D8)', () => {

@@ -738,6 +738,10 @@ export const createRideScene = async (
     // the kit-tree GLB path (gated by `castSceneryShadows`) is the only
     // scenery depth caster.
     sceneryMeshPass: tierCaps.castSceneryShadows ? sceneryMeshPass : null,
+    // #577 D10a scaled — fleet shadow casts land on medium / high /
+    // extra-high. On basic the fleet is already absent (fleetCount=0);
+    // on low it renders but the depth path stays off.
+    castFleetShadows: tierCaps.castFleetShadows,
   });
 
   const shadowResources = {
