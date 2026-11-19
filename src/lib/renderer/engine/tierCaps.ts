@@ -75,6 +75,14 @@ export interface BuildingTierCaps {
    * existing `boatPass` as an extra ghost-style instance.
    */
   fleetCount: number;
+  /**
+   * #577 D10a (scaled) — whether the fleet casts shadows in the
+   * character-depth pass. `false` on low tier (fleet renders but no
+   * shadow); `true` on medium / high / extra-high so the pack reads
+   * with the same depth cues as the player + ghost. Ignored when
+   * `fleetCount === 0` (no members to draw).
+   */
+  castFleetShadows: boolean;
 }
 
 const CAPS: Record<PerformanceTier, BuildingTierCaps> = {
@@ -98,6 +106,7 @@ const CAPS: Record<PerformanceTier, BuildingTierCaps> = {
     drawOarSplash: false,
     polygonWaterMaxVertices: 256,
     fleetCount: 0,
+    castFleetShadows: false,
   },
   low: {
     drawBuildings: true,
@@ -119,6 +128,7 @@ const CAPS: Record<PerformanceTier, BuildingTierCaps> = {
     drawOarSplash: true,
     polygonWaterMaxVertices: 512,
     fleetCount: 2,
+    castFleetShadows: false,
   },
   medium: {
     drawBuildings: true,
@@ -140,6 +150,7 @@ const CAPS: Record<PerformanceTier, BuildingTierCaps> = {
     drawOarSplash: true,
     polygonWaterMaxVertices: 1024,
     fleetCount: 4,
+    castFleetShadows: true,
   },
   high: {
     drawBuildings: true,
@@ -161,6 +172,7 @@ const CAPS: Record<PerformanceTier, BuildingTierCaps> = {
     drawOarSplash: true,
     polygonWaterMaxVertices: 2048,
     fleetCount: 6,
+    castFleetShadows: true,
   },
   'extra-high': {
     drawBuildings: true,
@@ -182,6 +194,7 @@ const CAPS: Record<PerformanceTier, BuildingTierCaps> = {
     drawOarSplash: true,
     polygonWaterMaxVertices: 4096,
     fleetCount: 8,
+    castFleetShadows: true,
   },
 };
 

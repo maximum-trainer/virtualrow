@@ -89,6 +89,14 @@ export interface ShadowStageOptions {
    */
   charactersMesh?: BoatMeshBuffers | null;
   boatPass?: BoatPass | null;
+  /**
+   * #577 D10a — gate the fleet depth cast. When `false` (basic / low),
+   * the stage builds the fleet bind groups but skips the per-member
+   * draws each frame; when `true` (medium+), the depth loop iterates
+   * `boatPass.fleet` up to `fleetVisibleCount` members. Omitted
+   * defaults to `false`.
+   */
+  castFleetShadows?: boolean;
   telemetry: ShadowTelemetry;
   /**
    * Route curve the bank depth cast follows. Must match the lit bank pass
@@ -112,6 +120,7 @@ export const createShadowStage = (
   opts: ShadowStageOptions,
 ): ShadowStage => {
   const { device, atlas, scenePools, buildingsPool, charactersMesh, boatPass, telemetry } = opts;
+  const castFleetShadows = opts.castFleetShadows === true;
   const bank = createBankDepthPipeline(device, {
     curve: opts.bankCurve ?? null,
     edgesForProgress: opts.bankEdgesForProgress,
@@ -235,6 +244,23 @@ export const createShadowStage = (
         ],
       })
     : null;
+  // #577 D10a — fleet shadow casters. One bind group per
+  // `boatPass.fleet[i]` so the depth loop can iterate up to
+  // `fleetVisibleCount` members. Bind groups are allocated once at
+  // stage creation; `castFleetShadows` on the tier gate decides whether
+  // the loop runs each frame.
+  const charactersFleetBindGroups = characters && boatPass
+    ? boatPass.fleet.map((member, i) =>
+        device.createBindGroup({
+          label: `charactersDepth-fleet-${i}-bg`,
+          layout: characters.drawLayout,
+          entries: [
+            { binding: 0, resource: { buffer: member.uniforms } },
+            { binding: 1, resource: { buffer: member.skin } },
+          ],
+        }),
+      )
+    : [];
 
   const sceneryPoolBindGroups = scenePools.map((pool) =>
     createSceneryDepthPoolBindGroup(device, scenery.poolLayout, {
@@ -404,6 +430,21 @@ export const createShadowStage = (
             pass.drawIndexed(characters.indexCount);
             drawCount += 1;
             triangleCount += characters.indexCount / 3;
+          }
+          // #577 D10a — fleet shadow casters. Draws the same character
+          // mesh for each visible fleet member; the per-member uniforms
+          // already carry the member's world mat4 from `boatPass`.
+          if (castFleetShadows && charactersFleetBindGroups.length > 0) {
+            const visibleFleet = Math.min(
+              charactersFleetBindGroups.length,
+              boatPass.fleetVisibleCount.value | 0,
+            );
+            for (let m = 0; m < visibleFleet; m += 1) {
+              pass.setBindGroup(1, charactersFleetBindGroups[m]);
+              pass.drawIndexed(characters.indexCount);
+              drawCount += 1;
+              triangleCount += characters.indexCount / 3;
+            }
           }
         }
 
