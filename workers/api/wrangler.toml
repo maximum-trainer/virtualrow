@@ -15,6 +15,7 @@ compatibility_date = "2026-11-01"
 binding = "DB"
 database_name = "virtualrow-dev"
 database_id = "96eb755a-7d8c-4205-9d72-48cdcc9fd743"
+migrations_dir = "../../db/migrations"
 
 [env.dev]
 name = "virtualrow-api-dev"
@@ -23,6 +24,7 @@ name = "virtualrow-api-dev"
 binding = "DB"
 database_name = "virtualrow-dev"
 database_id = "96eb755a-7d8c-4205-9d72-48cdcc9fd743"
+migrations_dir = "../../db/migrations"
 
 [env.production]
 name = "virtualrow-api"
@@ -31,3 +33,4 @@ name = "virtualrow-api"
 binding = "DB"
 database_name = "virtualrow-prod"
 database_id = "af8509b2-a7ac-4115-9cbe-347b70de611c"
+migrations_dir = "../../db/migrations"

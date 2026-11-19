@@ -39,7 +39,10 @@
     "hooks:install": "node scripts/install-hooks.mjs",
     "hooks:uninstall": "git config --unset core.hooksPath",
     "verify": "npm run lint && npx tsc --noEmit -p tsconfig.app.json && npx vitest run",
-    "verify:staged": "node scripts/tdd-guard.mjs"
+    "verify:staged": "node scripts/tdd-guard.mjs",
+    "db:migrate": "cd workers/api && npx wrangler d1 migrations apply virtualrow-dev --local",
+    "db:migrate:remote": "cd workers/api && npx wrangler d1 migrations apply virtualrow-dev --remote",
+    "db:create-migration": "cd workers/api && npx wrangler d1 migrations create virtualrow-dev"
   },
   "dependencies": {
     "chart.js": "^4.5.1",
