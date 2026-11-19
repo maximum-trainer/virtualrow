@@ -67,6 +67,14 @@ export interface BuildingTierCaps {
    *  verbatim (islands are already small). Caps are generous: the
    *  cost is the ear-clip, not the GPU draw. */
   polygonWaterMaxVertices: number;
+  /**
+   * #577 D2b — count of placeholder fleet boats drawn alongside the
+   * player + ghost. `0` turns the fleet off (basic tier); higher tiers
+   * carry a larger bow-and-stern pack. The engine's `fleet.ts` generates
+   * this many deterministic positions per route; each draws through the
+   * existing `boatPass` as an extra ghost-style instance.
+   */
+  fleetCount: number;
 }
 
 const CAPS: Record<PerformanceTier, BuildingTierCaps> = {
@@ -89,6 +97,7 @@ const CAPS: Record<PerformanceTier, BuildingTierCaps> = {
     drawWakeParticles: false,
     drawOarSplash: false,
     polygonWaterMaxVertices: 256,
+    fleetCount: 0,
   },
   low: {
     drawBuildings: true,
@@ -109,6 +118,7 @@ const CAPS: Record<PerformanceTier, BuildingTierCaps> = {
     drawWakeParticles: true,
     drawOarSplash: true,
     polygonWaterMaxVertices: 512,
+    fleetCount: 2,
   },
   medium: {
     drawBuildings: true,
@@ -129,6 +139,7 @@ const CAPS: Record<PerformanceTier, BuildingTierCaps> = {
     drawWakeParticles: true,
     drawOarSplash: true,
     polygonWaterMaxVertices: 1024,
+    fleetCount: 4,
   },
   high: {
     drawBuildings: true,
@@ -149,6 +160,7 @@ const CAPS: Record<PerformanceTier, BuildingTierCaps> = {
     drawWakeParticles: true,
     drawOarSplash: true,
     polygonWaterMaxVertices: 2048,
+    fleetCount: 6,
   },
   'extra-high': {
     drawBuildings: true,
@@ -169,6 +181,7 @@ const CAPS: Record<PerformanceTier, BuildingTierCaps> = {
     drawWakeParticles: true,
     drawOarSplash: true,
     polygonWaterMaxVertices: 4096,
+    fleetCount: 8,
   },
 };
 
