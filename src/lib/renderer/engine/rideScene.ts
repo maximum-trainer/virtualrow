@@ -99,7 +99,7 @@ import { createDistanceSmoother } from './distanceSmoother';
 import type { RideFrame } from './rideFrame';
 import { RouteCurve } from '../math/curve';
 import { GHOST_LANE_OFFSET_M } from '../../../components/rower3d/ghost';
-import { advanceFleet, createFleet, type FleetState } from './fleet';
+import { advanceFleet, createFleet, fleetHullTintFor, type FleetState } from './fleet';
 import { FLEET_INSTANCE_CAPACITY } from '../passes/boat';
 import { assetUrl } from '../../utils/assetUrl';
 import { createSceneryPass } from './sceneryPass';
@@ -1123,7 +1123,9 @@ export const createRideScene = async (
   // they read as a pack of other boats rather than semi-transparent
   // race ghosts. Slight variation per member via a seed-driven hue
   // lands with D6b in a follow-up.
-  const FLEET_TINT = new Float32Array([0.74, 0.70, 0.62, 1.0]);
+  // #577 D6b — the per-member hull tint comes from `fleetHullTintFor`
+  // (keyed off the member's seed). Nothing shared at render time, so
+  // this variable is retired; left as a note of the old flat pack look.
 
   const start = now();
   let disposed = false;
@@ -1386,7 +1388,7 @@ export const createRideScene = async (
       boatPass.fleet[i].write(device, {
         model: fleetPlacements[i].modelMatrix,
         bones: fleetBones,
-        tintRGBA: FLEET_TINT,
+        tintRGBA: fleetHullTintFor(member.seed),
         ghost: false,
         visible: true,
       });

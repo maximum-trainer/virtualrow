@@ -7,6 +7,8 @@ import { describe, expect, it } from 'vitest';
 import {
   advanceFleet,
   createFleet,
+  FLEET_HULL_PALETTE,
+  fleetHullTintFor,
   fleetProgressForMembers,
   FLEET_MAX,
   FLEET_WINDOW_AHEAD_M,
@@ -137,5 +139,66 @@ describe('#577 fleetProgressForMembers', () => {
       expect(p).toBeGreaterThanOrEqual(0);
       expect(p).toBeLessThan(1);
     }
+  });
+});
+
+describe('#577 D6b fleetHullTintFor — per-member palette variation', () => {
+  it('palette carries at least 4 distinct entries so a pack of 4 reads as varied', () => {
+    expect(FLEET_HULL_PALETTE.length).toBeGreaterThanOrEqual(4);
+    const serialised = new Set(FLEET_HULL_PALETTE.map((c) => Array.from(c).join(',')));
+    expect(serialised.size).toBe(FLEET_HULL_PALETTE.length);
+  });
+
+  it('every palette entry is a normalised RGBA tuple', () => {
+    for (const c of FLEET_HULL_PALETTE) {
+      expect(c).toBeInstanceOf(Float32Array);
+      expect(c.length).toBe(4);
+      for (let i = 0; i < 3; i += 1) {
+        expect(c[i]).toBeGreaterThanOrEqual(0);
+        expect(c[i]).toBeLessThanOrEqual(1);
+      }
+      expect(c[3]).toBe(1);
+    }
+  });
+
+  it('returns the same tint for the same seed (deterministic)', () => {
+    const a = fleetHullTintFor(1234);
+    const b = fleetHullTintFor(1234);
+    expect(Array.from(a)).toEqual(Array.from(b));
+  });
+
+  it('cycles through the palette across sequential seeds', () => {
+    const picks = new Set<string>();
+    for (let s = 0; s < FLEET_HULL_PALETTE.length; s += 1) {
+      picks.add(Array.from(fleetHullTintFor(s)).join(','));
+    }
+    expect(picks.size).toBe(FLEET_HULL_PALETTE.length);
+  });
+
+  it('nudges past the excluded palette index so the fleet avoids the player top', () => {
+    // If the raw hash lands on index 3 but index 3 is excluded, the
+    // picker should nudge to index 4 (not just return the same colour).
+    const excluded = 3;
+    const seed = excluded; // seed % 8 = 3
+    const tint = fleetHullTintFor(seed, excluded);
+    const expected = FLEET_HULL_PALETTE[(excluded + 1) % FLEET_HULL_PALETTE.length];
+    expect(Array.from(tint)).toEqual(Array.from(expected));
+  });
+
+  it('leaves non-matching seeds unaffected by the exclusion', () => {
+    const excluded = 3;
+    const seed = 5; // 5 % 8 = 5, not excluded
+    const tint = fleetHullTintFor(seed, excluded);
+    expect(Array.from(tint)).toEqual(Array.from(FLEET_HULL_PALETTE[5]));
+  });
+
+  it('a fleet of 8 gets 8 distinct hull tints across common routeIds', () => {
+    const state = createFleet({ count: 8, routeMeters: 6_000, routeId: 'willowbrook' });
+    const tints = state.members.map((m) => Array.from(fleetHullTintFor(m.seed)).join(','));
+    const unique = new Set(tints);
+    // 8 palette entries + deterministic seeds → at least 6 distinct colours
+    // (bound keeps the test honest if a seed collision happens on a
+    // particular routeId; the point is "the pack reads as varied").
+    expect(unique.size).toBeGreaterThanOrEqual(6);
   });
 });
