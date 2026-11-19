@@ -25,6 +25,9 @@ playwright/playwright-report/
 # SvelteKit generated files (#542)
 /.svelte-kit
 
+# Cloudflare Wrangler state (local D1 SQLite file lives here; #670 D4)
+.wrangler/
+
 # Environment variables
 .env
 .env.local

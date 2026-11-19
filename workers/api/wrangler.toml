@@ -1,0 +1,33 @@
+#:schema node_modules/wrangler/config-schema.json
+# Cloudflare Worker for virtualrow's server-side persistence. See issue #670.
+#
+# D1 database IDs are not secrets; they are safe to commit here. The Cloudflare
+# API token that deploys this Worker IS secret and lives in GitHub Actions
+# secrets (CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID); see docs/d1.md.
+name = "virtualrow-api"
+main = "src/worker.ts"
+compatibility_date = "2026-11-01"
+
+# `wrangler dev --local` uses a local SQLite file under .wrangler/state/d1/
+# and never touches the remote DB (D4). The `DB` binding name matches on both
+# environments so the Worker code never branches on env.
+[[d1_databases]]
+binding = "DB"
+database_name = "virtualrow-dev"
+database_id = "96eb755a-7d8c-4205-9d72-48cdcc9fd743"
+
+[env.dev]
+name = "virtualrow-api-dev"
+
+[[env.dev.d1_databases]]
+binding = "DB"
+database_name = "virtualrow-dev"
+database_id = "96eb755a-7d8c-4205-9d72-48cdcc9fd743"
+
+[env.production]
+name = "virtualrow-api"
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "virtualrow-prod"
+database_id = "af8509b2-a7ac-4115-9cbe-347b70de611c"

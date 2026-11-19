@@ -22,7 +22,7 @@ export default defineConfig({
     // them, so the node_modules glob has to be recursive: a nested
     // node_modules (an agent worktree under .claude/, say) otherwise gets
     // collected and we run our dependencies' own test suites.
-    exclude: ['playwright/**', '**/node_modules/**', '.claude/**', 'dist/**'],
+    exclude: ['playwright/**', '**/node_modules/**', '.claude/**', 'dist/**', 'workers/**'],
     environment: 'jsdom',
     globals: true,
     setupFiles: ['src/setupTests.ts'],
