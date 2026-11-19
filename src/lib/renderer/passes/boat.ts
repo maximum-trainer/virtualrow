@@ -36,11 +36,24 @@ export interface BoatInstance {
 export interface BoatPass extends Pass {
   readonly boat: BoatInstance;
   readonly ghost: BoatInstance;
+  /**
+   * #577 slice 2 — up to FLEET_MAX placeholder boats drawn after the
+   * player and the race ghost, using the same simplified boat mesh.
+   * The engine writes per-frame uniforms into the first
+   * `fleetVisibleCount.value` slots; slots beyond that are skipped so
+   * the pass pays zero draws when the tier has `fleetCount = 0`.
+   */
+  readonly fleet: readonly BoatInstance[];
+  readonly fleetVisibleCount: { value: number };
   readonly mesh: BoatMeshBuffers;
   readonly indexCount: number;
   readonly boatVisible: { value: boolean };
   readonly ghostVisible: { value: boolean };
 }
+
+/** Matches the state module's upper bound (#577 FLEET_MAX). Kept as a
+ *  local literal so this pass does not reach into the engine layer. */
+export const FLEET_INSTANCE_CAPACITY = 8;
 
 export interface BoatPassOptions {
   device: GPUDevice;
@@ -184,6 +197,16 @@ export const createBoatPass = (opts: BoatPassOptions): BoatPass => {
   const perDrawLayout = pipeline.getBindGroupLayout(2);
   const boat = makeInstance(device, perDrawLayout, 'boat');
   const ghost = makeInstance(device, perDrawLayout, 'ghost');
+  // #577 slice 2 — a fixed-capacity fleet of placeholder boats. The
+  // per-instance buffers and bind groups are allocated once; the hot
+  // path only writes uniforms + skin for the first `fleetVisibleCount`
+  // slots each frame, so an engine that runs at tier basic (fleet
+  // count 0) pays zero bytes per frame for the fleet.
+  const fleet: BoatInstance[] = [];
+  for (let i = 0; i < FLEET_INSTANCE_CAPACITY; i += 1) {
+    fleet.push(makeInstance(device, perDrawLayout, `fleet-${i}`));
+  }
+  const fleetVisibleCount = { value: 0 };
   const boatVisible = { value: true };
   const ghostVisible = { value: false };
 
@@ -192,6 +215,8 @@ export const createBoatPass = (opts: BoatPassOptions): BoatPass => {
     name: 'boat',
     boat,
     ghost,
+    fleet,
+    fleetVisibleCount,
     mesh,
     indexCount: mesh.indexCount,
     boatVisible,
@@ -219,6 +244,11 @@ export const createBoatPass = (opts: BoatPassOptions): BoatPass => {
         pass.setBindGroup(2, ghost.bindGroup);
         pass.drawIndexed(mesh.indexCount);
       }
+      const visible = Math.max(0, Math.min(FLEET_INSTANCE_CAPACITY, fleetVisibleCount.value | 0));
+      for (let i = 0; i < visible; i += 1) {
+        pass.setBindGroup(2, fleet[i].bindGroup);
+        pass.drawIndexed(mesh.indexCount);
+      }
       pass.end();
     },
     dispose() {
@@ -226,6 +256,7 @@ export const createBoatPass = (opts: BoatPassOptions): BoatPass => {
       disposed = true;
       boat.dispose();
       ghost.dispose();
+      for (const member of fleet) member.dispose();
       vertexBuffer.destroy();
       indexBuffer.destroy();
     },

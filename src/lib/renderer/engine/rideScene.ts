@@ -99,6 +99,8 @@ import { createDistanceSmoother } from './distanceSmoother';
 import type { RideFrame } from './rideFrame';
 import { RouteCurve } from '../math/curve';
 import { GHOST_LANE_OFFSET_M } from '../../../components/rower3d/ghost';
+import { advanceFleet, createFleet, fleetHullTintFor, type FleetState } from './fleet';
+import { FLEET_INSTANCE_CAPACITY } from '../passes/boat';
 import { assetUrl } from '../../utils/assetUrl';
 import { createSceneryPass } from './sceneryPass';
 import {
@@ -1101,11 +1103,29 @@ export const createRideScene = async (
     mat4Identity(boatBones[i]);
     mat4Identity(ghostBones[i]);
   }
+  // #577 slice 2 — placeholder-fleet state + per-member reusable
+  // placement + identity bones. Fleet members draw through the same
+  // `boatPass` as the player and race ghost; the state module owns
+  // their deterministic positions and respawn-into-window behaviour.
+  // The actual state object is built in the frame loop once
+  // `totalDistanceMeters` is known.
+  const fleetState: { current: FleetState | null } = { current: null };
+  const fleetPlacements = Array.from({ length: FLEET_INSTANCE_CAPACITY }, () => createPlacement());
+  const fleetBones = Array.from({ length: BOAT_BONE_COUNT }, () => mat4());
+  for (let i = 0; i < BOAT_BONE_COUNT; i += 1) mat4Identity(fleetBones[i]);
+  let lastFleetTime = -1;
   // #571 shell paint: when the shell plumbs an athlete id through,
   // the hull tint comes from `boatPaint.boatTintFromAthlete`. Falls
   // back to today's off-white when the id is empty / undefined.
   const BOAT_TINT = boatTintFromAthlete(opts.athleteId);
   const GHOST_TINT = new Float32Array([0.35, 0.85, 1.0, 0.5]);
+  // #577 D9a — placeholder fleet uses a desaturated solid hull tint so
+  // they read as a pack of other boats rather than semi-transparent
+  // race ghosts. Slight variation per member via a seed-driven hue
+  // lands with D6b in a follow-up.
+  // #577 D6b — the per-member hull tint comes from `fleetHullTintFor`
+  // (keyed off the member's seed). Nothing shared at render time, so
+  // this variable is retired; left as a note of the old flat pack look.
 
   const start = now();
   let disposed = false;
@@ -1323,6 +1343,57 @@ export const createRideScene = async (
         visible: true,
       });
     }
+
+    // #577 slice 2 — advance the fleet, position each member on the
+    // route curve, write per-instance uniforms. The visible count is
+    // `tierCaps.fleetCount`, clamped to the pass's capacity.
+    if (!fleetState.current || fleetState.current.routeMeters !== totalDistanceMeters) {
+      fleetState.current = createFleet({
+        count: tierCaps.fleetCount,
+        routeMeters: totalDistanceMeters,
+        routeId: opts.routeId,
+        playerStartMeters: boatPlacement.distanceMeters,
+      });
+      lastFleetTime = frame.time;
+    }
+    const fleetDt = lastFleetTime >= 0 ? Math.max(0, frame.time - lastFleetTime) : 0;
+    fleetState.current = advanceFleet(
+      fleetState.current,
+      boatPlacement.distanceMeters,
+      fleetDt,
+    );
+    lastFleetTime = frame.time;
+    const visibleFleet = Math.min(FLEET_INSTANCE_CAPACITY, fleetState.current.members.length);
+    for (let i = 0; i < visibleFleet; i += 1) {
+      const member = fleetState.current.members[i];
+      const syntheticFrame: RideFrame = {
+        paceSPer500: 0,
+        distanceMeters: member.distanceMeters,
+        cadence: 0,
+        isPlaying: false,
+        holdBoat: false,
+        finished: false,
+        intensityFactor: 0,
+        elapsedSeconds: frame.time,
+        ghost: null,
+      };
+      placeBoat(
+        fleetPlacements[i],
+        routeCurve,
+        syntheticFrame,
+        totalDistanceMeters,
+        curveLength,
+        member.laneOffsetMeters,
+      );
+      boatPass.fleet[i].write(device, {
+        model: fleetPlacements[i].modelMatrix,
+        bones: fleetBones,
+        tintRGBA: fleetHullTintFor(member.seed),
+        ghost: false,
+        visible: true,
+      });
+    }
+    boatPass.fleetVisibleCount.value = visibleFleet;
 
     telemetry.boat.x = boatPlacement.world[0];
     telemetry.boat.y = boatPlacement.world[1];

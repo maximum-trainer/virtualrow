@@ -41,6 +41,46 @@ export const FLEET_MAX = 8;
 
 export type FleetCrew = 'male' | 'female';
 
+/**
+ * #577 D6b — per-member hull tint palette. The placeholder fleet's
+ * most visible cue is the hull colour, so a curated palette turns the
+ * pack from "a line of grey boats" into "a line of club colours" at
+ * chase-camera distance.
+ *
+ * Eight entries: club red / navy / green / yellow / orange / teal /
+ * burgundy / grey. `fleetHullTintFor(seed)` picks one deterministically
+ * from the member's seed so screenshots stay reproducible.
+ *
+ * `Float32Array` values are kept per-entry rather than a single big
+ * buffer so the engine can hand each one straight to
+ * `boatPass.fleet[i].write({ tintRGBA })` without slicing.
+ */
+export const FLEET_HULL_PALETTE: readonly Float32Array[] = [
+  new Float32Array([0.78, 0.22, 0.22, 1.0]), // club red
+  new Float32Array([0.14, 0.26, 0.58, 1.0]), // navy
+  new Float32Array([0.22, 0.60, 0.33, 1.0]), // forest green
+  new Float32Array([0.95, 0.80, 0.25, 1.0]), // regatta yellow
+  new Float32Array([0.90, 0.46, 0.18, 1.0]), // orange
+  new Float32Array([0.22, 0.64, 0.68, 1.0]), // teal
+  new Float32Array([0.56, 0.18, 0.28, 1.0]), // burgundy
+  new Float32Array([0.70, 0.70, 0.68, 1.0]), // neutral light grey
+];
+
+/** Pick a hull tint for a fleet member deterministically from its seed. */
+export const fleetHullTintFor = (seed: number, excludeIndex?: number): Float32Array => {
+  // Round the seed through the same hash the state module uses so a
+  // slight seed change still yields distinct picks.
+  const roll = seed % FLEET_HULL_PALETTE.length;
+  const idx = (roll + FLEET_HULL_PALETTE.length) % FLEET_HULL_PALETTE.length;
+  if (excludeIndex !== undefined && idx === excludeIndex) {
+    // Nudge to the next entry so the fleet member doesn't wear the
+    // player's current top colour. One hop is enough to pick a
+    // different hue; a modulo keeps the bounds.
+    return FLEET_HULL_PALETTE[(idx + 1) % FLEET_HULL_PALETTE.length];
+  }
+  return FLEET_HULL_PALETTE[idx];
+};
+
 export interface FleetMember {
   /** Distance along the route in metres, wrapped to `[0, routeMeters)`. */
   distanceMeters: number;
