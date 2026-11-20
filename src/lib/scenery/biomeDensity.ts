@@ -28,6 +28,17 @@ const DENSITY_SEEDS: Record<SceneryProfile, number> = {
   beach: 541,
   wetland: 647,
   fallback: 751,
+  // #712 FR1 phase 1 — distinct primes so each biome's noise tile does not
+  // share phases with any other.
+  scrub: 859,
+  woodland: 971,
+  'forest-medium': 1087,
+  'forest-high': 1193,
+  village: 1301,
+  town: 1409,
+  'small-city': 1523,
+  parkland: 1637,
+  orchard: 1753,
 };
 
 /** A smoothed [0, 1] noise sample at `(x, y)` from the seeded `biomeNoise`. */

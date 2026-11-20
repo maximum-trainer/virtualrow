@@ -74,8 +74,10 @@ describe('#493 FR18 bank land on the OSM reference courses', () => {
 
   it.each([61, 153])('course %i on the Charles has parkland along both banks', (id) => {
     const samples = detect(id);
-    expect(commonest(samples, 'leftLand')).toBe('farmland');
-    expect(commonest(samples, 'rightLand')).toBe('farmland');
+    // #712 FR2: parks and gardens now return `parkland` rather than being
+    // lumped into `farmland`; the test name always said "parkland".
+    expect(commonest(samples, 'leftLand')).toBe('parkland');
+    expect(commonest(samples, 'rightLand')).toBe('parkland');
   });
 
   it('gives the two banks of a course different land somewhere', () => {

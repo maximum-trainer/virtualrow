@@ -14,6 +14,12 @@ import type { SceneryProfile } from '../../services/routeEnrichmentService';
 
 const PROFILES: SceneryProfile[] = [
   'forest', 'residential', 'commercial', 'farmland', 'beach', 'wetland', 'fallback',
+  // #712 FR1 phase 1 — the richer variants carry their own DENSITY_SEEDS and
+  // SCENERY_PROFILES entries; the parity invariants (deterministic bytes and
+  // mean density within ±0.15 of the profile's `groundCover.density`) must
+  // hold for them too.
+  'scrub', 'woodland', 'forest-medium', 'forest-high',
+  'village', 'town', 'small-city', 'parkland', 'orchard',
 ];
 
 describe('paintBiomeDensityTile — ported from foliageTexture.ts', () => {

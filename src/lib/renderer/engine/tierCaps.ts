@@ -68,6 +68,15 @@ export interface BuildingTierCaps {
    *  cost is the ear-clip, not the GPU draw. */
   polygonWaterMaxVertices: number;
   /**
+   * #712 FR6 / D6 — soft cap on the number of OSM / kit buildings drawn per
+   * `~500m` route segment, so a `small-city` profile can't blow FR10 gpuMs on
+   * lower tiers. Scales across tiers; LOD distance work (#497) still trims
+   * far-field count on top of this. `0` turns per-segment building draw off
+   * entirely (basic tier retains today's `drawBuildings: false` as the kill
+   * switch).
+   */
+  maxBuildingsPerSegment: number;
+  /**
    * #577 D2b — count of placeholder fleet boats drawn alongside the
    * player + ghost. `0` turns the fleet off (basic tier); higher tiers
    * carry a larger bow-and-stern pack. The engine's `fleet.ts` generates
@@ -105,6 +114,7 @@ const CAPS: Record<PerformanceTier, BuildingTierCaps> = {
     drawWakeParticles: false,
     drawOarSplash: false,
     polygonWaterMaxVertices: 256,
+    maxBuildingsPerSegment: 0,
     fleetCount: 0,
     castFleetShadows: false,
   },
@@ -127,6 +137,7 @@ const CAPS: Record<PerformanceTier, BuildingTierCaps> = {
     drawWakeParticles: true,
     drawOarSplash: true,
     polygonWaterMaxVertices: 512,
+    maxBuildingsPerSegment: 8,
     fleetCount: 2,
     castFleetShadows: false,
   },
@@ -149,6 +160,7 @@ const CAPS: Record<PerformanceTier, BuildingTierCaps> = {
     drawWakeParticles: true,
     drawOarSplash: true,
     polygonWaterMaxVertices: 1024,
+    maxBuildingsPerSegment: 16,
     fleetCount: 4,
     castFleetShadows: true,
   },
@@ -171,6 +183,7 @@ const CAPS: Record<PerformanceTier, BuildingTierCaps> = {
     drawWakeParticles: true,
     drawOarSplash: true,
     polygonWaterMaxVertices: 2048,
+    maxBuildingsPerSegment: 32,
     fleetCount: 6,
     castFleetShadows: true,
   },
@@ -193,6 +206,7 @@ const CAPS: Record<PerformanceTier, BuildingTierCaps> = {
     drawWakeParticles: true,
     drawOarSplash: true,
     polygonWaterMaxVertices: 4096,
+    maxBuildingsPerSegment: 64,
     fleetCount: 8,
     castFleetShadows: true,
   },
