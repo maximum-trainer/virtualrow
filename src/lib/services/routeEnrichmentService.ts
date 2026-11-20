@@ -629,9 +629,16 @@ const BIOME_TAG_PROFILES: Record<string, SceneryProfile> = {
   wetland: 'wetland',
 };
 
+/**
+ * #712 FR4 / Phase 2 — default on. The fallback schedule is a strict
+ * superset: routes without `sceneryOverrides` and with zero or one biome tag
+ * read identically to today's single-tag fallback (AC7). Set
+ * `globalThis.__VIRTUALROW_RICH_BIOMES = false` from a test or a repro to
+ * force the legacy single-profile behaviour.
+ */
 const isRichBiomesEnabled = (): boolean => {
   const g = globalThis as unknown as { __VIRTUALROW_RICH_BIOMES?: boolean };
-  return g.__VIRTUALROW_RICH_BIOMES === true;
+  return g.__VIRTUALROW_RICH_BIOMES !== false;
 };
 
 /**
