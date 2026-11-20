@@ -178,7 +178,9 @@ describe('route enrichment helpers', () => {
   });
 
   it('maps OSM tags to scenery profiles', () => {
-    expect(mapOsmTagsToSceneryProfile({ landuse: 'forest' })).toBe('forest');
+    // #712 FR2: broadleaf forest reads as woodland; see sceneryFromTags.test.ts
+    // for the full mapping surface.
+    expect(mapOsmTagsToSceneryProfile({ landuse: 'forest' })).toBe('woodland');
     expect(mapOsmTagsToSceneryProfile({ landuse: 'farmland' })).toBe('farmland');
     expect(mapOsmTagsToSceneryProfile({ natural: 'wetland' })).toBe('wetland');
     expect(mapOsmTagsToSceneryProfile({ building: 'yes' })).toBe('commercial');
@@ -435,7 +437,8 @@ describe('RouteEnrichmentService', () => {
     expect(first.source).toBe('network');
     expect(first.elevations).toEqual([5, 6, 7, 8]);
     expect(first.waterBodyType).toBe('canal');
-    expect(first.segmentProfiles[0].sceneryProfile).toBe('forest');
+    // #712 FR2: `landuse=forest` detected land now reads as `woodland` (was `forest`).
+    expect(first.segmentProfiles[0].sceneryProfile).toBe('woodland');
     expect(first.segmentProfiles[0].waterWidthMeters).toBe(14);
     expect(first.segmentProfiles.length).toBeGreaterThan(0);
     expect(second.source).toBe('cache');

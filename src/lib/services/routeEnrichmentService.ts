@@ -32,14 +32,8 @@ const ROUTE_ENRICHMENT_CACHE_ROOT = 'virtualrow:route-enrichment:';
  */
 const ROUTE_ENRICHMENT_CACHE_PREFIX = `${ROUTE_ENRICHMENT_CACHE_ROOT}v5:`;
 
-export type SceneryProfile =
-  | 'forest'
-  | 'residential'
-  | 'commercial'
-  | 'farmland'
-  | 'beach'
-  | 'wetland'
-  | 'fallback';
+export type { SceneryProfile } from '../types/index';
+import type { SceneryProfile } from '../types/index';
 
 export type WaterBodyType =
   | 'river'
@@ -248,6 +242,18 @@ export const SCENERY_PROFILE_CONFIG: Record<
     buildingDensity: 0.1,
     objectScale: 1,
   },
+  // #712 FR1 phase 1 numbers. Each row is the four per-segment scalars; the
+  // sibling `SCENERY_PROFILES` in `sceneryConfig.ts` carries the renderer-side
+  // species / ground-cover / height-range config for the same profile.
+  scrub: { treeDensity: 0.08, vegetationDensity: 0.4, buildingDensity: 0, objectScale: 0.85 },
+  woodland: { treeDensity: 0.75, vegetationDensity: 0.75, buildingDensity: 0.02, objectScale: 1 },
+  'forest-medium': { treeDensity: 1, vegetationDensity: 0.85, buildingDensity: 0.05, objectScale: 1.15 },
+  'forest-high': { treeDensity: 1, vegetationDensity: 0.9, buildingDensity: 0.03, objectScale: 1.2 },
+  village: { treeDensity: 0.5, vegetationDensity: 0.5, buildingDensity: 0.35, objectScale: 1 },
+  town: { treeDensity: 0.3, vegetationDensity: 0.35, buildingDensity: 0.7, objectScale: 1.05 },
+  'small-city': { treeDensity: 0.15, vegetationDensity: 0.2, buildingDensity: 0.9, objectScale: 1.1 },
+  parkland: { treeDensity: 0.4, vegetationDensity: 0.6, buildingDensity: 0.02, objectScale: 0.95 },
+  orchard: { treeDensity: 0.6, vegetationDensity: 0.3, buildingDensity: 0.03, objectScale: 0.9 },
 };
 
 const defaultStorage = () => {
@@ -598,6 +604,71 @@ const inferFallbackSceneryProfile = (route: WaterRoute): SceneryProfile => {
   return 'fallback';
 };
 
+/**
+ * #712 FR3 — biome words recognised in `route.tags` for the tag-ordered
+ * fallback schedule. The map is intentionally narrow: only tags that unambiguously
+ * stand for a biome count, so a curator who writes `tags: ['river', 'forest',
+ * 'meadow', 'village', 'lake']` gets a four-biome schedule split evenly across
+ * the route (river / lake / canal here only set the water body, not the bank).
+ */
+const BIOME_TAG_PROFILES: Record<string, SceneryProfile> = {
+  forest: 'forest',
+  woodland: 'woodland',
+  scrub: 'scrub',
+  meadow: 'farmland',
+  farmland: 'farmland',
+  orchard: 'orchard',
+  park: 'parkland',
+  parkland: 'parkland',
+  village: 'village',
+  town: 'town',
+  city: 'small-city',
+  urban: 'commercial',
+  residential: 'residential',
+  beach: 'beach',
+  wetland: 'wetland',
+};
+
+const isRichBiomesEnabled = (): boolean => {
+  const g = globalThis as unknown as { __VIRTUALROW_RICH_BIOMES?: boolean };
+  return g.__VIRTUALROW_RICH_BIOMES === true;
+};
+
+/**
+ * #712 FR3 phase 1 — return the per-segment profile for `startMeters..endMeters`.
+ *
+ * Priority:
+ *   1. `route.sceneryOverrides` entry that intersects the mid-point of the
+ *      segment (curator wins).
+ *   2. Tag-ordered schedule: biome tags in `route.tags` split the route into
+ *      equal distance bands, in tag order.
+ *   3. `inferFallbackSceneryProfile(route)` — today's single-tag result.
+ *
+ * Steps 1 and 2 only run when `__VIRTUALROW_RICH_BIOMES === true`, so Phase 1
+ * ships with no behaviour change until the flag is turned on. The returned
+ * profile is always a valid `SceneryProfile`, falling through to step 3 for
+ * any gap in overrides or an empty biome-tag list.
+ */
+export const fallbackProfileForSegment = (
+  route: WaterRoute,
+  startMeters: number,
+  endMeters: number,
+  totalDistance: number,
+): SceneryProfile => {
+  if (!isRichBiomesEnabled()) return inferFallbackSceneryProfile(route);
+  const mid = (startMeters + endMeters) / 2;
+  const override = route.sceneryOverrides?.find(
+    (o) => mid >= o.fromMeters && mid < o.toMeters,
+  );
+  if (override) return override.profile;
+  const biomes = route.tags.map((t) => BIOME_TAG_PROFILES[t]).filter((p): p is SceneryProfile => !!p);
+  if (biomes.length > 0 && totalDistance > 0) {
+    const band = Math.min(biomes.length - 1, Math.floor((mid / totalDistance) * biomes.length));
+    return biomes[band];
+  }
+  return inferFallbackSceneryProfile(route);
+};
+
 const inferRouteWaterBodyType = (route: WaterRoute): WaterBodyType => {
   // Tags are the curated signal: an explicit tag always wins over the name
   // (AC5.2). rownative writes the classified type as a tag at import time
@@ -664,16 +735,16 @@ export const createFallbackRouteEnrichment = (
   route: WaterRoute,
 ): RouteEnrichmentData => {
   const waterBodyType = inferRouteWaterBodyType(route);
-  const sceneryProfile = inferFallbackSceneryProfile(route);
   const totalDistance = routeTotalDistanceMeters(route.coordinates);
   const segmentCount = Math.max(1, Math.ceil(totalDistance / ROUTE_SEGMENT_LENGTH_METERS));
   const widthMeters = getDefaultWaterWidthMeters(waterBodyType);
-  const profileConfig = SCENERY_PROFILE_CONFIG[sceneryProfile];
   const segmentProfiles: RouteSegmentEnrichment[] = [];
 
   for (let index = 0; index < segmentCount; index++) {
     const startMeters = index * ROUTE_SEGMENT_LENGTH_METERS;
     const endMeters = Math.min(totalDistance, startMeters + ROUTE_SEGMENT_LENGTH_METERS);
+    const sceneryProfile = fallbackProfileForSegment(route, startMeters, endMeters, totalDistance);
+    const profileConfig = SCENERY_PROFILE_CONFIG[sceneryProfile];
     const startCoord = interpolateCoordinateAtDistance(route.coordinates, startMeters);
     const endCoord = interpolateCoordinateAtDistance(route.coordinates, endMeters);
     const bearing = calculateBearing(

@@ -194,4 +194,96 @@ export const SCENERY_PROFILES: Record<SceneryProfile, SceneryProfileConfig> = {
       heightRange: [0.7, 1.0],
     },
   },
+
+  // #712 FR1 phase 1 — richer biome variants. New profiles alias existing
+  // species / ground-cover / kit entries until phase 2 ships the authored kit
+  // extensions (#712 D4 minimum set).
+
+  scrub: {
+    trees: { density: 0.08, species: ['bare', 'ornamental'], biomeMix: [70, 30], scaleRange: [0.5, 0.8] },
+    groundCover: { density: 0.4, types: ['rock', 'grass'] },
+    buildings: { probability: 0, heightRange: [0.4, 0.6] },
+  },
+  woodland: {
+    trees: {
+      density: 0.75,
+      species: ['oak', 'willow', 'cypress', 'pine'],
+      // Broadleaf-dominant mix — oak-heavy with willow + cypress co-dominant,
+      // pine the long-tail accent.
+      biomeMix: [50, 25, 15, 10],
+      scaleRange: [0.8, 1.3],
+    },
+    groundCover: { density: 0.7, types: ['grass', 'rock', 'flower'] },
+    buildings: { probability: 0.02, heightRange: [0.5, 0.8] },
+  },
+  'forest-medium': {
+    trees: {
+      density: 1,
+      species: ['pine', 'oak', 'willow', 'cypress'],
+      biomeMix: [50, 30, 15, 5],
+      scaleRange: [0.85, 1.4],
+    },
+    groundCover: { density: 0.85, types: ['rock', 'grass', 'reed'] },
+    buildings: { probability: 0.05, heightRange: [0.5, 0.8] },
+  },
+  'forest-high': {
+    trees: {
+      density: 1,
+      species: ['pine', 'cypress', 'oak'],
+      // Old-growth conifer-heavy canopy — pine dominant, cypress co-dominant,
+      // broadleaf accent.
+      biomeMix: [65, 25, 10],
+      scaleRange: [0.95, 1.6],
+    },
+    groundCover: { density: 0.9, types: ['rock', 'reed', 'grass'] },
+    buildings: { probability: 0.03, heightRange: [0.4, 0.7] },
+  },
+  village: {
+    trees: {
+      density: 0.5,
+      species: ['oak', 'willow', 'ornamental'],
+      biomeMix: [55, 30, 15],
+      scaleRange: [0.7, 1.1],
+    },
+    groundCover: { density: 0.5, types: ['grass', 'flower'] },
+    buildings: { probability: 0.35, heightRange: [0.6, 1.0] },
+  },
+  town: {
+    trees: {
+      density: 0.3,
+      species: ['ornamental', 'oak'],
+      biomeMix: [70, 30],
+      scaleRange: [0.65, 0.95],
+    },
+    groundCover: { density: 0.35, types: ['grass', 'flower', 'debris'] },
+    buildings: { probability: 0.7, heightRange: [0.9, 1.5] },
+  },
+  'small-city': {
+    trees: {
+      density: 0.15,
+      species: ['ornamental'],
+      scaleRange: [0.6, 0.9],
+    },
+    groundCover: { density: 0.2, types: ['debris', 'rock'] },
+    buildings: { probability: 0.9, heightRange: [1.5, 3.5] },
+  },
+  parkland: {
+    trees: {
+      density: 0.4,
+      species: ['oak', 'ornamental', 'willow'],
+      biomeMix: [50, 30, 20],
+      scaleRange: [0.8, 1.2],
+    },
+    groundCover: { density: 0.6, types: ['grass', 'flower'] },
+    buildings: { probability: 0.02, heightRange: [0.5, 0.8] },
+  },
+  orchard: {
+    trees: {
+      density: 0.6,
+      species: ['ornamental'],
+      scaleRange: [0.7, 0.9],
+    },
+    groundCover: { density: 0.3, types: ['grass'] },
+    buildings: { probability: 0.03, heightRange: [0.5, 0.7] },
+  },
 };

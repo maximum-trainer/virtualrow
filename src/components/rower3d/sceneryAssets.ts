@@ -88,6 +88,62 @@ export const SCENERY_PROFILE_MODELS: Record<SceneryProfile, ProfileModelSet> = {
     scatter: ['f18-grass-tuft-clump', 'f21-boulder-cluster', 'f25-bramble-scrub'],
     backdrop: ['f45-treeline-strip', 'f46-hill-ridge-far'],
   },
+  // #712 FR1 phase 1 — new biome profiles alias existing kit entries until the
+  // phase-2 kit extensions (#712 D4) land authored meshes.
+  scrub: {
+    bankEdge: ['f01-bank-earth-cut', 'f02-bank-shingle-shelf'],
+    landform: ['f10-ridge-rolling-meadow', 'f12-bluff-steep'],
+    scatter: ['f21-boulder-cluster', 'f25-bramble-scrub'],
+    backdrop: ['f46-hill-ridge-far'],
+  },
+  woodland: {
+    bankEdge: ['f01-bank-earth-cut', 'f02-bank-shingle-shelf', 'f08-bank-pile-revetment'],
+    landform: ['f11-hillside-wooded', 'f10-ridge-rolling-meadow'],
+    scatter: ['f21-boulder-cluster', 'f23-driftwood-log', 'f25-bramble-scrub', 'f26-fern-clump'],
+    backdrop: ['f45-treeline-strip', 'f46-hill-ridge-far'],
+  },
+  'forest-medium': {
+    bankEdge: ['f01-bank-earth-cut', 'f02-bank-shingle-shelf', 'f08-bank-pile-revetment'],
+    landform: ['f11-hillside-wooded', 'f12-bluff-steep'],
+    scatter: ['f21-boulder-cluster', 'f23-driftwood-log', 'f24-deadfall-branch-pile', 'f25-bramble-scrub', 'f26-fern-clump'],
+    backdrop: ['f45-treeline-strip', 'f46-hill-ridge-far'],
+  },
+  'forest-high': {
+    bankEdge: ['f01-bank-earth-cut', 'f02-bank-shingle-shelf', 'f08-bank-pile-revetment'],
+    landform: ['f11-hillside-wooded', 'f12-bluff-steep'],
+    scatter: ['f21-boulder-cluster', 'f23-driftwood-log', 'f24-deadfall-branch-pile', 'f26-fern-clump'],
+    backdrop: ['f45-treeline-strip', 'f46-hill-ridge-far'],
+  },
+  village: {
+    bankEdge: ['f04-bank-masonry-wall', 'f08-bank-pile-revetment'],
+    landform: ['f10-ridge-rolling-meadow'],
+    scatter: ['f18-grass-tuft-clump', 'f19-flower-meadow-patch', 'f21-boulder-cluster'],
+    backdrop: ['f47-skyline-strip', 'f45-treeline-strip'],
+  },
+  town: {
+    bankEdge: ['f04-bank-masonry-wall', 'f09-bank-concrete-step'],
+    landform: ['f10-ridge-rolling-meadow'],
+    scatter: ['f18-grass-tuft-clump', 'f21-boulder-cluster', 'f22-shingle-scatter'],
+    backdrop: ['f47-skyline-strip'],
+  },
+  'small-city': {
+    bankEdge: ['f04-bank-masonry-wall', 'f05-bank-sheet-piling', 'f09-bank-concrete-step'],
+    landform: [],
+    scatter: ['f21-boulder-cluster', 'f22-shingle-scatter'],
+    backdrop: ['f47-skyline-strip'],
+  },
+  parkland: {
+    bankEdge: ['f01-bank-earth-cut', 'f04-bank-masonry-wall', 'f08-bank-pile-revetment'],
+    landform: ['f10-ridge-rolling-meadow'],
+    scatter: ['f18-grass-tuft-clump', 'f19-flower-meadow-patch'],
+    backdrop: ['f45-treeline-strip'],
+  },
+  orchard: {
+    bankEdge: ['f01-bank-earth-cut', 'f08-bank-pile-revetment'],
+    landform: ['f10-ridge-rolling-meadow'],
+    scatter: ['f18-grass-tuft-clump', 'f19-flower-meadow-patch'],
+    backdrop: ['f45-treeline-strip', 'f46-hill-ridge-far'],
+  },
 };
 
 // ---------------------------------------------------------------------------

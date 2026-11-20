@@ -19,6 +19,35 @@ export interface Coordinate {
  */
 export type GeometrySource = 'track' | 'polygon-path' | 'osm-derived' | 'gate-chain';
 
+/**
+ * Lives here, not in `routeEnrichmentService`, so lightweight consumers
+ * (and the Playwright tsconfig, which includes `src/lib/types` but not the
+ * enrichment service and its transitive imports) can reference it without
+ * pulling in the whole service.
+ *
+ * `routeEnrichmentService` re-exports this union so existing imports like
+ * `import type { SceneryProfile } from '.../routeEnrichmentService'` keep
+ * working.
+ */
+export type SceneryProfile =
+  | 'forest'
+  | 'residential'
+  | 'commercial'
+  | 'farmland'
+  | 'beach'
+  | 'wetland'
+  | 'fallback'
+  // #712 FR1: richer biome variants (phase 1).
+  | 'scrub'
+  | 'woodland'
+  | 'forest-medium'
+  | 'forest-high'
+  | 'village'
+  | 'town'
+  | 'small-city'
+  | 'parkland'
+  | 'orchard';
+
 // Route enrichment metadata (optional - only present when route has been enriched)
 export interface RouteEnrichmentMetadata {
   enrichedAt: number; // timestamp when enrichment was performed
@@ -58,6 +87,19 @@ export interface WaterRoute {
    */
   externalDistanceMeters?: number;
   enrichment?: RouteEnrichmentMetadata; // Optional enrichment metadata
+  /**
+   * #712 FR3 phase 1 — route-authored biome schedule, read by
+   * `createFallbackRouteEnrichment` ahead of its tag-ordered fallback.
+   * Each entry paints `[fromMeters, toMeters)` with `profile`; ranges may
+   * leave gaps, which fall through to the tag-ordered schedule or the
+   * single-tag fallback. The ride itself ignores this field unless the
+   * `__VIRTUALROW_RICH_BIOMES` flag is on (phase 1 off-by-default gate).
+   */
+  sceneryOverrides?: ReadonlyArray<{
+    fromMeters: number;
+    toMeters: number;
+    profile: SceneryProfile;
+  }>;
 }
 
 /**

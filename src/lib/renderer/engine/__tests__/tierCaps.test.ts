@@ -22,6 +22,7 @@ const basic = {
   drawWakeParticles: false,
   drawOarSplash: false,
   polygonWaterMaxVertices: 256,
+  maxBuildingsPerSegment: 0,
   fleetCount: 0,
   castFleetShadows: false,
 };
@@ -44,6 +45,7 @@ const low = {
   drawWakeParticles: true,
   drawOarSplash: true,
   polygonWaterMaxVertices: 512,
+  maxBuildingsPerSegment: 8,
   fleetCount: 2,
   castFleetShadows: false,
 };
@@ -66,6 +68,7 @@ const medium = {
   drawWakeParticles: true,
   drawOarSplash: true,
   polygonWaterMaxVertices: 1024,
+  maxBuildingsPerSegment: 16,
   fleetCount: 4,
   castFleetShadows: true,
 };
@@ -88,6 +91,7 @@ const high = {
   drawWakeParticles: true,
   drawOarSplash: true,
   polygonWaterMaxVertices: 2048,
+  maxBuildingsPerSegment: 32,
   fleetCount: 6,
   castFleetShadows: true,
 };
@@ -110,6 +114,7 @@ const extraHigh = {
   drawWakeParticles: true,
   drawOarSplash: true,
   polygonWaterMaxVertices: 4096,
+  maxBuildingsPerSegment: 64,
   fleetCount: 8,
   castFleetShadows: true,
 };
