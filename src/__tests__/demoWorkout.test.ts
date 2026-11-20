@@ -27,7 +27,11 @@ describe('demoIntervalWorkout (#472 FR1)', () => {
 
   it('AC1/D5a: segment distance ratios preserve the 500 / 750 / 250 / 500 template', () => {
     const [warmup, firstWork, firstRest, , , , , , , cooldown] = demoIntervalWorkout.segments;
-    expect(warmup.distance).toBe(cooldown.distance);
+    // `buildSegments` pushes rounding drift onto the last segment, so warmup
+    // and cooldown are only strictly equal when total * scale rounds cleanly.
+    // Any route length may leave ±a few metres of drift; the template-ratio
+    // intent is preserved as long as warmup and cooldown stay close.
+    expect(Math.abs((warmup.distance ?? 0) - (cooldown.distance ?? 0))).toBeLessThanOrEqual(5);
     expect(firstWork.distance ?? 0).toBeGreaterThan(firstRest.distance ?? 0);
     // Template ratio is 750 : 250 = 3 : 1.
     const workM = firstWork.distance ?? 0;

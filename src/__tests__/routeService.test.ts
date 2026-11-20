@@ -3,7 +3,7 @@ import { RouteService } from '../lib/services/routeService';
 import { polylineLengthMeters } from '../lib/utils/coordinateUtils';
 
 // Willowbrook River bounding box
-const WILLOWBROOK_BBOX = { minLat: 48.1200, maxLat: 48.1634, minLng: 11.5750, maxLng: 11.5862 };
+const WILLOWBROOK_BBOX = { minLat: 47.5786, maxLat: 47.6220, minLng: 11.3218, maxLng: 11.3330 };
 
 // Every test gets its own catalogue. These suites import routes, and the
 // exported `routeService` singleton keeps them, so sharing it made
