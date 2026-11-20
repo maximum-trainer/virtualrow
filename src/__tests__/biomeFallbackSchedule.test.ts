@@ -50,7 +50,8 @@ describe('#712 FR3 — fallback biome schedule', () => {
     else g[RICH_BIOMES_KEY] = original;
   });
 
-  it('with the flag off, every segment reads the single-tag fallback', () => {
+  it('with the flag explicitly off, every segment reads the single-tag fallback', () => {
+    g[RICH_BIOMES_KEY] = false;
     const route = buildRoute({ tags: ['river', 'forest'] });
     const enrichment = createFallbackRouteEnrichment(route);
     expect(enrichment.segmentProfiles.length).toBeGreaterThan(1);
@@ -59,7 +60,8 @@ describe('#712 FR3 — fallback biome schedule', () => {
     }
   });
 
-  it('with the flag off, sceneryOverrides are ignored (strict superset)', () => {
+  it('with the flag explicitly off, sceneryOverrides are ignored (opt-out keeps legacy)', () => {
+    g[RICH_BIOMES_KEY] = false;
     const route = buildRoute({
       tags: ['river', 'forest'],
       sceneryOverrides: [{ fromMeters: 0, toMeters: 100_000, profile: 'small-city' }],
@@ -70,8 +72,7 @@ describe('#712 FR3 — fallback biome schedule', () => {
     }
   });
 
-  it('with the flag on, sceneryOverrides win per segment', () => {
-    g[RICH_BIOMES_KEY] = true;
+  it('default-on (#712 Phase 2): sceneryOverrides win per segment', () => {
     const route = buildRoute({
       tags: ['river'],
       sceneryOverrides: [
@@ -92,8 +93,7 @@ describe('#712 FR3 — fallback biome schedule', () => {
     expect(seenProfiles.size).toBeGreaterThanOrEqual(3);
   });
 
-  it('with the flag on, biome tags split the route in order', () => {
-    g[RICH_BIOMES_KEY] = true;
+  it('default-on (#712 Phase 2): biome tags split the route in order', () => {
     const route = buildRoute({ tags: ['river', 'forest', 'meadow', 'village', 'lake'] });
     // The tag-ordered schedule is `forest`, `farmland` (meadow), `village`.
     // `river` and `lake` are water-body tags, not biome tags, and are ignored.
@@ -110,8 +110,7 @@ describe('#712 FR3 — fallback biome schedule', () => {
     expect(seen).toEqual(new Set(['forest', 'farmland', 'village']));
   });
 
-  it('with the flag on, override gaps fall through to the tag-ordered schedule', () => {
-    g[RICH_BIOMES_KEY] = true;
+  it('default-on (#712 Phase 2): override gaps fall through to the tag-ordered schedule', () => {
     const route = buildRoute({
       tags: ['river', 'forest', 'village'],
       sceneryOverrides: [{ fromMeters: 0, toMeters: 1500, profile: 'parkland' }],
@@ -125,12 +124,36 @@ describe('#712 FR3 — fallback biome schedule', () => {
     expect(afterOverride).toBe('forest');
   });
 
-  it('with the flag on and no overrides or biome tags, keeps today single-tag fallback', () => {
-    g[RICH_BIOMES_KEY] = true;
+  it('default-on (#712 Phase 2): no overrides or biome tags keeps today single-tag fallback', () => {
     const route = buildRoute({ tags: ['river', 'scenic'] });
     const enrichment = createFallbackRouteEnrichment(route);
     for (const seg of enrichment.segmentProfiles) {
       expect(seg.sceneryProfile).toBe('fallback');
     }
+  });
+});
+
+describe('#712 AC4 — the default demo route shows a mix of biomes', () => {
+  // AC4: with Overpass offline the ride draws at least four distinct
+  // `sceneryProfile`s on the first full traverse of the Willowbrook demo
+  // route, including one wooded, one open/meadow, one settlement, and one
+  // water-adjacent (`beach`/`wetland`) or `onLake: true` segment.
+  it('Willowbrook (id=1) hits ≥4 distinct profile families across its length', async () => {
+    const { RouteService } = await import('../lib/services/routeService');
+    const route = new RouteService().getRouteById('1');
+    if (!route) throw new Error('Demo route id=1 not in the seeded catalogue');
+    const enrichment = createFallbackRouteEnrichment(route);
+    const profiles = new Set(enrichment.segmentProfiles.map((s) => s.sceneryProfile));
+    expect(profiles.size).toBeGreaterThanOrEqual(4);
+    const WOODED = new Set(['forest', 'forest-medium', 'forest-high', 'woodland']);
+    const OPEN = new Set(['farmland', 'parkland', 'scrub', 'orchard']);
+    const SETTLEMENT = new Set(['village', 'town', 'small-city', 'residential', 'commercial']);
+    const WATERSIDE = new Set(['beach', 'wetland']);
+    const hits = (set: Set<string>) =>
+      enrichment.segmentProfiles.some((s) => set.has(s.sceneryProfile));
+    expect(hits(WOODED), 'a wooded segment').toBe(true);
+    expect(hits(OPEN), 'an open/meadow segment').toBe(true);
+    expect(hits(SETTLEMENT), 'a settlement segment').toBe(true);
+    expect(hits(WATERSIDE), 'a water-adjacent segment').toBe(true);
   });
 });

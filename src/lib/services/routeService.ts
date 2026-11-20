@@ -131,6 +131,20 @@ export class RouteService {
           (routeTotalDistanceMeters(willowbrookRiverCoordinates) / 1000 / 3.5) * 60,
         ),
         tags: ['river', 'scenic', 'nature', 'varied-terrain', 'beginner-friendly', 'forest', 'meadow', 'village', 'lake'],
+        // #712 FR4 — authored biome schedule so the ride shows the narrative the
+        // description already sells, independent of whether Overpass is reachable.
+        // Bands match the five section comments in `seedRouteCoordinates.ts`:
+        // section 1 (forest headwaters) / 2 (open meadows) / 3 (rocky narrows) /
+        // 4 (village waterfront) / 5 (lake delta). Measured route length is
+        // ~6710 m; the last band's `toMeters` is set generously so a future
+        // length tweak still lands in the final band.
+        sceneryOverrides: [
+          { fromMeters: 0, toMeters: 1340, profile: 'forest-medium' },
+          { fromMeters: 1340, toMeters: 2680, profile: 'farmland' },
+          { fromMeters: 2680, toMeters: 4020, profile: 'scrub' },
+          { fromMeters: 4020, toMeters: 5360, profile: 'village' },
+          { fromMeters: 5360, toMeters: 100_000, profile: 'wetland' },
+        ],
         createdAt: new Date('2024-12-07'),
       },
     ];
