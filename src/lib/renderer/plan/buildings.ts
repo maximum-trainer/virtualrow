@@ -161,6 +161,45 @@ export const createBuildingPool = (
 };
 
 /**
+ * #712 FR6 — trim a flat `BuildingSpec[]` down to at most
+ * `maxBuildingsPerSegment` entries per `segmentLengthMetres` segment of the
+ * route. The input order is preserved for the kept entries (which keeps
+ * the output deterministic) and the first N per segment win, so a layer
+ * that pushed procedural facades first and real OSM footprints after
+ * keeps the procedural look when the cap bites and the OSM extras
+ * overflow.
+ *
+ * The segment index for a spec is `Math.floor(|z| / segmentLengthMetres)`:
+ * buildings are placed in scene metres along -Z, so a segment is a
+ * `segmentLengthMetres`-wide slab in Z. Rough, intentionally — the cap is
+ * a soft budget to keep FR10 gpuMs honest on a dense `small-city`
+ * segment, not a precise geographic placement.
+ *
+ * `maxBuildingsPerSegment <= 0` returns an empty list, matching the basic
+ * tier which also has `drawBuildings: false` as its primary gate. A
+ * negative segment length is clamped to 1 to keep the divide safe.
+ */
+export const applyMaxBuildingsPerSegment = (
+  specs: readonly BuildingSpec[],
+  maxBuildingsPerSegment: number,
+  segmentLengthMetres: number,
+): BuildingSpec[] => {
+  if (maxBuildingsPerSegment <= 0) return [];
+  if (!Number.isFinite(maxBuildingsPerSegment)) return [...specs];
+  const bucket = Math.max(1, segmentLengthMetres);
+  const perSegment = new Map<number, number>();
+  const kept: BuildingSpec[] = [];
+  for (const spec of specs) {
+    const seg = Math.floor(Math.abs(spec.z) / bucket);
+    const count = perSegment.get(seg) ?? 0;
+    if (count >= maxBuildingsPerSegment) continue;
+    perSegment.set(seg, count + 1);
+    kept.push(spec);
+  }
+  return kept;
+};
+
+/**
  * Deterministic smoke-page helper: lay `count` buildings on both banks of
  * a canned straight-line route, alternating profiles so the palette gets
  * exercised. Mirrors the shape of `buildSmokeFoliagePools` from #555 so
