@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { makeMockDevice } from './_mockWebGPU';
 import {
+  applyMaxBuildingsPerSegment,
   BUILDING_PROFILE_INDEX,
   BUILDINGS_FLOATS_PER_INSTANCE,
   buildSmokeBuildings,
@@ -86,5 +87,52 @@ describe('buildings plan (P6 FR1 / D1-b / D3-a)', () => {
     // Odd/even alternates sides along X.
     expect(Math.sign(specs[0].x)).toBe(-1);
     expect(Math.sign(specs[1].x)).toBe(1);
+  });
+});
+
+describe('applyMaxBuildingsPerSegment (#712 FR6)', () => {
+  const mkSpec = (z: number, id: number): BuildingSpec => ({
+    x: id,
+    z,
+    halfWidth: 1,
+    halfDepth: 1,
+    height: 5,
+  });
+
+  it('returns an empty list when the cap is 0 (basic tier parity)', () => {
+    const specs = [mkSpec(-10, 0), mkSpec(-30, 1)];
+    expect(applyMaxBuildingsPerSegment(specs, 0, 50)).toEqual([]);
+  });
+
+  it('returns the full list when the cap is +Infinity (opt out of the budget)', () => {
+    const specs = [mkSpec(-10, 0), mkSpec(-30, 1), mkSpec(-70, 2)];
+    expect(applyMaxBuildingsPerSegment(specs, Infinity, 50)).toEqual(specs);
+  });
+
+  it('caps per 50 m segment, keeping the first N in input order', () => {
+    // Four buildings in the first 0..50m segment, two in the second (50..100m).
+    const segA = [mkSpec(-5, 0), mkSpec(-15, 1), mkSpec(-25, 2), mkSpec(-45, 3)];
+    const segB = [mkSpec(-60, 4), mkSpec(-90, 5)];
+    const out = applyMaxBuildingsPerSegment([...segA, ...segB], 2, 50);
+    // Two per segment: first two of segA and all of segB survive.
+    expect(out.map((s) => s.x)).toEqual([0, 1, 4, 5]);
+  });
+
+  it('indexes segments by `|z|` so routes running along +Z or -Z both split evenly', () => {
+    // Two buildings at z = -10 and z = +10 land in the same segment because
+    // |z| is used; the per-segment cap bites across sign.
+    const specs = [mkSpec(-10, 0), mkSpec(10, 1), mkSpec(-70, 2)];
+    const out = applyMaxBuildingsPerSegment(specs, 1, 50);
+    expect(out.map((s) => s.x)).toEqual([0, 2]);
+  });
+
+  it('clamps a non-positive segment length to 1 metre (kept safe)', () => {
+    // At segment length 1, z = -1.5 / -3.5 / -5.5 land in segments 1 / 3 / 5
+    // — all distinct, so a cap of 1 keeps all three. If the divide hadn't
+    // been clamped, dividing by 0 would NaN each index and lump everything
+    // into one bucket.
+    const specs = [mkSpec(-1.5, 0), mkSpec(-3.5, 1), mkSpec(-5.5, 2)];
+    const out = applyMaxBuildingsPerSegment(specs, 1, 0);
+    expect(out.length).toBe(3);
   });
 });

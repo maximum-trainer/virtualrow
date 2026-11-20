@@ -72,7 +72,8 @@ import { synthesisePlacementsForRoute } from '../../scenery/syntheticPlacements'
 import type { BridgeKind } from '../../utils/bridgeCrossings';
 import type { RoutePlacementsRegistry } from '../../scenery/routePlacements';
 import { createInstancePool, type InstancePool, type PoolInput } from '../plan/instancePools';
-import { createBuildingPool, type BuildingPool, type BuildingSpec } from '../plan/buildings';
+import { applyMaxBuildingsPerSegment, createBuildingPool, type BuildingPool, type BuildingSpec } from '../plan/buildings';
+import { ROUTE_SEGMENT_LENGTH_METERS } from '../../services/routeEnrichmentService';
 import {
   BOAT_BONE_COUNT,
   BOAT_BONE_ARMS,
@@ -414,10 +415,20 @@ export const createRideScene = async (
   // enrichment. Tier gates then decide whether to build the pass + cast
   // shadows (D8).
   const tierCaps = tierCapsFor(opts.tier);
-  const buildingSpecs: BuildingSpec[] =
+  const rawBuildingSpecs: BuildingSpec[] =
     tierCaps.drawBuildings && isSceneryRoute(opts.route) && opts.route.buildings
       ? opts.route.buildings
       : [];
+  // #712 FR6 — cap building count per route segment so a dense `small-city`
+  // profile can't blow FR10 gpuMs on a lower tier. The cap is a soft budget,
+  // not a geographic rule: LOD distance work (#497) still clips far-field
+  // count on top. `maxBuildingsPerSegment <= 0` yields an empty list, matching
+  // the basic tier's `drawBuildings: false` primary gate.
+  const buildingSpecs = applyMaxBuildingsPerSegment(
+    rawBuildingSpecs,
+    tierCaps.maxBuildingsPerSegment,
+    ROUTE_SEGMENT_LENGTH_METERS,
+  );
   const buildingsPool: BuildingPool | null = buildingSpecs.length > 0
     ? createBuildingPool(device, buildingSpecs)
     : null;
