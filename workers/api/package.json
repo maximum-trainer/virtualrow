@@ -1,0 +1,20 @@
+{
+  "name": "@virtualrow/api",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Cloudflare Worker for virtualrow server-side persistence (D1). See issue #670.",
+  "scripts": {
+    "dev": "wrangler dev --local",
+    "deploy": "wrangler deploy --env production",
+    "deploy:dev": "wrangler deploy --env dev",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261119.0",
+    "typescript": "^5.6.0",
+    "vitest": "^3.2.0",
+    "wrangler": "^4.165.0"
+  }
+}
