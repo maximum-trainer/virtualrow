@@ -187,3 +187,64 @@
 .workout-block-card--demo {
   opacity: 0.72;
 }
+
+/* --- compact (#733 VP-15 FR4) ------------------------------------------------
+   On a stage shorter than 800px the block becomes one line: the zone, the
+   step's name, the target pace against the live one, and the time remaining.
+   The timeline, the step type, the elapsed time and the power tile go; they
+   are all on the full panel on a taller screen and on the summary after. The
+   "Sample workout" prefix and the demo card stay: they say what this row is. */
+.activity-route-stage--compact-hud .workout-block-panel {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  min-height: 0;
+  padding: 4px 12px;
+}
+
+.activity-route-stage--compact-hud .workout-block-timeline,
+.activity-route-stage--compact-hud .workout-block-type,
+.activity-route-stage--compact-hud .workout-block-timing > span:first-child,
+.activity-route-stage--compact-hud .workout-block-tile[data-metric='power'],
+.activity-route-stage--compact-hud .workout-block-tile-label {
+  display: none;
+}
+
+.activity-route-stage--compact-hud .workout-block-sample-prefix {
+  margin: 0;
+  white-space: nowrap;
+}
+
+.activity-route-stage--compact-hud .workout-block-body {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.activity-route-stage--compact-hud .workout-block-card,
+.activity-route-stage--compact-hud .workout-block-tile {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+}
+
+.activity-route-stage--compact-hud .workout-block-card {
+  flex: 1 1 auto;
+}
+
+.activity-route-stage--compact-hud .workout-block-card-head,
+.activity-route-stage--compact-hud .workout-block-timing {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.activity-route-stage--compact-hud .workout-block-compliance,
+.activity-route-stage--compact-hud .workout-block-done {
+  margin: 0;
+  white-space: nowrap;
+}

@@ -97,6 +97,11 @@ export interface RideRendererOptions {
    */
   readonly appearance?: unknown;
   /**
+   * #733 VP-15 — how far the HUD panels reach into the canvas, in CSS px.
+   * The engine frames the boat in the part they leave clear. Omitted = none.
+   */
+  readonly viewportInsets?: RideViewportInsets;
+  /**
    * #730 VP-12 — the rower's resolved conditions from the picker
    * (`useConditions.svelte.ts`): `dawn` | `midday` | `golden` | `overcast` |
    * `dusk`. A plain string so the seam stays framework-free. Omitted = the
@@ -121,6 +126,20 @@ export interface RideRenderer {
    * frame, with no reattach. Optional so a test fake can skip it.
    */
   setConditions?(conditions: string): void;
+  /**
+   * #733 VP-15 — the HUD's covered area changed (resize, fullscreen, the
+   * workout panel showing or hiding). Reframes on the next frame, no
+   * reattach. Optional so a test fake can skip it.
+   */
+  setViewportInsets?(insets: RideViewportInsets): void;
+}
+
+/** CSS px the HUD covers along each edge of the canvas (#733 VP-15). */
+export interface RideViewportInsets {
+  readonly top: number;
+  readonly right: number;
+  readonly bottom: number;
+  readonly left: number;
 }
 
 /**

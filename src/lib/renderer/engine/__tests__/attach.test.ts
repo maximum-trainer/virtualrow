@@ -223,3 +223,96 @@ describe('conditions (#730 VP-12)', () => {
     renderer.dispose();
   });
 });
+
+describe('viewport insets (#733 VP-15)', () => {
+  type Rect = { left: number; top: number; right: number; bottom: number };
+  type Boat = { screenBounds: Rect | null; clearRect: Rect };
+  const boat = (): Boat =>
+    (globalThis as unknown as { window: Record<string, unknown> }).window['__ROWER3D_BOAT'] as Boat;
+  const inside = (b: Rect, r: Rect): boolean =>
+    b.left >= r.left - 0.5 && b.right <= r.right + 0.5 && b.top >= r.top - 0.5 && b.bottom <= r.bottom + 0.5;
+
+  it('publishes the whole canvas as clear when no insets are passed', async () => {
+    const renderer = (await attach(makeMockCanvas(), { testMode: true })) as unknown as WithTest;
+    renderer._frameOnce();
+    expect(boat().clearRect).toEqual({ left: 0, top: 0, right: 320, bottom: 240 });
+    expect(boat().screenBounds).not.toBeNull();
+    renderer.dispose();
+  });
+
+  it('frames the boat inside the clear area at attach and after a live change (FR1-FR3)', async () => {
+    const renderer = (await attach(makeMockCanvas(), {
+      testMode: true,
+      viewportInsets: { top: 0, right: 0, bottom: 96, left: 0 },
+    })) as unknown as WithTest & { setViewportInsets(i: unknown): void };
+    renderer._frameOnce();
+    expect(boat().clearRect.bottom).toBe(240 - 96);
+    expect(inside(boat().screenBounds as Rect, boat().clearRect)).toBe(true);
+
+    renderer.setViewportInsets({ top: 30, right: 0, bottom: 60, left: 0 });
+    renderer._frameOnce();
+    expect(boat().clearRect).toEqual({ left: 0, top: 30, right: 320, bottom: 180 });
+    expect(inside(boat().screenBounds as Rect, boat().clearRect)).toBe(true);
+    renderer.dispose();
+  });
+});
+
+describe('the boat is never behind the HUD (#733 FR3)', () => {
+  type Rect = { left: number; top: number; right: number; bottom: number };
+  const VIEWPORTS: [number, number][] = [
+    [1280, 720],
+    [1456, 840],
+    [1920, 1080],
+    [768, 1024],
+    [844, 390],
+  ];
+  const VIEWS = ['chase', 'side', 'bow', 'high'] as const;
+
+  for (const [w, h] of VIEWPORTS) {
+    for (const view of VIEWS) {
+      it(`${w}x${h} ${view}`, async () => {
+        const canvas = makeMockCanvas();
+        Object.assign(canvas, { width: w, height: h, clientWidth: w, clientHeight: h });
+        // A full HUD on tall stages, the compact one (FR4, <= 28%) below 800 px.
+        const bottom = Math.round(h * (h < 800 ? 0.28 : 0.4));
+        const renderer = (await attach(canvas, {
+          testMode: true,
+          viewportInsets: { top: 0, right: 0, bottom, left: 0 },
+          getFrame: () => ({
+            paceSPer500: 120,
+            distanceMeters: 40,
+            cadence: 24,
+            isPlaying: true,
+            holdBoat: false,
+            finished: false,
+            intensityFactor: 1,
+            elapsedSeconds: 10,
+            ghost: null,
+            view,
+          }),
+        })) as unknown as WithTest;
+        for (let i = 0; i < 90; i++) renderer._frameOnce();
+        const boat = (globalThis as unknown as { window: Record<string, unknown> }).window['__ROWER3D_BOAT'] as {
+          screenBounds: Rect | null;
+          clearRect: Rect;
+        };
+        const b = boat.screenBounds as Rect;
+        const r = boat.clearRect;
+        if (view === 'bow') {
+          // The bow view is a point-of-view shot from ahead of the bow,
+          // looking down the course: the boat is behind the camera by
+          // design, so there is nothing for the HUD to cover.
+          expect(b).toBeNull();
+          renderer.dispose();
+          return;
+        }
+        expect(b, 'boat on screen').not.toBeNull();
+        expect(b.left, 'left').toBeGreaterThanOrEqual(r.left);
+        expect(b.right, 'right').toBeLessThanOrEqual(r.right);
+        expect(b.top, 'top').toBeGreaterThanOrEqual(r.top);
+        expect(b.bottom, 'bottom').toBeLessThanOrEqual(r.bottom);
+        renderer.dispose();
+      });
+    }
+  }
+});
