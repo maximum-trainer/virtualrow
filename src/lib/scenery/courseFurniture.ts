@@ -16,6 +16,7 @@
 import type { RouteCurve } from '../renderer/math/curve';
 import { vec3 } from '../renderer/math/vec3';
 import { BUOY_LANE_HALF_WIDTH_METRES, keepClearHalfWidth } from './laneClearance';
+import { placeSpan } from './bridgeSpan';
 import {
   BUILT_IN_FOOTPRINT_LOOKUP,
   footprintRadiusFor,
@@ -189,6 +190,10 @@ export interface FurniturePlacement {
   progress: number;
   side: 'left' | 'right';
   kind: FurnitureKind;
+  /** Uniform scale on top of the authored size (#724: spans are fitted to the river). Default 1. */
+  scale?: number;
+  /** #724 FR4 — spans only: world height of the deck underside over the racing line. */
+  ceiling?: number;
 }
 
 /** Lane half-width for buoys: a comfortable rowing lane either side of the centreline. */
@@ -245,29 +250,47 @@ export const placeFurniture = ({
     const perpLen = Math.hypot(perpX, perpZ) || 1;
     const px = perpX / perpLen;
     const pz = perpZ / perpLen;
+    const tangentAngle = Math.atan2(sample.tangent[0], sample.tangent[2]);
+    if (f.kind === 'span') {
+      // #724 VP-06 — a span crosses the river: its long axis turned across
+      // the tangent, scaled to the banks, an opening on the racing line.
+      // A model that cannot fit is swapped; if none can, nothing is placed.
+      const span = placeSpan({
+        id: f.id,
+        centre: [sample.position[0], sample.position[2]],
+        tangent: [sample.tangent[0], sample.tangent[2]],
+        leftHalfWidth: shore(f.progress, 'left'),
+        rightHalfWidth: shore(f.progress, 'right'),
+      });
+      if (!span) continue;
+      out.push({
+        id: span.id as SceneryModelId,
+        position: span.position,
+        rotationY: span.rotationY,
+        progress: f.progress,
+        side: f.side,
+        kind: f.kind,
+        scale: span.scale,
+        ceiling: span.ceiling,
+      });
+      continue;
+    }
     const sideSign = f.side === 'left' ? -1 : 1;
     const halfWidth = shore(f.progress, f.side);
     const radius = footprintRadiusFor(f.id, footprintLookup);
-    // Span furniture (bridges) sits at the river centre, oriented
-    // perpendicular to the tangent so the arch crosses the water.
     // Buoys live on the lane. Everything else — including hand-authored
     // boathouses and clubhouses whose own footprint radius is wider than
     // the default FURNITURE_BANK_OFFSET — stands fully past the waterline
     // and clear of the racing corridor (#723 FR1/FR3).
     const laneOffset = f.kind === 'buoy'
       ? BUOY_LANE_HALF_WIDTH_METRES
-      : f.kind === 'span'
-        ? 0
-        : Math.max(
-            halfWidth + FURNITURE_BANK_OFFSET_METRES + radius,
-            corridor + radius,
-          );
-    const tangentAngle = Math.atan2(sample.tangent[0], sample.tangent[2]);
+      : Math.max(
+          halfWidth + FURNITURE_BANK_OFFSET_METRES + radius,
+          corridor + radius,
+        );
     const rotationY = f.kind === 'buoy'
       ? tangentAngle
-      : f.kind === 'span'
-        ? tangentAngle + Math.PI / 2
-        : tangentAngle + sideSign * (Math.PI / 2);
+      : tangentAngle + sideSign * (Math.PI / 2);
     out.push({
       id: f.id,
       position: [
