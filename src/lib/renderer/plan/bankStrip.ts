@@ -12,7 +12,19 @@
 
 import type { RouteCurve } from '../math/curve';
 import { vec3Normalize, vec3, type Vec3 } from '../math/vec3';
-import { WATER_SURFACE_Y, type WaterEdges } from './waterStrip';
+import { WATER_SURFACE_Y, buildWaterStrip, type WaterEdges } from './waterStrip';
+import { routeWaterFootprint, type WaterFootprint } from './waterFootprint';
+
+/**
+ * #742 VP-22 FR1 — columns across each bank, as fractions of its width, so
+ * the part of a bank lying on another leg's water can be sunk without
+ * taking the whole 60 m strip with it.
+ */
+export const BANK_COLUMNS: readonly number[] = [0, 1 / 6, 2 / 6, 3 / 6, 4 / 6, 5 / 6, 1];
+/** A bank sits this far above the water (it used to win every overlap). */
+export const BANK_LIFT_METRES = 0.1;
+/** …and a bank vertex on water sinks this far below it, so the water wins. */
+export const BANK_SUNK_METRES = 2;
 
 export interface BankStripGeometry {
   positions: Float32Array; // x,y,z
@@ -24,7 +36,13 @@ export interface BankStripGeometry {
    * reads it to pick wet earth near the shore and lush grass further in.
    */
   sides: Float32Array;
-  indices: Uint16Array;
+  indices: Uint16Array | Uint32Array;
+  /** `uint32` once a long route's banks pass 65 535 vertices. */
+  indexFormat: 'uint16' | 'uint32';
+  /** #742 — bank vertices sunk because they lie on the route's water. */
+  sunkVertices: number;
+  /** #742 — bank triangles dropped because their centre is on the route's water. */
+  droppedTriangles: number;
 }
 
 export interface BuildBankStripsOptions {
@@ -42,6 +60,12 @@ export interface BuildBankStripsOptions {
    * these values; outer edge is `inner + bankWidth`. Omitted → symmetric.
    */
   edgesForProgress?: (progress: number) => WaterEdges;
+  /**
+   * #742 FR1 — the route's water, to sink bank vertices lying on it (another
+   * leg's ribbon). Defaults to the water strip built from the same curve and
+   * edges; pass null to keep every bank vertex up.
+   */
+  footprint?: WaterFootprint | null;
 }
 
 const UP: Vec3 = vec3(0, 1, 0);
@@ -60,12 +84,21 @@ export const buildBankStrips = (
   const edgesForProgress = options.edgesForProgress
     ?? ((_t: number): WaterEdges => ({ left: waterHalfWidth, right: waterHalfWidth }));
 
-  const vertsPerStrip = (divisions + 1) * 2;
-  const positions = new Float32Array(vertsPerStrip * 2 * 3);
-  // `sides` now packs TWO floats per vertex (sign, shoreDist). Each strip
-  // (2 strips total) has `vertsPerStrip` verts, each needing 2 floats.
-  const sides = new Float32Array(vertsPerStrip * 2 * 2);
-  const indices = new Uint16Array(divisions * 6 * 2);
+  const columns = BANK_COLUMNS.length;
+  const vertsPerStrip = (divisions + 1) * columns;
+  const totalVerts = vertsPerStrip * 2;
+  const positions = new Float32Array(totalVerts * 3);
+  // `sides` packs TWO floats per vertex (sign, shoreDist).
+  const sides = new Float32Array(totalVerts * 2);
+  const indexCount = divisions * (columns - 1) * 6 * 2;
+  const indexFormat = totalVerts > 0xffff ? 'uint32' : 'uint16';
+  const indices = indexFormat === 'uint32' ? new Uint32Array(indexCount) : new Uint16Array(indexCount);
+  const footprint = options.footprint === undefined
+    ? curve && curve.length >= 2
+      ? routeWaterFootprint(buildWaterStrip(curve, { edgesForProgress, divisions }))
+      : null
+    : options.footprint;
+  let sunkVertices = 0;
 
   const sampleCurve = (
     i: number,
@@ -92,6 +125,26 @@ export const buildBankStrips = (
     }
   };
 
+  // #742 FR1: a triangle whose centre is on the route's water is dropped
+  // (written degenerate), so no grass is drawn over another leg's water.
+  let droppedTriangles = 0;
+  const emit = (o: number, i0: number, i1: number, i2: number): void => {
+    if (footprint !== null) {
+      const cx = (positions[i0 * 3] + positions[i1 * 3] + positions[i2 * 3]) / 3;
+      const cz = (positions[i0 * 3 + 2] + positions[i1 * 3 + 2] + positions[i2 * 3 + 2]) / 3;
+      if (footprint.contains(cx, cz)) {
+        droppedTriangles += 1;
+        indices[o] = i0;
+        indices[o + 1] = i0;
+        indices[o + 2] = i0;
+        return;
+      }
+    }
+    indices[o] = i0;
+    indices[o + 1] = i1;
+    indices[o + 2] = i2;
+  };
+
   const writeStrip = (sign: 1 | -1, vertOffset: number, indexOffset: number): void => {
     const sample = { x: 0, z: 0, perpX: 0, perpZ: 0 };
     for (let i = 0; i <= divisions; i += 1) {
@@ -99,45 +152,41 @@ export const buildBankStrips = (
       const t = i / divisions;
       const { left, right } = edgesForProgress(t);
       const shore = sign < 0 ? left : right;
-      const innerX = sample.x + sample.perpX * sign * shore;
-      const innerZ = sample.z + sample.perpZ * sign * shore;
-      const outerX = sample.x + sample.perpX * sign * (shore + bankWidth);
-      const outerZ = sample.z + sample.perpZ * sign * (shore + bankWidth);
-      const vo = (vertOffset + i * 2) * 3;
-      positions[vo] = innerX;
-      positions[vo + 1] = WATER_SURFACE_Y + 0.1; // bank sits a hair above the water
-      positions[vo + 2] = innerZ;
-      positions[vo + 3] = outerX;
-      positions[vo + 4] = WATER_SURFACE_Y + 0.1;
-      positions[vo + 5] = outerZ;
-      // `sides` lane layout: 2 floats per vertex → (sign, shoreDistMetres).
-      // Inner vertex rides at shoreDist=0; outer vertex at shoreDist=bankWidth.
-      // bank.wgsl mixes grass vs earth / wet-shore vs lush-mid off this value.
-      const si = (vertOffset + i * 2) * 2;
-      sides[si] = sign;
-      sides[si + 1] = 0;
-      sides[si + 2] = sign;
-      sides[si + 3] = bankWidth;
+      for (let c = 0; c < columns; c += 1) {
+        const out = shore + bankWidth * BANK_COLUMNS[c];
+        const x = sample.x + sample.perpX * sign * out;
+        const z = sample.z + sample.perpZ * sign * out;
+        // #742 FR1: a bank vertex on the route's water (another leg) sinks
+        // below it, so the water draws there instead of grass.
+        const sunk = footprint !== null && footprint.contains(x, z);
+        if (sunk) sunkVertices += 1;
+        const v = vertOffset + i * columns + c;
+        positions[v * 3] = x;
+        positions[v * 3 + 1] = WATER_SURFACE_Y + (sunk ? -BANK_SUNK_METRES : BANK_LIFT_METRES);
+        positions[v * 3 + 2] = z;
+        // (sign, shoreDistMetres): bank.wgsl mixes grass vs earth /
+        // wet-shore vs lush-mid off the distance from the waterline.
+        sides[v * 2] = sign;
+        sides[v * 2 + 1] = bankWidth * BANK_COLUMNS[c];
+      }
     }
     for (let i = 0; i < divisions; i += 1) {
-      const base = vertOffset + i * 2;
-      const o = (indexOffset + i) * 6;
-      // Wind so the ground faces up on either side (same convention as the
-      // pre-curve straight ribbon the old #269 bug uncovered).
-      if (sign > 0) {
-        indices[o] = base;
-        indices[o + 1] = base + 2;
-        indices[o + 2] = base + 1;
-        indices[o + 3] = base + 1;
-        indices[o + 4] = base + 2;
-        indices[o + 5] = base + 3;
-      } else {
-        indices[o] = base;
-        indices[o + 1] = base + 1;
-        indices[o + 2] = base + 2;
-        indices[o + 3] = base + 1;
-        indices[o + 4] = base + 3;
-        indices[o + 5] = base + 2;
+      for (let c = 0; c < columns - 1; c += 1) {
+        // a, b: this station's inner/outer column; d, e: the next station's.
+        const a = vertOffset + i * columns + c;
+        const b = a + 1;
+        const d = a + columns;
+        const e = d + 1;
+        const o = ((indexOffset + i) * (columns - 1) + c) * 6;
+        // Wind so the ground faces up on either side (same convention as the
+        // pre-curve straight ribbon the old #269 bug uncovered).
+        if (sign > 0) {
+          emit(o, a, d, b);
+          emit(o + 3, b, d, e);
+        } else {
+          emit(o, a, b, d);
+          emit(o + 3, b, e, d);
+        }
       }
     }
   };
@@ -145,5 +194,5 @@ export const buildBankStrips = (
   writeStrip(-1, 0, 0);
   writeStrip(1, vertsPerStrip, divisions);
 
-  return { positions, sides, indices };
+  return { positions, sides, indices, indexFormat, sunkVertices, droppedTriangles };
 };

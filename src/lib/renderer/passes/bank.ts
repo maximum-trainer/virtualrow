@@ -220,7 +220,7 @@ export const createBankPass = ({
       pass.setBindGroup(2, grassBindGroup);
       pass.setVertexBuffer(0, positionBuffer);
       pass.setVertexBuffer(1, sideBuffer);
-      pass.setIndexBuffer(indexBuffer, 'uint16');
+      pass.setIndexBuffer(indexBuffer, geom.indexFormat);
       pass.drawIndexed(geom.indices.length);
       pass.end();
     },

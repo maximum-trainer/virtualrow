@@ -358,7 +358,7 @@ export const createShadowStage = (
         pass.setBindGroup(0, bankCascadeBindGroups[i]);
         pass.setVertexBuffer(0, bank.positions);
         pass.setVertexBuffer(1, bank.sides);
-        pass.setIndexBuffer(bank.indices, 'uint16');
+        pass.setIndexBuffer(bank.indices, bank.indexFormat);
         pass.drawIndexed(bank.indexCount);
         drawCount += 1;
         triangleCount += bank.indexCount / 3;

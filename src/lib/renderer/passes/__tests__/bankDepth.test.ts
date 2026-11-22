@@ -36,6 +36,8 @@ describe('createBankDepthPipeline', () => {
     expect(p.positions).toBeTruthy();
     expect(p.sides).toBeTruthy();
     expect(p.indices).toBeTruthy();
+    // #742: the shadow caster binds the index buffer in the strip's format.
+    expect(p.indexFormat).toBe('uint16');
     p.dispose();
   });
 
