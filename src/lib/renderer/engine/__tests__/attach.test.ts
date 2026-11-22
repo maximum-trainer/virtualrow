@@ -358,7 +358,16 @@ describe('the race ghost rows the scull GLB (#728)', () => {
       expect(g.model).toBe('scull');
       expect(g.cadenceSpm).toBeCloseTo(28, 6);
       expect(g.lane).toBe(-7);
+      // FR2 spec seam: in test mode the ghost can be left out of a frame,
+      // so a spec can diff it against the water behind it.
+      const hide = (globalThis as unknown as Record<string, unknown>)['__ROWER3D_HIDE_GHOST'] as (h: boolean) => void;
+      expect(hide).toBeTypeOf('function');
+      hide(true);
+      renderer._frameOnce();
+      expect(g.active, 'still raced, only not drawn').toBe(true);
+      hide(false);
       renderer.dispose();
+      expect((globalThis as unknown as Record<string, unknown>)['__ROWER3D_HIDE_GHOST']).toBeUndefined();
     } finally {
       globalThis.fetch = original;
     }

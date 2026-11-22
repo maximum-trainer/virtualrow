@@ -44,6 +44,7 @@ type W = Window & {
   __ROWER3D_GHOST_METERS?: Ghost;
   __ROWER3D_BOAT?: { distanceMeters: number };
   __ROWER3D_SET_CONDITIONS?: (c: string) => void;
+  __ROWER3D_HIDE_GHOST?: (hidden: boolean) => void;
 };
 
 const startWithGhost = async (page: Page, pace: string): Promise<'ready' | 'fallback'> => {
@@ -76,12 +77,9 @@ const srgbToLinear = (c: number): number => {
 const luminance = ([r, g, b]: number[]): number =>
   0.2126 * srgbToLinear(r) + 0.7152 * srgbToLinear(g) + 0.0722 * srgbToLinear(b);
 
-/**
- * Mean colour of the ghost's lime pixels inside its box, and of the water
- * in a strip of the same rows just to port of it.
- */
-const sampleGhost = (page: Page, b: Rect) =>
-  page.locator('.rower3d-canvas-container canvas').first().evaluate((el, box) => {
+/** The canvas pixels inside `box` (CSS px), as RGBA bytes. */
+const grab = (page: Page, box: Rect) =>
+  page.locator('.rower3d-canvas-container canvas').first().evaluate((el, b) => {
     const c = el as HTMLCanvasElement;
     const sx = c.width / c.clientWidth;
     const sy = c.height / c.clientHeight;
@@ -91,42 +89,49 @@ const sampleGhost = (page: Page, b: Rect) =>
     const ctx = tmp.getContext('2d');
     if (!ctx) return null;
     ctx.drawImage(c, 0, 0);
-    const x0 = Math.max(0, Math.floor(box.left * sx));
-    const x1 = Math.min(c.width, Math.ceil(box.right * sx));
-    const y0 = Math.max(0, Math.floor(box.top * sy));
-    const y1 = Math.min(c.height, Math.ceil(box.bottom * sy));
-    if (x1 - x0 < 4 || y1 - y0 < 4) return null;
-    const g = ctx.getImageData(x0, y0, x1 - x0, y1 - y0).data;
-    const ghost = [0, 0, 0];
-    let n = 0;
-    for (let i = 0; i < g.length; i += 4) {
-      // Lime: green leads, well clear of the teal water's blue.
-      if (g[i + 1] > g[i + 2] + 30 && g[i + 1] >= g[i]) {
-        ghost[0] += g[i];
-        ghost[1] += g[i + 1];
-        ghost[2] += g[i + 2];
-        n += 1;
-      }
+    const x0 = Math.max(0, Math.floor(b.left * sx));
+    const y0 = Math.max(0, Math.floor(b.top * sy));
+    const w = Math.min(c.width, Math.ceil(b.right * sx)) - x0;
+    const h = Math.min(c.height, Math.ceil(b.bottom * sy)) - y0;
+    if (w < 4 || h < 4) return null;
+    return Array.from(ctx.getImageData(x0, y0, w, h).data);
+  }, box);
+
+/**
+ * The ghost's silhouette against the water right behind it: the same box
+ * drawn with and without the ghost (`__ROWER3D_HIDE_GHOST`, test mode).
+ * Pixels the ghost changed are its silhouette; the hidden frame gives the
+ * water under exactly those pixels. Nothing else on screen counts.
+ */
+const sampleGhost = async (page: Page, box: Rect) => {
+  const withGhost = await grab(page, box);
+  await page.evaluate(() => (window as W).__ROWER3D_HIDE_GHOST?.(true));
+  await forceRender(page);
+  const without = await grab(page, box);
+  await page.evaluate(() => (window as W).__ROWER3D_HIDE_GHOST?.(false));
+  await forceRender(page);
+  if (!withGhost || !without || withGhost.length !== without.length) return null;
+  const ghost = [0, 0, 0];
+  const water = [0, 0, 0];
+  let n = 0;
+  for (let i = 0; i < withGhost.length; i += 4) {
+    const d =
+      Math.abs(withGhost[i] - without[i]) +
+      Math.abs(withGhost[i + 1] - without[i + 1]) +
+      Math.abs(withGhost[i + 2] - without[i + 2]);
+    if (d < 24) continue;
+    for (let k = 0; k < 3; k++) {
+      ghost[k] += withGhost[i + k];
+      water[k] += without[i + k];
     }
-    // Water: the lower half of the same rows, one box-width to port.
-    const ww = Math.max(4, Math.floor((x1 - x0) / 2));
-    const wx0 = Math.max(0, x0 - ww - 4);
-    const wy0 = Math.floor((y0 + y1) / 2);
-    const w = ctx.getImageData(wx0, wy0, Math.max(1, x0 - 4 - wx0), Math.max(1, y1 - wy0)).data;
-    const water = [0, 0, 0];
-    let m = 0;
-    for (let i = 0; i < w.length; i += 4) {
-      water[0] += w[i];
-      water[1] += w[i + 1];
-      water[2] += w[i + 2];
-      m += 1;
-    }
-    return {
-      ghostPixels: n,
-      ghost: ghost.map((v) => v / Math.max(1, n)),
-      water: water.map((v) => v / Math.max(1, m)),
-    };
-  }, b);
+    n += 1;
+  }
+  return {
+    ghostPixels: n,
+    ghost: ghost.map((v) => v / Math.max(1, n)),
+    water: water.map((v) => v / Math.max(1, n)),
+  };
+};
 
 test('the ghost is the scull, a full lane off, rowing, and stands off the water in every light', async ({ page }) => {
   test.slow();
@@ -154,7 +159,7 @@ test('the ghost is the scull, a full lane off, rowing, and stands off the water 
     console.log(
       `[ghost] ${c} pixels ${s!.ghostPixels} ghost ${s!.ghost.map((v) => v.toFixed(0))} water ${s!.water.map((v) => v.toFixed(0))} ratio ${ratio.toFixed(2)}`,
     );
-    expect(s!.ghostPixels, `${c}: the ghost's lime shows`).toBeGreaterThan(40);
+    expect(s!.ghostPixels, `${c}: the ghost shows`).toBeGreaterThan(40);
     expect(ratio, `${c}: contrast against the water (FR2)`).toBeGreaterThanOrEqual(3);
   }
 });

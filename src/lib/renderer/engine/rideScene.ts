@@ -1348,6 +1348,10 @@ export const createRideScene = async (
   // #728 FR1 — the ghost rows on its own clock, at its own cadence.
   const ghostStrokeClock = createStrokeClock();
   let ghostMarkerKey = '';
+  // #728 FR2 spec seam (test mode): draw the frame without the ghost, so a
+  // spec can diff the two and read the ghost's silhouette against the very
+  // water behind it.
+  let ghostHidden = false;
 
   const frameOnce = (): void => {
     if (disposed) return;
@@ -1464,7 +1468,7 @@ export const createRideScene = async (
     boatPass.boatVisible.value = !scullLoaded;
     // #728 FR1: with the scull GLB loaded the ghost is drawn from it; the
     // simplified mesh stays the fallback, as it is for the player.
-    boatPass.ghostVisible.value = ghostInfo !== null && !scullLoaded;
+    boatPass.ghostVisible.value = ghostInfo !== null && !scullLoaded && !ghostHidden;
 
     if (scullLoaded) {
       const boatTrs = mat4();
@@ -1494,7 +1498,7 @@ export const createRideScene = async (
       let ghostTrs: Mat4 | null = null;
       let ghostSweep = 0;
       let ghostPose = stroke;
-      if (ghostInfo) {
+      if (ghostInfo && !ghostHidden) {
         ghostTrs = scullBoatTrs(scullGhostTrs, ghostPlacement.world, ghostPlacement.heading);
         ghostSweep = oarSweep(crew, ghostPhase, ghostRowing ? 1 : 0);
         ghostPose = crewStrokePose(crew, ghostSweep);
@@ -1866,9 +1870,13 @@ export const createRideScene = async (
   // #730 — the same seam for specs that switch conditions mid-row. The
   // shell goes through `RideRenderer.setConditions`; this is for tests.
   const SET_CONDITIONS_KEY = '__ROWER3D_SET_CONDITIONS' as const;
+  const HIDE_GHOST_KEY = '__ROWER3D_HIDE_GHOST' as const;
   if (opts.testMode) {
     try {
       (globalThis as unknown as Record<string, unknown>)[SET_CONDITIONS_KEY] = setConditions;
+      (globalThis as unknown as Record<string, unknown>)[HIDE_GHOST_KEY] = (hidden: boolean) => {
+        ghostHidden = !!hidden;
+      };
     } catch { /* non-browser */ }
   }
   // Reference so a build-time dead-code pass doesn't drop the helper:
@@ -1900,6 +1908,7 @@ export const createRideScene = async (
       try {
         delete (globalThis as unknown as Record<string, unknown>)[SET_APPEARANCE_KEY];
         delete (globalThis as unknown as Record<string, unknown>)[SET_CONDITIONS_KEY];
+        delete (globalThis as unknown as Record<string, unknown>)[HIDE_GHOST_KEY];
       } catch { /* non-browser */ }
       clearPolygonWaterTelemetry();
       session.dispose();
