@@ -79,25 +79,36 @@ const srgbToLinear = (c: number): number => {
 const luminance = ([r, g, b]: number[]): number =>
   0.2126 * srgbToLinear(r) + 0.7152 * srgbToLinear(g) + 0.0722 * srgbToLinear(b);
 
-/** The canvas pixels inside `box` (CSS px), as RGBA bytes. */
-const grab = (page: Page, box: Rect) =>
-  page.locator('.rower3d-canvas-container canvas').first().evaluate((el, b) => {
-    const c = el as HTMLCanvasElement;
-    const sx = c.width / c.clientWidth;
-    const sy = c.height / c.clientHeight;
-    const tmp = document.createElement('canvas');
-    tmp.width = c.width;
-    tmp.height = c.height;
-    const ctx = tmp.getContext('2d');
+/**
+ * The pixels inside `box` (CSS px of the canvas), as RGBA bytes. Read from
+ * a page screenshot rather than the canvas itself: a 2D `drawImage` of a
+ * WebGPU canvas reads back black on Windows Chrome with a real GPU.
+ */
+const grab = async (page: Page, box: Rect) => {
+  const canvas = page.locator('.rower3d-canvas-container canvas').first();
+  const at = await canvas.boundingBox();
+  if (!at) return null;
+  const clip = {
+    x: Math.floor(at.x + Math.max(0, box.left)),
+    y: Math.floor(at.y + Math.max(0, box.top)),
+    width: Math.ceil(Math.min(box.right, at.width) - Math.max(0, box.left)),
+    height: Math.ceil(Math.min(box.bottom, at.height) - Math.max(0, box.top)),
+  };
+  if (clip.width < 4 || clip.height < 4) return null;
+  const png = (await page.screenshot({ clip, scale: 'css' })).toString('base64');
+  return page.evaluate(async (b64) => {
+    const img = new Image();
+    img.src = `data:image/png;base64,${b64}`;
+    await img.decode();
+    const c = document.createElement('canvas');
+    c.width = img.naturalWidth;
+    c.height = img.naturalHeight;
+    const ctx = c.getContext('2d');
     if (!ctx) return null;
-    ctx.drawImage(c, 0, 0);
-    const x0 = Math.max(0, Math.floor(b.left * sx));
-    const y0 = Math.max(0, Math.floor(b.top * sy));
-    const w = Math.min(c.width, Math.ceil(b.right * sx)) - x0;
-    const h = Math.min(c.height, Math.ceil(b.bottom * sy)) - y0;
-    if (w < 4 || h < 4) return null;
-    return { w, h, data: Array.from(ctx.getImageData(x0, y0, w, h).data) };
-  }, box);
+    ctx.drawImage(img, 0, 0);
+    return { w: c.width, h: c.height, data: Array.from(ctx.getImageData(0, 0, c.width, c.height).data) };
+  }, png);
+};
 
 /**
  * The ghost's silhouette against the water right behind it. Three frames
