@@ -60,6 +60,13 @@
      * handle reference.
      */
     appearancePatch?: { palette: unknown } | undefined;
+    /**
+     * #730 VP-12 — the rower's resolved conditions (`dawn` | `midday` |
+     * `golden` | `overcast` | `dusk`). Passed at attach; a later change
+     * relights the running scene through `handle.setConditions`, no
+     * reattach. Omitted = the engine default.
+     */
+    conditions?: string;
     /** #542 AC11: notify the ride view when the backend state changes so it
      *  can swap in the "needs WebGPU" screen on 'unavailable'. */
     onBackend?: (backend: CanvasBackend) => void;
@@ -87,6 +94,7 @@
     crew,
     appearance,
     appearancePatch,
+    conditions,
     onBackend,
     rebuildOnRouteChange = false,
   }: Props = $props();
@@ -99,6 +107,13 @@
     const patch = appearancePatch;
     if (!patch || !liveHandle) return;
     liveHandle.setAppearance?.(patch.palette);
+  });
+
+  // #730 VP-12 FR1 — forward conditions changes the same way.
+  $effect(() => {
+    const next = conditions;
+    if (!next || !liveHandle) return;
+    liveHandle.setConditions?.(next);
   });
 
   let container = $state<HTMLDivElement | undefined>(undefined);
@@ -153,6 +168,7 @@
           getFrame,
           crew,
           appearance,
+          conditions,
         }),
       )
       .then((r) => {

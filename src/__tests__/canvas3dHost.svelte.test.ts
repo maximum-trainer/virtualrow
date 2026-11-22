@@ -196,4 +196,30 @@ describe('Canvas3DHost', () => {
       expect(disposes[2]).toHaveBeenCalledTimes(1);
     });
   });
+
+  // #730 VP-12 FR1 — the rower's conditions reach the engine at attach and
+  // as a live update, the way `appearancePatch` does.
+  describe('conditions', () => {
+    const flush = async (): Promise<void> => {
+      for (let i = 0; i < 4; i++) await Promise.resolve();
+    };
+
+    it('passes the resolved conditions to attach', async () => {
+      const attach = vi.fn<RideAttach>(() => ({ dispose: vi.fn() }));
+      render(Canvas3DHost, { attach, conditions: 'dusk' });
+      await flush();
+      expect(attach.mock.calls[0][1]).toMatchObject({ conditions: 'dusk' });
+    });
+
+    it('relights the running scene on change without reattaching', async () => {
+      const setConditions = vi.fn();
+      const attach = vi.fn<RideAttach>(() => ({ dispose: vi.fn(), setConditions }));
+      const { rerender } = render(Canvas3DHost, { attach, conditions: 'midday' });
+      await flush();
+      await rerender({ attach, conditions: 'dusk' });
+      await flush();
+      expect(attach).toHaveBeenCalledTimes(1);
+      expect(setConditions).toHaveBeenLastCalledWith('dusk');
+    });
+  });
 });

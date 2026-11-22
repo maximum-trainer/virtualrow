@@ -7,6 +7,12 @@
       "resourceType": 0
     },
     {
+      "group": 0,
+      "binding": 1,
+      "name": "lighting",
+      "resourceType": 0
+    },
+    {
       "group": 2,
       "binding": 0,
       "name": "grass",
@@ -182,6 +188,12 @@
       "group": 0,
       "binding": 0,
       "name": "frame",
+      "resourceType": 0
+    },
+    {
+      "group": 0,
+      "binding": 1,
+      "name": "lighting",
       "resourceType": 0
     }
   ],
@@ -403,6 +415,12 @@
       "binding": 0,
       "name": "frame",
       "resourceType": 0
+    },
+    {
+      "group": 0,
+      "binding": 1,
+      "name": "lighting",
+      "resourceType": 0
     }
   ],
   "ssao.wgsl": [
@@ -444,6 +462,12 @@
       "group": 0,
       "binding": 0,
       "name": "frame",
+      "resourceType": 0
+    },
+    {
+      "group": 0,
+      "binding": 1,
+      "name": "lighting",
       "resourceType": 0
     }
   ],

@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { WgslReflect } from 'wgsl_reflect/wgsl_reflect.module.js';
-import { FRAME_UNIFORMS_BYTES } from '../../engine/uniforms';
+import { FRAME_UNIFORMS_BYTES, LIGHTING_UNIFORMS_BYTES } from '../../engine/uniforms';
 
 // P2-AC7: a syntactically broken shader must fail the Vitest run, not
 // Playwright. `WgslReflect` throws on any parser-level problem, so parsing
@@ -92,6 +92,27 @@ describe('uniform-struct size contract (#588 FR5 / AC5)', () => {
       // allocates); the bind-group validation checks the uniform-
       // aligned size against the buffer's minBindingSize.
       expect(frameStruct?.size, `${file}: Frame WGSL size`).toBe(FRAME_UNIFORMS_BYTES);
+    });
+  }
+});
+
+/**
+ * #730 VP-12 — the conditions-driven `Lighting` uniform. Same contract as
+ * `Frame`: every pass that declares it must agree with the CPU packer.
+ * Sky, clouds, water and bank read it; a drift would black those passes out.
+ */
+describe('Lighting uniform-struct size contract (#730)', () => {
+  const lightingPasses = shaderFiles.filter((f) => /\bstruct\s+Lighting\s*\{/.test(readFileSync(join(passesDir, f), 'utf8')));
+
+  it('is declared by the sky, clouds, water and bank passes', () => {
+    expect([...lightingPasses].sort()).toEqual(['bank.wgsl', 'clouds.wgsl', 'sky.wgsl', 'water.wgsl']);
+  });
+
+  for (const file of lightingPasses) {
+    it(`${file}: Lighting struct size matches LIGHTING_UNIFORMS_BYTES (${LIGHTING_UNIFORMS_BYTES} B)`, () => {
+      const src = readFileSync(join(passesDir, file), 'utf8');
+      const structs = (new WgslReflect(src) as unknown as { structs: Array<{ name: string; size: number }> }).structs;
+      expect(structs.find((s) => s.name === 'Lighting')?.size, `${file}: Lighting WGSL size`).toBe(LIGHTING_UNIFORMS_BYTES);
     });
   }
 });

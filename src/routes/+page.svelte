@@ -28,7 +28,7 @@
   import { getSessionStore } from '$lib/ui/sessionContext';
   import { getDeepLink } from '$lib/ui/deepLinkContext';
   import { routeGeometrySource } from '$lib/ui/routesStore.svelte';
-  import { ConditionsStore } from '$lib/ui/useConditions.svelte';
+  import { sharedConditionsStore } from '$lib/ui/useConditions.svelte';
   import { CrewPreferenceStore } from '$lib/ui/useCrewPreference.svelte';
   import { RowerAppearanceStore } from '$lib/ui/useRowerAppearance.svelte';
   import { debugPreferencesStore } from '$lib/services/debugPreferencesStore';
@@ -75,7 +75,8 @@
 
   // Per-row mood controls (#346 / #443 / #474): local to this screen and
   // persisted, so they survive a navigation without being session state.
-  const conditions = new ConditionsStore();
+  // #730: shared with the ride view, which hands it to the engine.
+  const conditions = sharedConditionsStore();
   const crew = new CrewPreferenceStore();
   const rowerAppearance = new RowerAppearanceStore();
 

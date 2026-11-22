@@ -99,6 +99,8 @@ const EXTRA_IGNORE = [
   '**/webgpu-ride-route-loading.spec.ts',
   // #722 VP-04 — wake/splash white-blob check, same posture.
   '**/webgpu-ride-wake-foam.spec.ts',
+  // #730 VP-12 — conditions reach the engine, same posture.
+  '**/webgpu-ride-conditions.spec.ts',
   // #584 AC5 — the four retired WebGL specs ported to the WebGPU engine. Same
   // posture as the ride specs: they drive the real `/row` flow with real
   // WebGPU and only assert their engine behaviour on the GPU runner (the

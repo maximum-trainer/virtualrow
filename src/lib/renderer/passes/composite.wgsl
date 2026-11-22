@@ -14,7 +14,9 @@ struct CompositeUniforms {
   autoExposureEnabled: f32,
   // #574: radial chromatic aberration offset (UV units at corner). 0 = off.
   caOffset: f32,
-  _pad0: f32,
+  // #730 VP-12: stops added for the rower's conditions (a dim Dusk is
+  // lifted a little). 0 at Midday and with no conditions.
+  exposureBias: f32,
   _pad1: f32,
 };
 
@@ -134,6 +136,10 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     let avgLum = max(exp(avgLogLum), 1e-4);
     let exposureScale = clamp(0.18 / avgLum, 0.25, 4.0);
     combined = combined * exposureScale;
+  }
+  // #730: after auto-exposure, so the bias survives its normalisation.
+  if (u.exposureBias != 0.0) {
+    combined = combined * exp2(u.exposureBias);
   }
   let graded = sampleLut(combined);
   let v = vignetteStrength(in.uv);

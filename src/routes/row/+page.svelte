@@ -27,6 +27,7 @@
   import { CrewPreferenceStore } from '$lib/ui/useCrewPreference.svelte';
   import { resolveCrew } from '../../components/rower3d/crewModel';
   import { RowerAppearanceStore } from '$lib/ui/useRowerAppearance.svelte';
+  import { sharedConditionsStore } from '$lib/ui/useConditions.svelte';
   import { paletteFromPreference } from '$lib/renderer/plan/crewPalette';
   import { FullscreenStore } from '$lib/ui/fullscreen.svelte';
   import { CameraViewStore } from '$lib/ui/cameraView.svelte';
@@ -58,6 +59,11 @@
   const appearancePatch = $derived({
     palette: paletteFromPreference(rowerAppearance.appearance),
   });
+
+  // #730 VP-12 — the rower's Dawn / Midday / Golden hour / Overcast / Dusk
+  // choice from the home screen's picker, resolved against the clock. The
+  // host passes it at attach and relights the scene when it changes.
+  const conditions = sharedConditionsStore();
 
   const testMode = typeof window !== 'undefined' && !!window.__PLAYWRIGHT_TESTING;
 
@@ -195,6 +201,7 @@
             crew={resolvedCrew}
             appearance={initialPalette}
             {appearancePatch}
+            conditions={conditions.conditions}
             rebuildOnRouteChange={!testMode}
             onBackend={(b) => (canvasBackend = b)}
           />

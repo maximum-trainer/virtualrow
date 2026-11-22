@@ -151,3 +151,30 @@ describe('createPostFx', () => {
     expect(BLOOM_MIP_LEVELS).toBeLessThanOrEqual(8);
   });
 });
+
+describe('exposure bias (#730 VP-12)', () => {
+  it('writes the conditions exposure bias into the composite uniform slot 6', () => {
+    const device = makeMockDevice();
+    const writes: Float32Array[] = [];
+    (device.queue as unknown as { writeBuffer: (b: unknown, o: number, d: Float32Array) => void }).writeBuffer = (
+      _b,
+      _o,
+      d,
+    ) => {
+      writes.push(new Float32Array(d));
+    };
+    const handle = createPostFx({
+      device,
+      sceneFormat: 'rgba16float',
+      outputFormat: 'bgra8unorm',
+      caps: DEFAULT_POSTFX_CAPS,
+    });
+    const composite = () => writes.filter((w) => w.length === 8).at(-1);
+    expect(composite()?.[6]).toBe(0);
+    handle.setExposureBias(0.25);
+    expect(composite()?.[6]).toBeCloseTo(0.25, 6);
+    // The other composite fields survive the update.
+    expect(composite()?.[2]).toBe(32);
+    handle.dispose();
+  });
+});

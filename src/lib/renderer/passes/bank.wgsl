@@ -29,6 +29,23 @@ struct Grass {
 };
 
 @group(0) @binding(0) var<uniform> frame: Frame;
+
+// #730 VP-12 — the rower's conditions (Dawn / Midday / Golden hour /
+// Overcast / Dusk). Mirrors `packFrameLighting` in `engine/uniforms.ts`;
+// `wgsl.test.ts` checks the size. Midday (and no conditions) packs every
+// multiplier as exactly 1 and every shift as 0, so the maths below draws
+// the pre-#730 frame unchanged.
+struct Lighting {
+  sun: vec4<f32>,          // rgb direct-light multiplier, w shadowStrength
+  ambient: vec4<f32>,      // rgb ambient multiplier, w sunDisc
+  zenith: vec4<f32>,       // rgb day zenith, w cloudThresholdShift
+  horizonCool: vec4<f32>,  // rgb, w cloudAlpha
+  horizonWarm: vec4<f32>,  // rgb, w waterSpecular
+  sunDisc: vec4<f32>,      // rgb disc colour, w exposureBias (postFx)
+  cloudTint: vec4<f32>,    // rgb, w cloudCover
+  waterTint: vec4<f32>,    // rgb, w fogDensityScale (CPU-side)
+};
+@group(0) @binding(1) var<uniform> lighting: Lighting;
 @group(2) @binding(0) var<uniform> grass: Grass;
 @group(2) @binding(1) var grassTile: texture_2d<f32>;
 @group(2) @binding(2) var grassSampler: sampler;
@@ -134,9 +151,15 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   let sun = normalize(frame.sunDir);
   let halfLambert = clamp(dot(n, sun) * 0.5 + 0.5, 0.0, 1.0);
   let sky = clamp(n.y * 0.5 + 0.5, 0.0, 1.0);
-  let ambient = mix(vec3<f32>(0.22, 0.20, 0.18), vec3<f32>(0.42, 0.46, 0.52), sky);
-  let lit = sampleShadow(in.worldPos, in.viewZ);
-  let shade = ambient + halfLambert * halfLambert * 0.75 * lit;
+  // #730: the conditions tint the ambient and the sun; both are exactly 1
+  // at Midday, so the shade below is the pre-#730 value there.
+  let ambient = mix(vec3<f32>(0.22, 0.20, 0.18), vec3<f32>(0.42, 0.46, 0.52), sky) * lighting.ambient.rgb;
+  var lit = sampleShadow(in.worldPos, in.viewZ);
+  // #730 FR4: Overcast softens the shadow; strength 1 leaves it untouched.
+  if (lighting.sun.w < 1.0) {
+    lit = mix(1.0, lit, lighting.sun.w);
+  }
+  let shade = ambient + halfLambert * halfLambert * 0.75 * lit * lighting.sun.rgb;
   let shaded = col * shade;
   return vec4<f32>(shaded, 1.0);
 }

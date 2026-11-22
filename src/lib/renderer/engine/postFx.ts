@@ -75,6 +75,11 @@ export interface PostFxInputs {
 export interface PostFxHandle {
   pass: Pass;
   setInputs(inputs: PostFxInputs): void;
+  /**
+   * #730 VP-12 — stops of exposure the rower's conditions add before
+   * tone-mapping. 0 (the default) leaves the composite untouched.
+   */
+  setExposureBias(stops: number): void;
   dispose(): void;
   /** For testing: counts of sub-passes recorded on the most recent frame. */
   readonly stats: { encoded: number; mipsEncoded: number };
@@ -167,9 +172,15 @@ export const createPostFx = (opts: PostFxOptions): PostFxHandle => {
   // Radial CA offset in UV units at the frame corner. 0.0035 = ~3.5 px on a
   // 1000-px-wide canvas; subtle, reads as lens feel, never as a defect.
   compositeScratch[5] = caps.chromaticAberration ? 0.0035 : 0;
-  compositeScratch[6] = 0;
+  compositeScratch[6] = 0; // exposureBias (#730), see setExposureBias
   compositeScratch[7] = 0;
   device.queue.writeBuffer(compositeUniforms, 0, compositeScratch as BufferSource);
+  const setExposureBias = (stops: number): void => {
+    const next = Number.isFinite(stops) ? stops : 0;
+    if (compositeScratch[6] === next) return;
+    compositeScratch[6] = next;
+    device.queue.writeBuffer(compositeUniforms, 0, compositeScratch as BufferSource);
+  };
 
   // --- Auto-exposure ---
   // 1×1 r32float render target that `luminance.wgsl` writes each frame
@@ -521,6 +532,7 @@ export const createPostFx = (opts: PostFxOptions): PostFxHandle => {
   return {
     pass,
     setInputs,
+    setExposureBias,
     dispose: () => pass.dispose(),
     get stats() {
       return stats;

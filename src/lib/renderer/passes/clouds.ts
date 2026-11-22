@@ -7,12 +7,15 @@ export interface CloudsPassOptions {
   device: GPUDevice;
   format: GPUTextureFormat;
   frameUniforms: GPUBuffer;
+  /** #730 VP-12 — the conditions lighting block (`packFrameLighting`). */
+  lightingUniforms: GPUBuffer;
 }
 
 export const createCloudsPass = ({
   device,
   format,
   frameUniforms,
+  lightingUniforms,
 }: CloudsPassOptions): Pass => {
   const module = device.createShaderModule({ label: 'clouds', code: cloudsWgsl });
   const pipeline = device.createRenderPipeline({
@@ -42,7 +45,10 @@ export const createCloudsPass = ({
   const bindGroup = device.createBindGroup({
     label: 'clouds-frame',
     layout: pipeline.getBindGroupLayout(0),
-    entries: [{ binding: 0, resource: { buffer: frameUniforms } }],
+    entries: [
+      { binding: 0, resource: { buffer: frameUniforms } },
+      { binding: 1, resource: { buffer: lightingUniforms } },
+    ],
   });
   let disposed = false;
   return {

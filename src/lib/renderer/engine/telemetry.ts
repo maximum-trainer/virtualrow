@@ -223,6 +223,27 @@ export interface Rower3DSpeedHandle {
   value: number;
 }
 
+/**
+ * Conditions telemetry (#730 VP-12 FR5). Published as
+ * `__ROWER3D_CONDITIONS`: the lighting the engine applied for the rower's
+ * Dawn / Midday / Golden hour / Overcast / Dusk choice, or `default` when
+ * the shell passed none. `updates` counts live switches since attach.
+ */
+export interface Rower3DConditions {
+  name: string;
+  sunElevationDeg: number;
+  sunAzimuthDeg: number;
+  sunDir: number[];
+  sunDisc: number;
+  cloudCover: number;
+  shadowStrength: number;
+  exposureBias: number;
+  fogDensityScale: number;
+  skyZenith: number[];
+  skyHorizon: number[];
+  updates: number;
+}
+
 export interface TelemetryHandles {
   renderStats: Rower3DRenderStats;
   frameStats: Rower3DFrameStats;
@@ -241,6 +262,7 @@ export interface TelemetryHandles {
   ghostMeters: Rower3DGhostMetersHandle;
   speed: Rower3DSpeedHandle;
   banner: Rower3DBanner;
+  conditions: Rower3DConditions;
 }
 
 // Keep this a mutable record view of `window`: on `main` these globals carry
@@ -329,6 +351,20 @@ export const createTelemetry = (forceRender: () => void): TelemetryHandles => {
     ghostMeters: { value: 0, active: false },
     speed: { value: 0 },
     banner: { visible: false, message: '', variant: '' },
+    conditions: {
+      name: 'default',
+      sunElevationDeg: 0,
+      sunAzimuthDeg: 0,
+      sunDir: [0, 1, 0],
+      sunDisc: 1,
+      cloudCover: 0,
+      shadowStrength: 1,
+      exposureBias: 0,
+      fogDensityScale: 1,
+      skyZenith: [0, 0, 0],
+      skyHorizon: [0, 0, 0],
+      updates: 0,
+    },
   };
   const w = win();
   if (w) {
@@ -357,6 +393,7 @@ export const createTelemetry = (forceRender: () => void): TelemetryHandles => {
     // "lost the graphics context" / "restoring" / "could not get it back"
     // banner. The engine owns the message copy (D2-a).
     w['__ROWER3D_BANNER'] = handles.banner;
+    w['__ROWER3D_CONDITIONS'] = handles.conditions;
   }
   return handles;
 };
@@ -405,6 +442,8 @@ export const releaseTelemetry = (): void => {
     '__ROWER3D_GHOST_METERS',
     '__ROWER3D_SPEED_MPS',
     '__ROWER3D_BANNER',
+    '__ROWER3D_CONDITIONS',
+    '__ROWER3D_SET_CONDITIONS',
   ]) {
     delete w[key];
   }

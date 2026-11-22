@@ -20,6 +20,23 @@ struct Frame {
 
 @group(0) @binding(0) var<uniform> frame: Frame;
 
+// #730 VP-12 — the rower's conditions (Dawn / Midday / Golden hour /
+// Overcast / Dusk). Mirrors `packFrameLighting` in `engine/uniforms.ts`;
+// `wgsl.test.ts` checks the size. Midday (and no conditions) packs every
+// multiplier as exactly 1 and every shift as 0, so the maths below draws
+// the pre-#730 frame unchanged.
+struct Lighting {
+  sun: vec4<f32>,          // rgb direct-light multiplier, w shadowStrength
+  ambient: vec4<f32>,      // rgb ambient multiplier, w sunDisc
+  zenith: vec4<f32>,       // rgb day zenith, w cloudThresholdShift
+  horizonCool: vec4<f32>,  // rgb, w cloudAlpha
+  horizonWarm: vec4<f32>,  // rgb, w waterSpecular
+  sunDisc: vec4<f32>,      // rgb disc colour, w exposureBias (postFx)
+  cloudTint: vec4<f32>,    // rgb, w cloudCover
+  waterTint: vec4<f32>,    // rgb, w fogDensityScale (CPU-side)
+};
+@group(0) @binding(1) var<uniform> lighting: Lighting;
+
 struct VSOut {
   @builtin(position) pos: vec4<f32>,
   @location(0) ndc: vec2<f32>,
@@ -56,12 +73,12 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   let azimuthDot = dot(sunAzimuth, viewAzimuth);
   let warmShare = clamp(azimuthDot * 0.5 + 0.5, 0.0, 1.0);
 
-  let coolHorizon = vec3<f32>(0.70, 0.80, 0.92);
-  let warmHorizon = vec3<f32>(0.98, 0.80, 0.55);
+  let coolHorizon = lighting.horizonCool.rgb;
+  let warmHorizon = lighting.horizonWarm.rgb;
   let horizon = mix(coolHorizon, warmHorizon, warmShare * max(sunDir.y, 0.0));
 
   // Zenith stays blue; a touch darker when the sun is low.
-  let dayZenith = vec3<f32>(0.32, 0.52, 0.86);
+  let dayZenith = lighting.zenith.rgb;
   let nightZenith = vec3<f32>(0.08, 0.13, 0.26);
   let zenith = mix(nightZenith, dayZenith, clamp(sunDir.y, 0.0, 1.0));
 
@@ -71,7 +88,8 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   let sun2 = normalize(vec2<f32>(sunDir.x, sunDir.y));
   let d = length(in.ndc - sun2 * 0.6);
   let sun = smoothstep(0.18, 0.08, d);
-  col = col + vec3<f32>(1.0, 0.95, 0.85) * sun * 0.6;
+  // Overcast (#730 FR4) packs sunDisc = 0: no disc behind the cloud deck.
+  col = col + lighting.sunDisc.rgb * sun * 0.6 * lighting.ambient.w;
 
   return vec4<f32>(col, 1.0);
 }

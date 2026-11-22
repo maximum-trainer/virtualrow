@@ -171,3 +171,55 @@ describe('attach', () => {
     });
   });
 });
+
+describe('conditions (#730 VP-12)', () => {
+  type Cond = { name: string; sunElevationDeg: number; sunDisc: number; cloudCover: number; updates: number };
+  const published = (): Cond | undefined =>
+    (globalThis as unknown as { window?: Record<string, unknown> }).window?.['__ROWER3D_CONDITIONS'] as Cond | undefined;
+
+  it('publishes the default lighting when no conditions are passed (FR5, FR6)', async () => {
+    const renderer = (await attach(makeMockCanvas(), { testMode: true })) as unknown as WithTest;
+    expect(published()?.name).toBe('default');
+    expect(published()?.sunDisc).toBe(1);
+    renderer.dispose();
+    expect(published()).toBeUndefined();
+  });
+
+  it('applies the conditions passed at attach (FR1)', async () => {
+    const renderer = (await attach(makeMockCanvas(), { testMode: true, conditions: 'dusk' })) as unknown as WithTest;
+    expect(published()?.name).toBe('dusk');
+    expect(published()?.sunElevationDeg).toBe(4);
+    renderer.dispose();
+  });
+
+  it('switches live without a new device or scene (FR1, "switching mid-row")', async () => {
+    let devices = 0;
+    const gpu = makeMockGPU(makeMockAdapter());
+    const adapter = (await gpu.requestAdapter()) as GPUAdapter;
+    const original = adapter.requestDevice.bind(adapter);
+    gpu.requestAdapter = async () =>
+      ({
+        ...adapter,
+        requestDevice: async (d?: GPUDeviceDescriptor) => {
+          devices += 1;
+          return original(d);
+        },
+      }) as unknown as GPUAdapter;
+    installGPUStub(gpu);
+    const renderer = (await attach(makeMockCanvas(), { testMode: true, conditions: 'midday' })) as unknown as WithTest & {
+      setConditions(c: unknown): void;
+    };
+    expect(devices).toBe(1);
+    expect(published()?.name).toBe('midday');
+    renderer.setConditions('overcast');
+    renderer._frameOnce();
+    expect(published()?.name).toBe('overcast');
+    expect(published()?.sunDisc).toBe(0);
+    expect(published()?.cloudCover).toBeGreaterThanOrEqual(0.8);
+    expect(devices).toBe(1);
+    // An unknown value is ignored rather than resetting the sky.
+    renderer.setConditions('noon');
+    expect(published()?.name).toBe('overcast');
+    renderer.dispose();
+  });
+});
