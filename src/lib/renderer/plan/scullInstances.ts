@@ -73,3 +73,10 @@ export const scullBoatTrs = (out: Mat4, world: ArrayLike<number>, heading: numbe
   trans[14] = world[2];
   return mat4Multiply(out, trans, rot);
 };
+
+/**
+ * #713 D3a — whether a scull GLB node takes a fleet member's hull colour.
+ * Only the hull does: the crew, oars and fittings keep their own colours.
+ */
+export const isFleetTintable = (nodeName: string | undefined): boolean =>
+  nodeName !== undefined && /^Hull(_|$)/.test(nodeName);

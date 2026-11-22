@@ -422,3 +422,70 @@ describe('the race ghost rows the scull GLB (#728)', () => {
     expect((globalThis as unknown as Record<string, unknown>)['__ROWER3D_HOLD_FRAME']).toBeUndefined();
   });
 });
+
+// #713 — the fleet rows the same scull GLB as the player (D1a): each
+// member's hull in its own palette colour (D3a), a male or female crew
+// from its seed (D2a), oars on the shared stroke with its own offset (D4a).
+describe('the fleet rows the scull GLB (#713)', () => {
+  it('draws every visible member from a scull with its own hull colour, crew and stroke offset', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { resolve } = await import('node:path');
+    const { FLEET_HULL_PALETTE } = await import('../fleet');
+    const glbs: Record<string, Buffer> = {
+      'scull-male.glb': readFileSync(resolve(process.cwd(), 'public/assets/boat/scull-male.glb')),
+      'scull-female.glb': readFileSync(resolve(process.cwd(), 'public/assets/boat/scull-female.glb')),
+    };
+    const fetched: string[] = [];
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url;
+      const name = url.split('/').pop() ?? '';
+      if (glbs[name]) {
+        fetched.push(name);
+        return new Response(new Uint8Array(glbs[name]));
+      }
+      return new Response(null, { status: 404 });
+    }) as typeof fetch;
+    try {
+      const canvas = makeMockCanvas();
+      const renderer = (await attach(canvas, {
+        testMode: true,
+        tier: 'extra-high',
+        getFrame: () => ({
+          paceSPer500: 120,
+          distanceMeters: 40,
+          cadence: 24,
+          isPlaying: true,
+          holdBoat: false,
+          finished: false,
+          intensityFactor: 1,
+          elapsedSeconds: 10,
+          ghost: null,
+        }),
+      })) as unknown as WithTest;
+      for (let i = 0; i < 10; i++) renderer._frameOnce();
+      // Both crews are loaded once each, whatever the player rows.
+      expect(new Set(fetched)).toEqual(new Set(['scull-male.glb', 'scull-female.glb']));
+      const fleet = (globalThis as unknown as { window: Record<string, unknown> }).window['__ROWER3D_FLEET'] as {
+        model: string;
+        members: { crew: string; hullColor: number[]; strokeOffset: number }[];
+      };
+      expect(fleet.model).toBe('scull');
+      expect(fleet.members.length).toBeGreaterThan(0);
+      const palette = FLEET_HULL_PALETTE.map((c) => Array.from(c.slice(0, 3)).map((v) => v.toFixed(3)).join());
+      for (const m of fleet.members) {
+        expect(['male', 'female']).toContain(m.crew);
+        expect(palette, 'a palette colour, not the grey fallback').toContain(m.hullColor.map((v) => v.toFixed(3)).join());
+        expect(m.strokeOffset).toBeGreaterThanOrEqual(0);
+        expect(m.strokeOffset).toBeLessThan(1);
+      }
+      if (fleet.members.length > 1) {
+        expect(new Set(fleet.members.map((m) => m.strokeOffset)).size, 'not in lockstep').toBeGreaterThan(1);
+      }
+      renderer.dispose();
+      expect((globalThis as unknown as Record<string, unknown>)['__ROWER3D_FLEET']).toBeUndefined();
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+});

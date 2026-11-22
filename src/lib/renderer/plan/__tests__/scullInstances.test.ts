@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import { mat4, mat4FromRotationY, mat4Identity, mat4Multiply, type Mat4 } from '../../math/mat4';
 import { crewStrokePose, oarSweep } from '../crewStroke';
-import { scullBoatTrs, scullPrimitiveTransform, type ScullPrimitive } from '../scullInstances';
+import { isFleetTintable, scullBoatTrs, scullPrimitiveTransform, type ScullPrimitive } from '../scullInstances';
 
 const translate = (x: number, y: number, z: number): Mat4 => {
   const m = mat4Identity(mat4());
@@ -59,5 +59,17 @@ describe('scullPrimitiveTransform', () => {
     const expected = mat4FromRotationY(mat4(), -0.4);
     expect(r[0]).toBeCloseTo(expected[0], 5);
     expect(r[2]).toBeCloseTo(expected[2], 5);
+  });
+});
+
+// #713 D3a — only the hull takes a fleet member's palette colour; the
+// rower, oars, seat and rigging keep theirs.
+describe('isFleetTintable', () => {
+  it('is true for the hull nodes of the scull GLB and nothing else', () => {
+    expect(isFleetTintable('Hull')).toBe(true);
+    expect(isFleetTintable('Hull_Underside')).toBe(true);
+    for (const n of ['Cockpit', 'Seat_Pan', 'LeftOar_Blade', 'Torso_Spine', 'Head', 'Hair_Long_Cap', 'LeftRig_Stay1', 'HullFake', undefined]) {
+      expect(isFleetTintable(n), String(n)).toBe(false);
+    }
   });
 });

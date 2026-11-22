@@ -90,7 +90,7 @@ import {
 } from '../plan/boatMesh';
 import { loadBoatMesh } from '../plan/boatMeshLoader';
 import { crewStrokePose, oarSweep } from '../plan/crewStroke';
-import { scullBoatTrs, scullPrimitiveTransform } from '../plan/scullInstances';
+import { isFleetTintable, scullBoatTrs, scullPrimitiveTransform } from '../plan/scullInstances';
 import {
   classifyCrewSlot,
   DEFAULT_CREW_PALETTE,
@@ -116,6 +116,7 @@ import {
   createFleet,
   fleetFadeFor,
   fleetHullTintFor,
+  fleetStrokeOffset,
   fleetPaletteIndexForColor,
   fleetWaterHalfWidth,
   type FleetState,
@@ -164,7 +165,7 @@ import type { PerformanceMode } from '../../scenery/sceneryPlacement';
 import type { SceneryProfile } from '../../services/routeEnrichmentService';
 import { createShadowStage, type ShadowTelemetry } from './shadowStage';
 import { tierCapsFor } from './tierCaps';
-import { publishSpeedMps, type TelemetryHandles } from './telemetry';
+import { publishSpeedMps, type Rower3DFleet, type TelemetryHandles } from './telemetry';
 import { createPostFx, type PostFxCaps } from './postFx';
 import {
   conditionsToFrameLighting,
@@ -632,8 +633,13 @@ export const createRideScene = async (
   // own mesh id so the per-primitive base colours survive.
   const sceneryMeshPass = createSceneryMeshPass({ device, format, frameUniforms });
   const BOAT_SCULL_PREFIX = 'boat-scull';
-  /** #728 FR1 — instances of each scull primitive: the player and the ghost. */
-  const SCULL_INSTANCES = 2;
+  /**
+   * #728 FR1 / #713 D1a — instances of each scull primitive: the player,
+   * the ghost, then up to one per fleet member.
+   */
+  const SCULL_INSTANCES = 2 + (tierCaps.fleetCount > 0 ? FLEET_INSTANCE_CAPACITY : 0);
+  /** #713 D2a — the other crew's scull, drawn only for fleet members. */
+  const BOAT_SCULL_ALT_PREFIX = 'boat-scull-alt';
   const boatScullMeshIds: string[] = [];
   interface BoatScullPrimitive {
     id: string;
@@ -658,6 +664,7 @@ export const createRideScene = async (
     authoredColors?: Float32Array;
   }
   const boatScullPrimitives: BoatScullPrimitive[] = [];
+  const boatScullAltPrimitives: BoatScullPrimitive[] = [];
   let currentAppearance: CrewPalette = opts.appearance ?? DEFAULT_CREW_PALETTE;
   const COURSE_FURNITURE_MODELS: SceneryModelId[] = [
     'a01-buoy-lane-sphere',
@@ -694,15 +701,26 @@ export const createRideScene = async (
     const tier = 'abcdefgl'.includes(prefix) ? prefix : 'a';
     return `tier-${tier}`;
   };
+  /**
+   * Load one crew's scull GLB and register each primitive as a mesh id
+   * under `prefix`. `paint` applies the player's palette to the crew
+   * slots; the fleet's other-crew scull keeps its authored colours.
+   */
+  const loadScull = async (
+    crewName: 'male' | 'female',
+    prefix: string,
+    out: BoatScullPrimitive[],
+    paint: boolean,
+  ): Promise<void> => {
   try {
-    const crewGlb = opts.crew === 'female' ? 'scull-female.glb' : 'scull-male.glb';
+    const crewGlb = crewName === 'female' ? 'scull-female.glb' : 'scull-male.glb';
     const res = await fetch(assetUrl(`/assets/boat/${crewGlb}`));
     if (res.ok) {
       const bytes = new Uint8Array(await res.arrayBuffer());
       const model = await loadGlb(bytes, { preserveNodeTransforms: true });
       for (let i = 0; i < model.primitives.length; i += 1) {
         const prim = model.primitives[i];
-        const id = `${BOAT_SCULL_PREFIX}:${i}`;
+        const id = `${prefix}:${i}`;
         // Each primitive is one GLB material = one picker slot (or none).
         // Prefer the leaf node name (e.g. `Torso_Spine_part`) and fall back
         // to the articulated group (`LeftOar`) when the loader only kept
@@ -726,7 +744,7 @@ export const createRideScene = async (
         }
         // Apply the initial appearance up-front so attach(..., { appearance })
         // skips a first-frame flash of the baked colour.
-        const initialColors = slot
+        const initialColors = slot && paint
           ? tintPrimitiveColors(authoredColors, slot, currentAppearance)
           : authoredColors;
         sceneryMeshPass.register({
@@ -736,10 +754,10 @@ export const createRideScene = async (
           indices: prim.indices,
           baseColor: prim.baseColor,
           colors: initialColors,
-          // #728 FR1: the player, then the race ghost.
+          // #728 FR1 / #713: the player, the race ghost, the fleet.
           maxInstances: SCULL_INSTANCES,
         });
-        boatScullMeshIds.push(id);
+        if (paint) boatScullMeshIds.push(id);
         const nodeWorld = mat4();
         if (prim.nodeWorldMatrix) {
           for (let k = 0; k < 16; k += 1) nodeWorld[k] = prim.nodeWorldMatrix[k];
@@ -751,7 +769,7 @@ export const createRideScene = async (
           pivotWorld = mat4();
           for (let k = 0; k < 16; k += 1) pivotWorld[k] = prim.pivotWorldMatrix[k];
         }
-        boatScullPrimitives.push({
+        out.push({
           id,
           nodeWorld,
           group: prim.groupName,
@@ -763,6 +781,13 @@ export const createRideScene = async (
       }
     }
   } catch { /* scull GLB load failed — the old baked boat remains as fallback */ }
+  };
+  const playerCrew: 'male' | 'female' = opts.crew === 'female' ? 'female' : 'male';
+  await loadScull(playerCrew, BOAT_SCULL_PREFIX, boatScullPrimitives, true);
+  // #713 D2a — the fleet rows both crews; the player's is already loaded.
+  if (tierCaps.fleetCount > 0 && boatScullPrimitives.length > 0) {
+    await loadScull(playerCrew === 'male' ? 'female' : 'male', BOAT_SCULL_ALT_PREFIX, boatScullAltPrimitives, false);
+  }
 
   // Scenery GLBs load lazily as the route progresses (see sceneryStreamPlan):
   // this fetches + registers one model on demand, returning whether it
@@ -1287,6 +1312,28 @@ export const createRideScene = async (
   const scullPlayerInstances = new Map<string, Mat4>();
   const scullGhostInstances = new Map<string, Mat4>();
   const scullGhostTrs = mat4();
+  /** #713 — per-frame instance lists of each scull primitive, both crews. */
+  const scullInstanceLists = new Map<string, SceneryInstance[]>();
+  const fleetScullInstances = new Map<string, Mat4>();
+  const fleetScullTrs = Array.from({ length: FLEET_INSTANCE_CAPACITY }, () => mat4());
+  /**
+   * #713 D3a — a fleet member's style per primitive. The hull takes the
+   * member's palette colour, sun-shaded. On the player's own scull the
+   * crew's vertex colours carry the player's palette, so a member rowing
+   * it wears the authored kit instead (D5 per-member kit is phase 2).
+   */
+  const fleetPrimitiveStyle = (
+    prim: BoatScullPrimitive,
+    hull: Float32Array,
+    sharesPlayerColors: boolean,
+  ): { tint?: readonly [number, number, number, number] } => {
+    if (isFleetTintable(prim.nodeName ?? prim.group)) return { tint: [hull[0], hull[1], hull[2], 1] };
+    if (sharesPlayerColors && prim.slot && prim.authoredColors) {
+      const c = prim.authoredColors;
+      return { tint: [c[0], c[1], c[2], 1] };
+    }
+    return {};
+  };
   // #577 D9a — placeholder fleet uses a desaturated solid hull tint so
   // they read as a pack of other boats rather than semi-transparent
   // race ghosts. Slight variation per member via a seed-driven hue
@@ -1523,7 +1570,9 @@ export const createRideScene = async (
       }
 
       for (const prim of boatScullPrimitives) {
-        const instances: SceneryInstance[] = [];
+        const instances = scullInstanceLists.get(prim.id) ?? [];
+        scullInstanceLists.set(prim.id, instances);
+        instances.length = 0;
         if (isCrewNodeVisible(prim.nodeName, currentAppearance)) {
           const player = scullPlayerInstances.get(prim.id) ?? mat4();
           scullPlayerInstances.set(prim.id, player);
@@ -1537,7 +1586,11 @@ export const createRideScene = async (
             });
           }
         }
-        sceneryMeshPass.setInstances(prim.id, instances);
+      }
+      for (const prim of boatScullAltPrimitives) {
+        const instances = scullInstanceLists.get(prim.id) ?? [];
+        scullInstanceLists.set(prim.id, instances);
+        instances.length = 0;
       }
     }
     boatPass.boat.write(device, {
@@ -1586,6 +1639,9 @@ export const createRideScene = async (
     // all (nor cast shadows); the rest pack into the first slots, faded
     // by their distance from the player.
     let visibleFleet = 0;
+    const fleetTelemetry: Rower3DFleet['members'] = [];
+    const fleetPhase = phase;
+    const fleetAmp = strokeAmplitude(rideFrame);
     for (let i = 0; i < fleetMembers.length && visibleFleet < FLEET_INSTANCE_CAPACITY; i += 1) {
       const member = fleetMembers[i];
       let relative = member.distanceMeters - boatPlacement.distanceMeters;
@@ -1617,6 +1673,36 @@ export const createRideScene = async (
       );
       const tint = fleetTints[slot];
       tint.set(fleetHullTintFor(member.seed, fleetExcludeIndex));
+      const strokeOffset = fleetStrokeOffset(member.seed);
+      fleetTelemetry.push({
+        crew: member.crew,
+        hullColor: [tint[0], tint[1], tint[2]],
+        strokeOffset,
+        lane: member.laneOffsetMeters,
+        distanceMeters: member.distanceMeters,
+        fade,
+      });
+      if (scullLoaded) {
+        // #713 — the member rows the scull of its own crew (D2a): the
+        // player's when it matches, else the other one, if that loaded.
+        const ownCrew = member.crew === playerCrew || boatScullAltPrimitives.length === 0;
+        const prims = ownCrew ? boatScullPrimitives : boatScullAltPrimitives;
+        const memberCrew = ownCrew ? playerCrew : member.crew;
+        const place = fleetPlacements[slot];
+        const trs = scullBoatTrs(fleetScullTrs[slot], place.world, place.heading);
+        // D4a — the player's stroke, shifted by the member's own offset.
+        const memberSweep = oarSweep(memberCrew, (fleetPhase + strokeOffset) % 1, fleetAmp);
+        const memberPose = crewStrokePose(memberCrew, memberSweep);
+        for (const prim of prims) {
+          if (!isCrewNodeVisible(prim.nodeName, DEFAULT_CREW_PALETTE)) continue;
+          const key = `${prim.id}#${slot}`;
+          const m = fleetScullInstances.get(key) ?? mat4();
+          fleetScullInstances.set(key, m);
+          scullPrimitiveTransform(m, prim, { boatTrs: trs, sweep: memberSweep, stroke: memberPose });
+          const style = fleetPrimitiveStyle(prim, tint, prims === boatScullPrimitives);
+          scullInstanceLists.get(prim.id)?.push({ model: m, alpha: fade, ...style });
+        }
+      }
       tint[3] *= fade;
       boatPass.fleet[slot].write(device, {
         model: fleetPlacements[slot].modelMatrix,
@@ -1626,7 +1712,15 @@ export const createRideScene = async (
         visible: true,
       });
     }
-    boatPass.fleetVisibleCount.value = visibleFleet;
+    // #713 FR1 — with the scull loaded the placeholder fleet is only the
+    // fallback, as it is for the player and the ghost.
+    boatPass.fleetVisibleCount.value = scullLoaded ? 0 : visibleFleet;
+    telemetry.fleet.model = visibleFleet === 0 ? 'none' : scullLoaded ? 'scull' : 'placeholder';
+    telemetry.fleet.members = fleetTelemetry;
+    if (scullLoaded) {
+      for (const prim of boatScullPrimitives) sceneryMeshPass.setInstances(prim.id, scullInstanceLists.get(prim.id) ?? []);
+      for (const prim of boatScullAltPrimitives) sceneryMeshPass.setInstances(prim.id, scullInstanceLists.get(prim.id) ?? []);
+    }
 
     telemetry.boat.x = boatPlacement.world[0];
     telemetry.boat.y = boatPlacement.world[1];

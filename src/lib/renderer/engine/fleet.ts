@@ -128,6 +128,13 @@ export const fleetPaletteIndexForColor = (
   return best;
 };
 
+/**
+ * #713 D4a — the share of a stroke (0..1) a member rows ahead of the
+ * player's shared phase, from its seed, so the pack keeps the player's
+ * rate without rowing in lockstep.
+ */
+export const fleetStrokeOffset = (seed: number): number => hash((seed ^ 0x2c1b3c6d) >>> 0);
+
 /** Pick a hull tint for a fleet member deterministically from its seed. */
 export const fleetHullTintFor = (seed: number, excludeIndex?: number): Float32Array => {
   // Round the seed through the same hash the state module uses so a
