@@ -42,7 +42,15 @@ export interface RigInput {
   view: CameraView;
   bendSign: number;
   reducedMotion?: boolean;
+  /**
+   * #724 VP-06 FR4 — the deck underside over world (x, z), +Infinity in
+   * open sky. The camera stays `CEILING_CLEARANCE_METRES` below it.
+   */
+  ceilingAt?: (x: number, z: number) => number;
 }
+
+/** How far under a bridge deck the camera keeps (#724 FR4). */
+export const CEILING_CLEARANCE_METRES = 1;
 
 export interface RigTarget {
   position: Vec3;
@@ -60,7 +68,7 @@ const clamp = (v: number, lo: number, hi: number): number =>
   v < lo ? lo : v > hi ? hi : v;
 
 export const cameraTarget = (
-  { boat, tangent, velocityMps, view, bendSign, reducedMotion = false }: RigInput,
+  { boat, tangent, velocityMps, view, bendSign, reducedMotion = false, ceilingAt }: RigInput,
   out: RigTarget,
 ): RigTarget => {
   const offset = OFFSETS[view] ?? OFFSETS.chase;
@@ -74,6 +82,10 @@ export const cameraTarget = (
     boat[1] + offset.up,
     boat[2] - tangent[2] * offset.back + perpZ * side,
   );
+  if (ceilingAt) {
+    const ceiling = ceilingAt(out.position[0], out.position[2]) - CEILING_CLEARANCE_METRES;
+    if (ceiling < out.position[1]) out.position[1] = ceiling;
+  }
   vec3Set(
     out.lookAt,
     boat[0] + tangent[0] * offset.ahead,

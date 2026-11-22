@@ -27,6 +27,7 @@ export const MANIFEST_PATH = path.join(PUBLIC, 'assets', 'scenery', 'manifest.js
 export const FOOTPRINTS_TS_PATH = path.join(
   ROOT, 'src', 'lib', 'scenery', 'sceneryFootprints.generated.ts',
 );
+export const SPANS_TS_PATH = path.join(ROOT, 'src', 'lib', 'scenery', 'bridgeSpans.generated.ts');
 
 const GLB_ROOTS = [path.join('assets', 'scenery'), path.join('assets', 'boat')];
 
@@ -99,6 +100,91 @@ const footprintOf = (document) => {
   };
 };
 
+/**
+ * #724 VP-06 FR1 — a bridge's span along its long axis, in scene metres:
+ * the axis, where it starts, its length, and its navigable openings.
+ * The underside is profiled in `SPAN_STEP_M` bins (the lowest point of
+ * any triangle over each bin, conservatively: a triangle counts over every
+ * bin its range covers); an opening is a run of bins whose underside is
+ * at least `OPENING_MIN_UNDERSIDE_M`, the lowest that the largest allowed
+ * span scale (1.6) can still lift to the 4.5 m clearance `bridgeSpan.ts`
+ * needs. Each opening records its centre, width and lowest underside.
+ */
+const SPAN_STEP_M = 0.5;
+const OPENING_MIN_UNDERSIDE_M = 4.5 / 1.6;
+// Every tier-c/g bridge, plus the tier-l landmarks that cross water.
+const isBridge = (id) => /bridge|ponte/.test(id);
+const mulPoint = (m, p) => [
+  m[0] * p[0] + m[4] * p[1] + m[8] * p[2] + m[12],
+  m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13],
+  m[2] * p[0] + m[6] * p[1] + m[10] * p[2] + m[14],
+];
+const undersideProfile = (document, axis, start, bins) => {
+  const low = new Array(bins).fill(Number.POSITIVE_INFINITY);
+  const e = [0, 0, 0];
+  for (const node of document.getRoot().listNodes()) {
+    const mesh = node.getMesh();
+    if (!mesh) continue;
+    const world = node.getWorldMatrix();
+    for (const prim of mesh.listPrimitives()) {
+      const pos = prim.getAttribute('POSITION');
+      if (!pos) continue;
+      const idx = prim.getIndices();
+      const n = idx ? idx.getCount() : pos.getCount();
+      for (let i = 0; i + 2 < n; i += 3) {
+        let a = Infinity;
+        let b = -Infinity;
+        let y = Infinity;
+        for (let k = 0; k < 3; k += 1) {
+          pos.getElement(idx ? idx.getScalar(i + k) : i + k, e);
+          const p = mulPoint(world, e);
+          const along = p[axis] * ASSET_SCALE;
+          a = Math.min(a, along);
+          b = Math.max(b, along);
+          y = Math.min(y, p[1] * ASSET_SCALE);
+        }
+        const first = Math.max(0, Math.floor((a - start) / SPAN_STEP_M));
+        const last = Math.min(bins - 1, Math.floor((b - start) / SPAN_STEP_M));
+        for (let j = first; j <= last; j += 1) if (y < low[j]) low[j] = y;
+      }
+    }
+  }
+  return low;
+};
+const openingsOf = (low, start, step = SPAN_STEP_M, minUnderside = OPENING_MIN_UNDERSIDE_M) => {
+  const openings = [];
+  let from = -1;
+  for (let i = 0; i <= low.length; i += 1) {
+    const open = i < low.length && low[i] >= minUnderside;
+    if (open && from < 0) from = i;
+    if (!open && from >= 0) {
+      // No geometry over a bin at all is open sky; cap it at 99 m.
+      const underside = Math.min(99, ...low.slice(from, i));
+      openings.push({
+        centre: round4(start + ((from + i) / 2) * step),
+        width: round4((i - from) * step),
+        underside: Math.round(underside * 100) / 100,
+      });
+      from = -1;
+    }
+  }
+  return openings;
+};
+const spanOf = (document, footprint) => {
+  if (!footprint) return null;
+  const axis = footprint.extentX >= footprint.extentZ ? 0 : 2;
+  const start = axis === 0 ? footprint.minX : footprint.minZ;
+  const length = axis === 0 ? footprint.extentX : footprint.extentZ;
+  const bins = Math.max(1, Math.ceil(length / SPAN_STEP_M));
+  const low = undersideProfile(document, axis, start, bins);
+  return {
+    axis: axis === 0 ? 'x' : 'z',
+    start: round4(start),
+    length: round4(length),
+    openings: openingsOf(low, start),
+  };
+};
+
 async function main() {
   await MeshoptDecoder.ready;
   await MeshoptEncoder.ready;
@@ -107,6 +193,7 @@ async function main() {
     .registerDependencies({ 'meshopt.decoder': MeshoptDecoder, 'meshopt.encoder': MeshoptEncoder });
 
   const models = {};
+  const spans = {};
   let totalBytes = 0;
 
   for (const relative of GLB_ROOTS.flatMap(glbsUnder)) {
@@ -116,6 +203,7 @@ async function main() {
     const bytes = fs.statSync(file).size;
     totalBytes += bytes;
     const footprint = footprintOf(document);
+    const span = isBridge(id) ? spanOf(document, footprint) : null;
     models[id] = {
       path: relative,
       bytes,
@@ -125,7 +213,9 @@ async function main() {
         .listExtensionsUsed()
         .some((extension) => extension.extensionName === 'EXT_meshopt_compression'),
       ...(footprint ? { footprint } : {}),
+      ...(span ? { span } : {}),
     };
+    if (span) spans[id] = span;
   }
 
   const manifest = { totalBytes, models };
@@ -155,6 +245,25 @@ async function main() {
     `${footprintEntries}\n` +
     `};\n`;
   fs.writeFileSync(FOOTPRINTS_TS_PATH, tsSource);
+  // #724 — the bridges' span profiles, for the sync span placement.
+  const spanEntries = Object.entries(spans)
+    .map(([id, span]) => `  '${id}': ${JSON.stringify(span).replace(/"(\w+)":/g, '$1: ').replace(/"/g, "'").replace(/,/g, ', ')},`)
+    .sort()
+    .join('\n');
+  fs.writeFileSync(
+    SPANS_TS_PATH,
+    `// Generated by scripts/generate-scenery-manifest.mjs — do not edit by hand.\n` +
+      `//\n` +
+      `// Mirrors the \`span\` field of each bridge in\n` +
+      `// \`public/assets/scenery/manifest.json\` (#724 VP-06), for the sync\n` +
+      `// span placement in \`bridgeSpan.ts\`.\n` +
+      `\n` +
+      `import type { BridgeSpanProfile } from './bridgeSpan';\n` +
+      `\n` +
+      `export const BRIDGE_SPANS: Readonly<Record<string, BridgeSpanProfile>> = {\n` +
+      `${spanEntries}\n` +
+      `};\n`,
+  );
   console.log(
     `${Object.keys(models).length} models, ${(totalBytes / 1024 / 1024).toFixed(2)} MB -> ${path.relative(ROOT, MANIFEST_PATH)} + ${path.relative(ROOT, FOOTPRINTS_TS_PATH)}`,
   );

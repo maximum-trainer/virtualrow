@@ -102,4 +102,45 @@ describe('camera rig', () => {
     dampedFollowOffset(offset, vec3(0, 2, 7), vec3(0, 0, 0), 0.1, 1, out);
     expect(out[2]).toBeGreaterThan(6);
   });
+
+  // #724 VP-06 FR4 — under a bridge deck the camera stays 1 m below it.
+  it('lowers the high view to 1 m under a deck it is beneath', () => {
+    const target = createRigTarget();
+    const seen: Array<[number, number]> = [];
+    cameraTarget(
+      {
+        boat: vec3(0, 0.2, 0),
+        tangent: vec3(0, 0, -1),
+        velocityMps: 0,
+        view: 'high',
+        bendSign: 0,
+        ceilingAt: (x, z) => {
+          seen.push([x, z]);
+          return 6;
+        },
+      },
+      target,
+    );
+    expect(target.position[1]).toBeCloseTo(5);
+    // Asked about the camera's own spot, 18 m behind the boat.
+    expect(seen).toEqual([[target.position[0], target.position[2]]]);
+  });
+
+  it('leaves a camera already under the ceiling, or in open sky, alone', () => {
+    for (const ceiling of [10, Number.POSITIVE_INFINITY]) {
+      const target = createRigTarget();
+      cameraTarget(
+        {
+          boat: vec3(0, 0.2, 0),
+          tangent: vec3(0, 0, -1),
+          velocityMps: 0,
+          view: 'chase',
+          bendSign: 0,
+          ceilingAt: () => ceiling,
+        },
+        target,
+      );
+      expect(target.position[1]).toBeCloseTo(2.8);
+    }
+  });
 });

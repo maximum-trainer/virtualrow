@@ -421,6 +421,66 @@ describe('the race ghost rows the scull GLB (#728)', () => {
     renderer.dispose();
     expect((globalThis as unknown as Record<string, unknown>)['__ROWER3D_HOLD_FRAME']).toBeUndefined();
   });
+
+  // #724 VP-06 — the Willowbrook arches cross the river, and the high
+  // camera stays under the deck while it is beneath one.
+  it('fits the Willowbrook bridges and keeps the high camera under their decks', async () => {
+    const canvas = makeMockCanvas();
+    const routeMeters = 6000;
+    const renderer = (await attach(canvas, {
+      testMode: true,
+      routeId: '1',
+      route: { pools: [], totalDistanceMeters: routeMeters },
+      getFrame: () => ({
+        paceSPer500: 120,
+        distanceMeters: 0,
+        cadence: 20,
+        isPlaying: true,
+        holdBoat: false,
+        finished: false,
+        intensityFactor: 1,
+        elapsedSeconds: 10,
+        ghost: null,
+        view: 'high',
+      }),
+    })) as unknown as WithTest;
+    renderer._frameOnce();
+    const w = (globalThis as unknown as { window: Record<string, unknown> }).window;
+    const route = w['__ROWER3D_ROUTE'] as {
+      spans?: Array<{ id: string; x: number; z: number; scale: number; ceiling: number | null }>;
+    };
+    const arches = (route.spans ?? []).filter((s) => s.id === 'c01-bridge-arch-masonry');
+    expect(arches).toHaveLength(2);
+    for (const arch of arches) {
+      expect(arch.scale).toBeGreaterThan(1);
+      expect(arch.ceiling).toBeGreaterThanOrEqual(4.5);
+    }
+    const seek = (globalThis as unknown as Record<string, unknown>)['__ROWER3D_SEEK_METERS'] as (m: number | null) => void;
+    expect(seek).toBeTypeOf('function');
+    const camera = () => w['__ROWER3D_CAMERA'] as { x: number; y: number; z: number; ceiling?: number | null };
+    // Open water: the high view keeps its height.
+    seek(0.4 * routeMeters);
+    renderer._frameOnce();
+    expect(camera().ceiling).toBeNull();
+    const openY = camera().y;
+    // The camera, 18 m of curve behind the boat, passes under the first
+    // arch (progress 0.15 of the test's 200 m curve).
+    let ducked = 0;
+    for (let p = 0.1; p <= 0.3; p += 0.002) {
+      seek(p * routeMeters);
+      renderer._frameOnce();
+      const c = camera();
+      if (c.ceiling !== null && c.ceiling !== undefined) {
+        ducked += 1;
+        expect(c.y).toBeLessThanOrEqual(c.ceiling - 1 + 1e-6);
+      }
+    }
+    expect(ducked).toBeGreaterThan(0);
+    expect(openY).toBeGreaterThan(6);
+    seek(null);
+    renderer.dispose();
+    expect((globalThis as unknown as Record<string, unknown>)['__ROWER3D_SEEK_METERS']).toBeUndefined();
+  });
 });
 
 // #713 — the fleet rows the same scull GLB as the player (D1a): each

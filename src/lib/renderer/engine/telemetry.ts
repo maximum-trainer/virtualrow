@@ -49,6 +49,18 @@ export interface Rower3DCamera {
   lookY: number;
   lookZ: number;
   fov: number;
+  /** #724 FR4 — the bridge-deck underside over the camera; null in open sky. */
+  ceiling?: number | null;
+}
+
+/** #724 — a bridge span as placed: model, world spot, turn, fitted scale and headroom. */
+export interface Rower3DSpan {
+  id: string;
+  x: number;
+  z: number;
+  rotationY: number;
+  scale: number;
+  ceiling: number | null;
 }
 
 export interface Rower3DContextState {
@@ -91,6 +103,8 @@ export interface Rower3DRoute {
   totalDistance: number;
   curveLength: number;
   builds?: number;
+  /** #724 — every bridge span the scene placed. */
+  spans?: Rower3DSpan[];
 }
 
 export interface Rower3DClearance {
