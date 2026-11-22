@@ -3,10 +3,12 @@
  *
  * The ghost was a pale translucent cyan hull over teal water: nearly
  * invisible. It now draws the player's own scull GLB (FR1) as a further
- * instance of each primitive, in one saturated lime, flat-lit so it reads
- * the same at dusk as at midday, with a fresnel rim and a 0.7 opacity. Lime
- * is far from the water's hue, brighter than it in every condition, and
- * unlike every fleet hull colour.
+ * instance of each primitive, in one dark green, flat-lit and out of the
+ * distance haze so it reads the same in every light, with a lime fresnel
+ * rim. A pale ghost can't do it: tone-mapping caps a light colour near
+ * sRGB 202 grey, about 2.3:1 on midday water and 1:1 at golden hour
+ * (Dan's laptop, 2026-11-22). The dark hull is under every preset's water
+ * by 3:1 or more, and unlike every fleet hull colour.
  *
  * Past 30 m the boat is small on screen, so a marker with the gap floats
  * over it; `ghostMarker` places it.
@@ -15,18 +17,21 @@
 import type { Mat4 } from '../math/mat4';
 
 export interface GhostScullStyle {
-  /** Linear rgb (over 1 is allowed: flat-lit, it is clipped by tone-mapping), and the tint share. */
+  /** Linear rgb, and the tint share. */
   readonly tint: readonly [number, number, number, number];
   readonly alpha: number;
   readonly rim: number;
   readonly flat: number;
+  /** Share of the distance haze it takes. */
+  readonly haze: number;
 }
 
 export const GHOST_SCULL_STYLE: GhostScullStyle = {
-  tint: [0.84, 1.2, 0.54, 1],
+  tint: [0.006, 0.02, 0.008, 1],
   alpha: 0.95,
-  rim: 0.5,
+  rim: 0.6,
   flat: 1,
+  haze: 0,
 };
 
 /** FR2: the marker shows once the ghost is more than this far away. */

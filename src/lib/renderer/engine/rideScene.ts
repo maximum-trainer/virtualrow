@@ -1356,7 +1356,7 @@ export const createRideScene = async (
   // from its reflection and shadow on the water, which a with/without
   // diff also catches.
   let ghostMask = false;
-  const GHOST_MASK_STYLE = { tint: [1, 0, 1, 1] as const, alpha: 1, rim: 0, flat: 1 };
+  const GHOST_MASK_STYLE = { tint: [1, 0, 1, 1] as const, alpha: 1, rim: 0, flat: 1, haze: 0 };
 
   const frameOnce = (): void => {
     if (disposed) return;

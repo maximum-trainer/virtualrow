@@ -331,8 +331,11 @@ describe('createSceneryMeshPass', () => {
       expect(w[0][1]).toBe(0);
       expect(w[1][1]).toBe(SCENERY_INSTANCE_BYTES);
       // An unstyled instance keeps its authored colour, fully opaque.
-      expect(Array.from(copies[0].slice(16, 24))).toEqual([0, 0, 0, 0, 1, 0, 0, 0]);
-      expect(Array.from(copies[1].slice(16, 24)).map((v) => Number(v.toFixed(3)))).toEqual([0.6, 1, 0.3, 1, 0.6, 0.8, 1, 0]);
+      // fx.w is the share of the distance haze it takes: all of it by default.
+      expect(Array.from(copies[0].slice(16, 24))).toEqual([0, 0, 0, 0, 1, 0, 0, 1]);
+      expect(Array.from(copies[1].slice(16, 24)).map((v) => Number(v.toFixed(3)))).toEqual([0.6, 1, 0.3, 1, 0.6, 0.8, 1, 1]);
+      p.setInstances('hull', [{ model: mat4Identity(mat4()), tint: [0, 0, 0, 1], haze: 0 }]);
+      expect(copies[copies.length - 1][23]).toBe(0);
     });
 
     it('draws opaque instances first and translucent ones after, with their own pipeline', () => {
@@ -387,6 +390,10 @@ describe('createSceneryMeshPass', () => {
       expect(sceneryMeshWgsl).toMatch(/mix\(\s*lit\s*,[^;]*inst\.tint/);
       expect(sceneryMeshWgsl).toMatch(/fresnel/);
       expect(sceneryMeshWgsl).toMatch(/inst\.fx\.x/);
+    });
+
+    it('scales the distance haze by the instance share, so the ghost can opt out', () => {
+      expect(sceneryMeshWgsl).toMatch(/min\(f,\s*0\.35\)\s*\*\s*inst\.fx\.w/);
     });
   });
 });

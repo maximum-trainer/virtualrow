@@ -35,6 +35,8 @@ export interface SceneryInstanceStyle {
   readonly rim?: number;
   /** 0 sun-shaded, 1 flat: the tint holds its brightness in any light. */
   readonly flat?: number;
+  /** Share (0..1) of the distance haze it takes; 1, the default, is all of it. */
+  readonly haze?: number;
 }
 
 export type SceneryInstance = Mat4 | SceneryInstanceStyle;
@@ -325,10 +327,12 @@ export const createSceneryMeshPass = ({
         scratchInstance[20] = alpha;
         scratchInstance[21] = inst.rim ?? 0;
         scratchInstance[22] = inst.flat ?? 0;
+        scratchInstance[23] = inst.haze ?? 1;
         mesh.translucent[i] = alpha < 1 ? 1 : 0;
       } else {
         scratchInstance.set(inst, 0);
         scratchInstance[20] = 1;
+        scratchInstance[23] = 1;
         mesh.translucent[i] = 0;
       }
       mesh.translucentCount += mesh.translucent[i];

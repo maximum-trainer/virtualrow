@@ -1,6 +1,6 @@
-// #728 VP-10 FR2 — the race ghost: one light lime tint with a rim, bright
-// enough to stand off the water in every light, and a marker over it once
-// it is more than 30 m away. Dan chose a near-solid ghost over FR2's
+// #728 VP-10 FR2 — the race ghost: one dark green hull with a lime rim,
+// dark enough to stand off the water in every light, and a marker over it
+// once it is more than 30 m away. Dan chose a near-solid ghost over FR2's
 // 0.55–0.7 see-through range (2026-11-22): at 0.7 even white tops out near
 // 2.75:1 over the water as a real GPU draws it.
 
@@ -15,33 +15,39 @@ const srgbToLinear = (c: number): number => (c <= 0.04045 ? c / 12.92 : ((c + 0.
 const luminance = ([r, g, b]: readonly number[]): number => 0.2126 * r + 0.7152 * g + 0.0722 * b;
 
 describe('GHOST_SCULL_STYLE', () => {
-  it('is near-solid, with a rim, and holds its colour in any light', () => {
+  it('is near-solid, with a rim, out of the haze, and holds its colour in any light', () => {
     expect(GHOST_SCULL_STYLE.alpha).toBeGreaterThanOrEqual(0.9);
-    expect(GHOST_SCULL_STYLE.alpha).toBeLessThan(1);
     expect(GHOST_SCULL_STYLE.rim).toBeGreaterThan(0);
     expect(GHOST_SCULL_STYLE.flat).toBeGreaterThanOrEqual(0.8);
+    expect(GHOST_SCULL_STYLE.haze).toBe(0);
     // The whole boat, crew included, takes the tint.
     expect(GHOST_SCULL_STYLE.tint[3]).toBe(1);
   });
 
-  it('is a light lime, unlike any fleet hull', () => {
+  it('is a dark green, unlike any fleet hull', () => {
     const [r, g, b] = GHOST_SCULL_STYLE.tint;
+    expect(g).toBe(Math.max(r, g, b));
+    expect(luminance([r, g, b])).toBeLessThanOrEqual(0.02);
     const max = Math.max(r, g, b);
-    expect(g).toBe(max);
-    expect(b).toBeLessThan(r);
-    expect(luminance([r, g, b].map((c) => Math.min(1, c)))).toBeGreaterThanOrEqual(0.85);
     for (const c of FLEET_HULL_PALETTE) {
       expect(Math.hypot(r / max - c[0], g / max - c[1], b / max - c[2])).toBeGreaterThan(0.35);
     }
   });
 
-  it('stands off teal water by at least 3:1 at its opacity, before its rim (the GPU spec measures real frames)', () => {
-    // The water as Dan's laptop GPU drew it beside the ghost, sRGB (69, 148, 174).
-    // The pass blends in linear light, and the display clips at 1.
-    const water = [69, 148, 174].map((c) => srgbToLinear(c / 255));
+  // The engine's tone-mapping tops out near sRGB 202 grey, so on midday
+  // water a pale ghost peaks at ~2.3:1 (Dan's laptop, 2026-11-22). A dark
+  // hull clears 3:1 against the water of every preset as that GPU drew it.
+  it.each([
+    ['dawn', [93, 167, 186]],
+    ['midday', [56, 140, 169]],
+    ['golden', [94, 150, 156]],
+    ['overcast', [116, 182, 194]],
+    ['dusk', [72, 144, 171]],
+  ])('stands off the %s water by at least 3:1 at its opacity, before its rim', (_name, srgb) => {
+    const water = (srgb as number[]).map((c) => srgbToLinear(c / 255));
     const a = GHOST_SCULL_STYLE.alpha;
-    const ghost = GHOST_SCULL_STYLE.tint.slice(0, 3).map((c, i) => a * Math.min(1, c) + (1 - a) * water[i]);
-    const ratio = (luminance(ghost) + 0.05) / (luminance(water) + 0.05);
+    const ghost = GHOST_SCULL_STYLE.tint.slice(0, 3).map((c, i) => a * c + (1 - a) * water[i]);
+    const ratio = (luminance(water) + 0.05) / (luminance(ghost) + 0.05);
     expect(ratio).toBeGreaterThanOrEqual(3);
   });
 });

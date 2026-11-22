@@ -179,7 +179,10 @@ test('the ghost is the scull, a full lane off, rowing, and stands off the water 
     expect(b, `${c}: ghost on screen`).not.toBeNull();
     const s = await sampleGhost(page, b as Rect);
     expect(s, `${c}: ghost box readable`).not.toBeNull();
-    const ratio = (luminance(s!.ghost) + 0.05) / (luminance(s!.water) + 0.05);
+    // WCAG: the lighter over the darker. The ghost is the darker one (a
+    // dark hull, #728 FR2), but either way round counts.
+    const [lg, lw] = [luminance(s!.ghost) + 0.05, luminance(s!.water) + 0.05];
+    const ratio = Math.max(lg, lw) / Math.min(lg, lw);
     console.log(
       `[ghost] ${c} pixels ${s!.ghostPixels} ghost ${s!.ghost.map((v) => v.toFixed(0))} water ${s!.water.map((v) => v.toFixed(0))} ratio ${ratio.toFixed(2)}`,
     );

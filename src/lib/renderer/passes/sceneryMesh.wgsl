@@ -19,8 +19,8 @@ struct Frame {
 @group(0) @binding(0) var<uniform> frame: Frame;
 // One record per instance (96 B, `SCENERY_INSTANCE_BYTES`). `tint.rgb` is
 // the colour, `tint.a` how far the authored colour moves to it; `fx.x` is
-// the opacity, `fx.y` a fresnel rim, `fx.z` how flat (unshaded) the tint
-// is. The race ghost (#728 FR2) and the fleet's hulls (#713 D3a) set them;
+// the opacity, `fx.y` a lime fresnel rim, `fx.z` how flat (unshaded) the
+// tint is, `fx.w` the share of the distance haze it takes. The race ghost (#728 FR2) and the fleet's hulls (#713 D3a) set them;
 // everything else draws as authored (tint.a 0, fx.x 1).
 struct SceneryInstance {
   model: mat4x4<f32>,
@@ -84,7 +84,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   if (inst.fx.y > 0.0) {
     let v = normalize(in.toCamera);
     let fresnel = pow(1.0 - clamp(abs(dot(n, v)), 0.0, 1.0), 2.0);
-    col = col + vec3<f32>(1.0, 1.0, 1.0) * fresnel * inst.fx.y;
+    col = col + vec3<f32>(0.55, 1.0, 0.25) * fresnel * inst.fx.y;
   }
   // Fog with the frame's exponential density, but capped at a modest
   // atmospheric-haze ceiling. The baseline fog `[0.001, 0.0005]` reaches
@@ -97,5 +97,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   let density = frame.fog.x + frame.fog.y * in.worldDist;
   let f = clamp(1.0 - exp(-density * in.worldDist), 0.0, 1.0);
   let fogCol = vec3<f32>(0.72, 0.78, 0.82);
-  return vec4<f32>(mix(col, fogCol, min(f, 0.35)), in.color.a * inst.fx.x);
+    // The race ghost opts out (`fx.w` 0): haze over a dark hull would pull
+  // it towards the water's brightness (#728 FR2).
+  return vec4<f32>(mix(col, fogCol, min(f, 0.35) * inst.fx.w), in.color.a * inst.fx.x);
 }
