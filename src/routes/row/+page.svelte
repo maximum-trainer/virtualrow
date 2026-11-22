@@ -195,6 +195,7 @@
             crew={resolvedCrew}
             appearance={initialPalette}
             {appearancePatch}
+            rebuildOnRouteChange={!testMode}
             onBackend={(b) => (canvasBackend = b)}
           />
 

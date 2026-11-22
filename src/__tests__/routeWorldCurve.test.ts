@@ -92,3 +92,37 @@ describe('upsampleRouteCoordinates', () => {
     expect(upsampleRouteCoordinates(coords)).toHaveLength(2);
   });
 });
+
+// The engine addresses everything along a route by `progress`: the boat, the
+// ghost, shore widths, scenery bands, distance posts. That only works if
+// progress means distance. `routeCurvePoints` yields points 5-10 m apart, so a
+// curve sampled by raw spline parameter moves the boat at up to twice the
+// speed on some stretches as on others for the same metres rowed.
+describe('route points through the engine curve', () => {
+  const stepsAlong = (sampleAt: (t: number) => { position: ArrayLike<number> }, n: number): number[] => {
+    const out: number[] = [];
+    let prev = sampleAt(0).position;
+    for (let i = 1; i <= n; i += 1) {
+      const p = sampleAt(i / n).position;
+      out.push(Math.hypot(p[0] - prev[0], p[2] - prev[2]));
+      prev = [p[0], p[1], p[2]];
+    }
+    return out;
+  };
+
+  it('moves the boat the same distance for every equal slice of the demo route', async () => {
+    const { willowbrookRiverCoordinates } = await import('../data/seedRouteCoordinates');
+    const { RouteCurve } = await import('../lib/renderer/math/curve');
+    const { vec3 } = await import('../lib/renderer/math/vec3');
+    const points = routeCurvePoints(willowbrookRiverCoordinates);
+    const curve = new RouteCurve(points.map(([x, y, z]) => vec3(x, y, z)));
+
+    const even = stepsAlong((t) => curve.sample(t), 400);
+    const raw = stepsAlong((t) => curve.sampleUniform(t), 400);
+
+    expect(Math.max(...even) / Math.min(...even)).toBeLessThan(1.03);
+    // What the engine did before: the same slices by raw parameter (22% spread
+    // on this route; more where a short span sits beside a long one).
+    expect(Math.max(...raw) / Math.min(...raw)).toBeGreaterThan(1.15);
+  });
+});

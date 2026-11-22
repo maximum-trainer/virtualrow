@@ -561,21 +561,70 @@ describe('RouteEnrichmentService', () => {
     expect(localStorage.getItem(getRouteEnrichmentCacheKey(routeFixture.id))).toBeNull();
   });
 
-  it.each([
-    ['OpenTopoData', { elevationStatus: 429 }],
-    ['Overpass', { overpassStatus: 504 }],
-  ] as const)(
-    'falls back when the %s API returns a non-2xx status',
-    async (_upstream, overrides) => {
-      const stub = createFetchStub(overrides);
-      const service = new RouteEnrichmentService(stub.fetch, localStorage);
+  it('falls back when the Overpass API returns a non-2xx status', async () => {
+    const stub = createFetchStub({ overpassStatus: 504 });
+    const service = new RouteEnrichmentService(stub.fetch, localStorage);
+
+    const enrichment = await service.enrichRoute(routeFixture);
+
+    expect(enrichment.source).toBe('fallback');
+    expect(localStorage.getItem(getRouteEnrichmentCacheKey(routeFixture.id))).toBeNull();
+  });
+
+  // The public OpenTopoData endpoint sends no CORS headers, so from a browser
+  // the elevation request fails on every route (measured on the live deploy,
+  // 2026-11-22: "TypeError: Failed to fetch" while Overpass returned 2.9 MB of
+  // valid data 32 s later). Awaiting both in one `Promise.all` threw that
+  // Overpass answer away and every imported course rendered as the same
+  // generic canal. Elevation only drives bank relief; losing it must not cost
+  // the water shape, shore widths, buildings and crossings.
+  describe('when only the elevation lookup fails', () => {
+    it.each([
+      ['a non-2xx status', (): ReturnType<typeof createFetchStub>['fetch'] => createFetchStub({ elevationStatus: 429 }).fetch],
+      [
+        'a network / CORS error',
+        (): typeof fetch => {
+          const ok = createFetchStub().fetch;
+          return (async (input: RequestInfo | URL, init?: RequestInit) => {
+            if (String(input).includes('opentopodata')) throw new TypeError('Failed to fetch');
+            return ok(input, init);
+          }) as typeof fetch;
+        },
+      ],
+    ] as const)('keeps the OSM enrichment on %s', async (_label, makeFetch) => {
+      const service = new RouteEnrichmentService(makeFetch(), localStorage);
 
       const enrichment = await service.enrichRoute(routeFixture);
 
-      expect(enrichment.source).toBe('fallback');
-      expect(localStorage.getItem(getRouteEnrichmentCacheKey(routeFixture.id))).toBeNull();
-    },
-  );
+      expect(enrichment.source).toBe('network');
+      expect(enrichment.elevationSource).toBe('unavailable');
+      // Flat relief, one value per coordinate, never NaN.
+      expect(enrichment.elevations).toEqual(routeFixture.coordinates.map(() => 0));
+      // The 14 m canal from the Overpass fixture, not the fallback width.
+      expect(enrichment.waterBodyType).toBe('canal');
+      expect(enrichment.waterWidthMeters).toBe(14);
+    });
+
+    it('caches the partial result so the next visit makes no request', async () => {
+      const stub = createFetchStub({ elevationStatus: 429 });
+      const service = new RouteEnrichmentService(stub.fetch, localStorage);
+
+      await service.enrichRoute(routeFixture);
+
+      expect(localStorage.getItem(getRouteEnrichmentCacheKey(routeFixture.id))).not.toBeNull();
+      const again = new RouteEnrichmentService(stub.fetch, localStorage);
+      const overpassBefore = stub.overpassCalls().length;
+      const cached = await again.enrichRoute(routeFixture);
+      expect(cached.source).toBe('cache');
+      expect(stub.overpassCalls().length).toBe(overpassBefore);
+    });
+
+    it('marks elevations as measured when the lookup succeeds', async () => {
+      const service = new RouteEnrichmentService(createFetchStub().fetch, localStorage);
+      const enrichment = await service.enrichRoute(routeFixture);
+      expect(enrichment.elevationSource).toBe('network');
+    });
+  });
 
   it('prefers stale cached data over the synthetic fallback when a refresh fails', async () => {
     // The tag-derived fallback would say 'canal'; the cached (real) data says

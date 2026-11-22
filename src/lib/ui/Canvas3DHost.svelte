@@ -15,7 +15,7 @@
   the non-3D specs that assert around the canvas keep passing.
 -->
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import type { RideAttach, RideRenderer, RideFrame } from './rideCanvas';
   import { crashReporterService } from '../services/crashReporterService';
 
@@ -63,6 +63,17 @@
     /** #542 AC11: notify the ride view when the backend state changes so it
      *  can swap in the "needs WebGPU" screen on 'unavailable'. */
     onBackend?: (backend: CanvasBackend) => void;
+    /**
+     * Rebuild the scene when `route` becomes a different object after the
+     * first attach. The React scene took enrichment as a prop, so OSM water
+     * shape, shore widths and buildings re-dressed the course whenever they
+     * arrived; this host attached once and never looked again, so a rower who
+     * started before the Overpass answer (about 30 s on the live deploy) kept
+     * the placeholder canal for the whole row. The boat does not jump: its
+     * distance lives in the session and comes back through `getFrame`.
+     * Off by default so a test-mode run still creates exactly one device.
+     */
+    rebuildOnRouteChange?: boolean;
   }
 
   let {
@@ -77,6 +88,7 @@
     appearance,
     appearancePatch,
     onBackend,
+    rebuildOnRouteChange = false,
   }: Props = $props();
 
   let liveHandle = $state<RideRenderer | null>(null);
@@ -113,32 +125,81 @@
     }
   };
 
-  onMount(() => {
+  // One attach is "current" at a time. `generation` names it: a result that
+  // comes back under an older number belongs to a scene that has since been
+  // replaced or unmounted, and is disposed instead of adopted.
+  let generation = 0;
+  let mounted = false;
+  let currentHandle: RideRenderer | null = null;
+  let attachedRoute: unknown = undefined;
+
+  const startAttach = (routeForAttach: unknown): void => {
     if (!attach || !canvas) return;
-    let handle: RideRenderer | null = null;
-    let disposed = false;
+    const mine = (generation += 1);
+    attachedRoute = routeForAttach;
+    const target = canvas;
+    const run = attach;
     // Wrap in Promise.resolve(fn).then so a sync throw inside `attach` lands
     // in the catch path alongside a rejected promise, instead of escaping the
     // effect — AC11 wants the renderer-unavailable telemetry either way.
     Promise.resolve()
-      .then(() => attach(canvas!, { tier, distanceTier, route, routeId, testMode, getFrame, crew, appearance }))
+      .then(() =>
+        run(target, {
+          tier,
+          distanceTier,
+          route: routeForAttach,
+          routeId,
+          testMode,
+          getFrame,
+          crew,
+          appearance,
+        }),
+      )
       .then((r) => {
-        if (disposed) {
+        if (mine !== generation) {
           r?.dispose();
           return;
         }
-        handle = r;
+        currentHandle = r;
         liveHandle = r;
         setBackend(r ? 'live' : 'unavailable', r ? undefined : 'attach-returned-null');
       })
       .catch((err: unknown) => {
+        if (mine !== generation) return;
         setBackend('unavailable', err instanceof Error ? err.message : 'attach-threw');
       });
+  };
+
+  const releaseCurrent = (): void => {
+    currentHandle?.dispose();
+    currentHandle = null;
+    liveHandle = null;
+  };
+
+  onMount(() => {
+    if (!attach || !canvas) return;
+    mounted = true;
+    startAttach(route);
     return () => {
-      disposed = true;
-      handle?.dispose();
-      liveHandle = null;
+      mounted = false;
+      generation += 1;
+      releaseCurrent();
     };
+  });
+
+  // Late route data (enrichment landing, a tier change that re-plans the
+  // scenery): swap the scene for one built from it. Skipped once the engine
+  // has declined — a new route does not make WebGPU appear, and asking again
+  // would only request another adapter.
+  $effect(() => {
+    const next = route;
+    if (!rebuildOnRouteChange) return;
+    untrack(() => {
+      if (!mounted || next === attachedRoute) return;
+      if (backend === 'unavailable') return;
+      releaseCurrent();
+      startAttach(next);
+    });
   });
 </script>
 
