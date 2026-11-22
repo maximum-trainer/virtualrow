@@ -73,4 +73,37 @@ describe('resolveSceneryModels with a region', () => {
 
     expect(paths).toContain('/assets/scenery/tier-d/d-it-01-po-palazzo.glb');
   });
+
+  // #712 FR5 phase 2c — the new biome profiles join the regional kit.
+  it('village picks the regional rural kit (cottages / barns / parish churches)', () => {
+    const gb = resolveSceneryModels('village', 'river', [], 'gb');
+    expect(gb.buildings).toContain('d-gb-04-stone-cottage');
+    expect(gb.buildings).toContain('d-gb-05-stone-barn');
+    expect(gb.buildings).not.toContain('d-gb-01-terrace-brick');
+  });
+
+  it('town picks the regional built-up kit', () => {
+    const gb = resolveSceneryModels('town', 'river', [], 'gb');
+    expect(gb.buildings).toContain('d-gb-01-terrace-brick');
+    expect(gb.buildings).toContain('d-gb-03-riverside-pub');
+  });
+
+  it('small-city picks the regional built-up kit too', () => {
+    const it = resolveSceneryModels('small-city', 'river', [], 'it');
+    expect(it.buildings).toContain('d-it-01-po-palazzo');
+    expect(it.buildings).toContain('d-it-02-castello-valentino');
+  });
+
+  it('parkland / orchard / scrub / woodland / forest-* stay unbuilt (open or wild)', () => {
+    for (const profile of [
+      'parkland',
+      'orchard',
+      'scrub',
+      'woodland',
+      'forest-medium',
+      'forest-high',
+    ] as const) {
+      expect(resolveSceneryModels(profile, 'river', [], 'gb').buildings).toEqual([]);
+    }
+  });
 });

@@ -273,11 +273,28 @@ export const REGIONAL_MODELS: Record<SceneryRegion, RegionalModelSet> = {
   },
 };
 
-/** Which regional kit, if any, dresses a profile. Wild stretches stay unbuilt. */
+/** Which regional kit, if any, dresses a profile. Wild stretches stay unbuilt.
+ *
+ * #712 FR5 phase 2c: the new biome profiles join the regional kit so a
+ * `village` segment picks the region's rural cottages / barns / small
+ * churches, and `town` / `small-city` pick the built-up terraces / palazzos
+ * / collegiate buildings. `parkland`, `orchard`, `scrub` and the four
+ * forest densities stay unbuilt — those are open/wild stretches by
+ * definition. The issue's D4 minimum kit list (cottage, terrace, shop,
+ * church, town hall, mid-rise, high-rise, warehouse, orchard row) overlaps
+ * heavily with the tier-D authored meshes already in `REGIONAL_MODELS`
+ * (cottage, terrace, parish church, pub, warehouse, canal house, polder
+ * farmhouse, clapboard house, brick mill, collegiate dome/tower); Python
+ * authoring of the few that remain (small shop, town hall, pure mid-rise
+ * office, orchard tree row) is a follow-up slice.
+ */
 const REGIONAL_KIT_FOR_PROFILE: Partial<Record<SceneryProfile, keyof RegionalModelSet>> = {
   residential: 'builtUp',
   commercial: 'builtUp',
   farmland: 'rural',
+  village: 'rural',
+  town: 'builtUp',
+  'small-city': 'builtUp',
 };
 
 export interface ResolvedScenery {
