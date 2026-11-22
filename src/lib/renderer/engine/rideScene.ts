@@ -111,10 +111,13 @@ import { GHOST_LANE_OFFSET_M } from '../../../components/rower3d/ghost';
 import {
   advanceFleet,
   createFleet,
+  fleetFadeFor,
   fleetHullTintFor,
   fleetPaletteIndexForColor,
+  fleetWaterHalfWidth,
   type FleetState,
 } from './fleet';
+import { DEFAULT_WATER_HALF_WIDTH_M } from '../plan/waterStrip';
 import { FLEET_INSTANCE_CAPACITY } from '../passes/boat';
 import { assetUrl } from '../../utils/assetUrl';
 import { createSceneryPass } from './sceneryPass';
@@ -1259,6 +1262,10 @@ export const createRideScene = async (
   const fleetBones = Array.from({ length: BOAT_BONE_COUNT }, () => mat4());
   for (let i = 0; i < BOAT_BONE_COUNT; i += 1) mat4Identity(fleetBones[i]);
   let lastFleetTime = -1;
+  // #728 FR3: the lanes are fitted to the river once per scene.
+  const fleetWater = fleetWaterHalfWidth(waterEdgesForProgress, DEFAULT_WATER_HALF_WIDTH_M);
+  // #728 FR4: a per-slot tint so the fade can scale the palette's alpha.
+  const fleetTints = Array.from({ length: FLEET_INSTANCE_CAPACITY }, () => new Float32Array(4));
   // #571 shell paint: when the shell plumbs an athlete id through,
   // the hull tint comes from `boatPaint.boatTintFromAthlete`. Falls
   // back to today's off-white when the id is empty / undefined.
@@ -1520,6 +1527,7 @@ export const createRideScene = async (
         routeMeters: totalDistanceMeters,
         routeId: opts.routeId,
         playerStartMeters: boatPlacement.distanceMeters,
+        waterHalfWidth: fleetWater,
       });
       lastFleetTime = frame.time;
     }
@@ -1530,13 +1538,25 @@ export const createRideScene = async (
       fleetDt,
     );
     lastFleetTime = frame.time;
-    const visibleFleet = Math.min(FLEET_INSTANCE_CAPACITY, fleetState.current.members.length);
+    const fleetMembers = fleetState.current.members;
     // #577 D6b — compute the "avoid this palette entry" index once per
     // frame from the player's current unisuit top, so no fleet member
     // wears the same top colour as the player.
     const fleetExcludeIndex = fleetPaletteIndexForColor(currentAppearance.top);
-    for (let i = 0; i < visibleFleet; i += 1) {
-      const member = fleetState.current.members[i];
+    // #728 FR4 — members in the window's hidden bands are not drawn at
+    // all (nor cast shadows); the rest pack into the first slots, faded
+    // by their distance from the player.
+    let visibleFleet = 0;
+    for (let i = 0; i < fleetMembers.length && visibleFleet < FLEET_INSTANCE_CAPACITY; i += 1) {
+      const member = fleetMembers[i];
+      let relative = member.distanceMeters - boatPlacement.distanceMeters;
+      const half = totalDistanceMeters / 2;
+      if (relative > half) relative -= totalDistanceMeters;
+      else if (relative < -half) relative += totalDistanceMeters;
+      const fade = fleetFadeFor(relative);
+      if (fade <= 0) continue;
+      const slot = visibleFleet;
+      visibleFleet += 1;
       const syntheticFrame: RideFrame = {
         paceSPer500: 0,
         distanceMeters: member.distanceMeters,
@@ -1549,17 +1569,20 @@ export const createRideScene = async (
         ghost: null,
       };
       placeBoat(
-        fleetPlacements[i],
+        fleetPlacements[slot],
         routeCurve,
         syntheticFrame,
         totalDistanceMeters,
         curveLength,
         member.laneOffsetMeters,
       );
-      boatPass.fleet[i].write(device, {
-        model: fleetPlacements[i].modelMatrix,
+      const tint = fleetTints[slot];
+      tint.set(fleetHullTintFor(member.seed, fleetExcludeIndex));
+      tint[3] *= fade;
+      boatPass.fleet[slot].write(device, {
+        model: fleetPlacements[slot].modelMatrix,
         bones: fleetBones,
-        tintRGBA: fleetHullTintFor(member.seed, fleetExcludeIndex),
+        tintRGBA: tint,
         ghost: false,
         visible: true,
       });
