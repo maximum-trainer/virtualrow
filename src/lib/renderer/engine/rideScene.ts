@@ -95,7 +95,8 @@ import {
 import { dominantGrassProfile } from '../plan/grassDensityPlan';
 import { publishBoatSource, publishFallback } from './health';
 import { computeCascades } from './cascadedShadows';
-import { createPlacement, placeBoat, placeGhost, strokePhase, strokeAmplitude } from './characterPlacement';
+import { createPlacement, placeBoat, placeGhost, strokeAmplitude } from './characterPlacement';
+import { createStrokeClock, resetStrokeClock, stepStrokeClock } from './strokeClock';
 import { createDistanceSmoother } from './distanceSmoother';
 import type { RideFrame } from './rideFrame';
 import { RouteCurve } from '../math/curve';
@@ -1218,6 +1219,11 @@ export const createRideScene = async (
   const distanceSmoother = createDistanceSmoother();
   let lastWakeTime = 0; // #571 — seconds since start, matches `frame.time` units
   let lastOarSplashTime = 0; // #571 — seconds since start, for the oar-splash sim
+  // #720 VP-02 — one phase integrator per attach; a cadence wobble only
+  // changes the rate, never jumps the pose.
+  const strokeClock = createStrokeClock();
+  let lastStrokeTime = -1;
+  let strokeWasPlaying = false;
 
   const frameOnce = (): void => {
     if (disposed) return;
@@ -1275,7 +1281,23 @@ export const createRideScene = async (
       -GHOST_LANE_OFFSET_M,
     );
 
-    const phase = strokePhase(rideFrame?.cadence ?? 0, frame.time, rideFrame?.isPlaying ?? false);
+    // #720 VP-02 — integrate the stroke phase from (cadence, dt) rather
+    // than recomputing elapsed × spm / 60 each frame. A cadence wobble
+    // then alters the rate and doesn't jump the pose.
+    const isPlayingNow = rideFrame?.isPlaying ?? false;
+    const strokeDt = lastStrokeTime < 0 ? 0 : frame.time - lastStrokeTime;
+    lastStrokeTime = frame.time;
+    // Reset the clock when a new session starts (a transition from
+    // stopped to playing). Stopping mid-row freezes the phase instead.
+    if (isPlayingNow && !strokeWasPlaying && (rideFrame?.elapsedSeconds ?? 0) < 0.25) {
+      resetStrokeClock(strokeClock);
+    }
+    strokeWasPlaying = isPlayingNow;
+    const phase = stepStrokeClock(strokeClock, {
+      cadence: rideFrame?.cadence ?? 0,
+      dtSeconds: strokeDt,
+      isPlaying: isPlayingNow,
+    });
     // #571 oar-blade splash: fire a burst at catch (phase 0 crossing) and
     // finish (phase 0.5 crossing). `isMoving` matches the wake-pass gate.
     const oarSplashMoving = !!rideFrame?.isPlaying && !rideFrame.holdBoat && !rideFrame.finished;
@@ -1320,10 +1342,11 @@ export const createRideScene = async (
       scullTrans[14] = boatPlacement.world[2];
       mat4Multiply(boatTrs, scullTrans, scullRot);
 
-      const cadence = rideFrame?.cadence ?? 0;
-      const elapsed = rideFrame?.elapsedSeconds ?? 0;
-      const playing = rideFrame?.isPlaying ?? false;
-      const phaseSweep = strokePhase(cadence, elapsed, playing);
+      // #720 VP-02 — same phase feeds the oar sweep, the splash burst
+      // and the legacy bones (FR2). Before this, the sweep used
+      // `elapsed` while splashes used `frame.time`, so blades entered
+      // the water out of step with the splash.
+      const phaseSweep = phase;
       const ampSweep = strokeAmplitude(rideFrame);
       // #672: the oar swings between the crew's catch (phase 0) and finish
       // (phase 0.5), and the rower's seat, legs, body and arms follow it.

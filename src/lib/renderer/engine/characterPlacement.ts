@@ -153,22 +153,6 @@ export const placeGhost = (
   return { metres };
 };
 
-/**
- * Analytic sinusoidal stroke phase (D3-a). Cadence floor matches the three
- * scene's own `useFrame` floor of 18 spm (`boatComponents.tsx`).
- */
-export const strokePhase = (
-  cadence: number,
-  elapsedSeconds: number,
-  isPlaying: boolean,
-): number => {
-  if (!isPlaying) return 0;
-  const spm = Math.max(18, cadence || 24);
-  const freqHz = spm / 60;
-  const phase = (elapsedSeconds * freqHz) % 1;
-  return phase < 0 ? phase + 1 : phase;
-};
-
 /** Amplitude multiplier for the crew uniforms. 0 freezes; 1 is full stroke. */
 export const strokeAmplitude = (frame: RideFrame | null): number => {
   if (!frame || !frame.isPlaying) return 0;
