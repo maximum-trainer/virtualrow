@@ -318,7 +318,10 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       CI: true
-    timeout-minutes: 25
+    # 25 min stopped holding once the plan layer grew past ~1,950 mutants
+    # (#773/#774 on main both cancelled at ~46%). 40 min plus 4 workers
+    # (the hosted runner's core count) leaves room for the VP-xx growth.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
       - name: Setup Node.js
@@ -329,8 +332,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: StrykerJS
-        # The CI script keeps concurrency at 2 so the hosted runner's
-        # memory holds. The HTML report writes even on a green run so
+        # The CI script runs 4 workers, one per core of the hosted
+        # ubuntu-24.04 runner (16 GB holds them). The HTML report writes even on a green run so
         # the artifact upload below can carry it in both cases.
         run: npm run test:mutation:ci
       - name: Upload mutation HTML report
