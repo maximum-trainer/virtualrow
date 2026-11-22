@@ -4,6 +4,15 @@ import type { WaterRoute } from '../lib/types/index';
 import {
   OPEN_TOPO_DATA_URL,
   OVERPASS_API_URL,
+  OVERPASS_MIRROR_URL,
+  buildOverpassWaterQuery,
+  buildOverpassSceneryQuery,
+  corridorPolyline,
+  mergeOverpassElements,
+  enrichmentSourceOf,
+  SCENERY_CORRIDOR_METERS,
+  OVERPASS_WATER_TIMEOUT_MS,
+  OVERPASS_SCENERY_TIMEOUT_MS,
   ROUTE_ENRICHMENT_CACHE_TTL_MS,
   MAX_TERRAIN_RELIEF_SCENE_UNITS,
   RouteEnrichmentService,
@@ -11,7 +20,6 @@ import {
   ISLAND_RELATION_MAX_MEMBERS,
   TERRAIN_RELIEF_SCALE,
   buildBoundingBox,
-  buildOverpassQuery,
   buildTerrainProfile,
   calculateBearingDeltaForSegments,
   createFallbackRouteEnrichment,
@@ -62,8 +70,8 @@ const FIXTURE_BOUNDS = {
 
 /** A forest bank and a 14 m canal, both covering the whole fixture route. */
 const DEFAULT_OVERPASS_ELEMENTS: OverpassElement[] = [
-  { type: 'way', tags: { landuse: 'forest' }, bounds: FIXTURE_BOUNDS },
-  { type: 'way', tags: { waterway: 'canal', width: '14' }, bounds: FIXTURE_BOUNDS },
+  { type: 'way', id: 1, tags: { landuse: 'forest' }, bounds: FIXTURE_BOUNDS },
+  { type: 'way', id: 2, tags: { waterway: 'canal', width: '14' }, bounds: FIXTURE_BOUNDS },
 ];
 
 interface FetchStubOptions {
@@ -77,6 +85,10 @@ interface FetchStubOptions {
   elements?: OverpassElement[];
   elevationStatus?: number;
   overpassStatus?: number;
+  /** #741: the main Overpass instance's status; the mirror answers with `overpassStatus`. */
+  primaryStatus?: number;
+  /** #741: the scenery (buildings) query's status, on both instances. */
+  sceneryStatus?: number;
   /** Keeps a request pending so concurrent callers genuinely overlap. */
   delayMs?: number;
 }
@@ -98,11 +110,13 @@ const createFetchStub = (options: FetchStubOptions = {}) => {
     elements = DEFAULT_OVERPASS_ELEMENTS,
     elevationStatus = 200,
     overpassStatus = 200,
+    primaryStatus,
+    sceneryStatus = 200,
     delayMs = 0,
   } = options;
 
   const elevationRequests: string[] = [];
-  const overpassRequests: RequestInit[] = [];
+  const overpassRequests: Array<RequestInit & { url: string; query: string }> = [];
   let nextElevationIndex = 0;
 
   const respond = (status: number, body: unknown) =>
@@ -139,10 +153,16 @@ const createFetchStub = (options: FetchStubOptions = {}) => {
         });
       }
 
-      if (url === OVERPASS_API_URL) {
-        overpassRequests.push(init ?? {});
-        if (overpassStatus < 200 || overpassStatus >= 300) {
-          return respond(overpassStatus, { error: 'Gateway Timeout' });
+      if (url === OVERPASS_API_URL || url === OVERPASS_MIRROR_URL) {
+        const query = decodeURIComponent(String(init?.body ?? '').replace(/^data=/, ''));
+        overpassRequests.push({ ...(init ?? {}), url, query });
+        const status = url === OVERPASS_API_URL && primaryStatus !== undefined
+          ? primaryStatus
+          : query.includes('"building"') && sceneryStatus !== 200
+            ? sceneryStatus
+            : overpassStatus;
+        if (status < 200 || status >= 300) {
+          return respond(status, { error: 'Gateway Timeout' });
         }
         return respond(200, { elements });
       }
@@ -270,6 +290,9 @@ describe('route enrichment helpers', () => {
     expect(loadCachedRouteEnrichment(routeFixture.id, null)).toEqual(miss);
   });
 
+  const buildOverpassQuery = (coordinates: typeof routeFixture.coordinates) =>
+    buildOverpassWaterQuery(coordinates) + buildOverpassSceneryQuery(coordinates);
+
   it('builds an Overpass query with the expected tag filters', () => {
     const query = buildOverpassQuery(routeFixture.coordinates);
 
@@ -293,8 +316,8 @@ describe('route enrichment helpers', () => {
 
     expect(SHORE_QUERY_MARGIN_METERS).toBeGreaterThanOrEqual(600);
     for (const selector of [
-      'way["natural"]',
-      'relation["natural"]',
+      'way["natural"~"^(water|bay|strait|coastline|bare_rock|shoal)$"]',
+      'relation["natural"~"^(water|bay|strait|coastline|bare_rock|shoal)$"]',
       'way["waterway"]',
       'relation["waterway"]',
       'way["landuse"~"^(reservoir|basin)$"]',
@@ -308,8 +331,9 @@ describe('route enrichment helpers', () => {
     // ~900k vertices) is a place=island relation, and its coastline already says where land is.
     expect(ISLAND_RELATION_MAX_MEMBERS).toBeLessThan(5727);
     expect(query).toContain(`relation["place"~"^(island|islet)$"](${bboxOf(wide)})(if:count_members() < ${ISLAND_RELATION_MAX_MEMBERS});`);
-    // Buildings stay on the near box: a wide margin there is a city's worth of data.
-    expect(query).toContain(`way["building"](${bboxOf(near)})`);
+    // Land use stays on the near box; buildings go to the corridor (#741 FR4).
+    expect(query).toContain(`way["landuse"](${bboxOf(near)})`);
+    expect(query).toContain(`way["building"](around:${SCENERY_CORRIDOR_METERS},`);
   });
 
   it('keeps the wide-box extras away from the existing segment profiles (#493 Phase 1)', () => {
@@ -432,7 +456,7 @@ describe('RouteEnrichmentService', () => {
     const second = await service.enrichRoute(routeFixture);
 
     expect(stub.elevationCalls()).toHaveLength(1);
-    expect(stub.overpassCalls()).toHaveLength(1);
+    expect(stub.overpassCalls()).toHaveLength(2);
     expect(stub.overpassCalls()[0].method).toBe('POST');
     expect(first.source).toBe('network');
     expect(first.elevations).toEqual([5, 6, 7, 8]);
@@ -508,7 +532,7 @@ describe('RouteEnrichmentService', () => {
     const enrichment = await service.enrichRoute(longRoute);
 
     expect(stub.elevationCalls()).toHaveLength(3);
-    expect(stub.overpassCalls()).toHaveLength(1);
+    expect(stub.overpassCalls()).toHaveLength(2);
     expect(enrichment.source).toBe('network');
     expect(enrichment.elevations).toHaveLength(205);
     // Batch boundaries are stitched in order, not overwritten.
@@ -578,6 +602,123 @@ describe('RouteEnrichmentService', () => {
   // Overpass answer away and every imported course rendered as the same
   // generic canal. Elevation only drives bank relief; losing it must not cost
   // the water shape, shore widths, buildings and crossings.
+  // #741 VP-21 FR4 — the water first, then the scenery, each retried once
+  // on the mirror; a scenery failure keeps the real water.
+  describe('two Overpass queries (#741 FR4)', () => {
+    it('asks for the water, then the scenery, and merges them', async () => {
+      const stub = createFetchStub();
+      const service = new RouteEnrichmentService(stub.fetch, localStorage);
+
+      const enrichment = await service.enrichRoute(routeFixture);
+
+      const calls = stub.overpassCalls();
+      expect(calls.map((c) => c.url)).toEqual([OVERPASS_API_URL, OVERPASS_API_URL]);
+      expect(calls[0].query).toContain('way["waterway"]');
+      expect(calls[0].query).not.toContain('"building"');
+      expect(calls[1].query).toContain('way["building"](around:');
+      for (const call of calls) expect(call.query).toContain('out geom qt;');
+      expect(enrichment.enrichmentSource).toBe('osm');
+      expect(enrichmentSourceOf(enrichment)).toBe('osm');
+      // Both queries returned the same two elements; each counts once.
+      expect(enrichment.waterWidthMeters).toBe(14);
+    });
+
+    it('retries a failed query once on the mirror', async () => {
+      const stub = createFetchStub({ primaryStatus: 504 });
+      const service = new RouteEnrichmentService(stub.fetch, localStorage);
+
+      const enrichment = await service.enrichRoute(routeFixture);
+
+      expect(stub.overpassCalls().map((c) => c.url)).toEqual([
+        OVERPASS_API_URL, OVERPASS_MIRROR_URL, OVERPASS_API_URL, OVERPASS_MIRROR_URL,
+      ]);
+      expect(enrichment.source).toBe('network');
+      expect(enrichment.waterBodyType).toBe('canal');
+    });
+
+    it('keeps the real water when the scenery query fails, and does not cache it', async () => {
+      const stub = createFetchStub({ sceneryStatus: 504 });
+      const service = new RouteEnrichmentService(stub.fetch, localStorage);
+
+      const enrichment = await service.enrichRoute(routeFixture);
+
+      expect(enrichment.source).toBe('network');
+      expect(enrichment.waterBodyType).toBe('canal');
+      expect(enrichment.waterWidthMeters).toBe(14);
+      expect(localStorage.getItem(getRouteEnrichmentCacheKey(routeFixture.id))).toBeNull();
+    });
+
+    it('falls back when the water query fails on both instances', async () => {
+      const stub = createFetchStub({ overpassStatus: 504 });
+      const service = new RouteEnrichmentService(stub.fetch, localStorage);
+
+      const enrichment = await service.enrichRoute(routeFixture);
+
+      expect(enrichment.source).toBe('fallback');
+      expect(enrichmentSourceOf(enrichment)).toBe('fallback');
+      // The scenery query is never sent without water to put it beside.
+      expect(stub.overpassCalls()).toHaveLength(2);
+    });
+
+    it('gives up on a query that never answers, and tries the mirror', async () => {
+      vi.useFakeTimers();
+      try {
+        const urls: string[] = [];
+        const ok = createFetchStub().fetch;
+        const hangsOnPrimary = (async (input: RequestInfo | URL, init?: RequestInit) => {
+          urls.push(String(input));
+          if (String(input) === OVERPASS_API_URL) return new Promise<Response>(() => {});
+          return ok(input, init);
+        }) as typeof fetch;
+        const service = new RouteEnrichmentService(hangsOnPrimary, localStorage);
+        const pending = service.enrichRoute(routeFixture);
+        await vi.advanceTimersByTimeAsync(OVERPASS_WATER_TIMEOUT_MS + 1);
+        await vi.advanceTimersByTimeAsync(OVERPASS_SCENERY_TIMEOUT_MS + 1);
+        const enrichment = await pending;
+        expect(enrichment.source).toBe('network');
+        expect(urls.filter((u) => u === OVERPASS_MIRROR_URL)).toHaveLength(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('reads the source of enrichments cached before the field', () => {
+      const legacy = { ...createFallbackRouteEnrichment(routeFixture), enrichmentSource: undefined };
+      expect(enrichmentSourceOf(legacy)).toBe('fallback');
+      expect(enrichmentSourceOf({ ...legacy, source: 'cache' })).toBe('osm');
+      expect(enrichmentSourceOf({ ...legacy, source: 'cache', elevationSource: 'unavailable' })).toBe('osm-no-elevation');
+    });
+  });
+
+  describe('the scenery corridor (#741 FR4)', () => {
+    it('thins a long route to a polyline Overpass can buffer, keeping both ends', () => {
+      const route = Array.from({ length: 2001 }, (_, i) => ({ lat: 51.5 + i * 0.00005, lng: -0.1 }));
+      const polyline = corridorPolyline(route).split(',').map(Number);
+      expect(polyline.length % 2).toBe(0);
+      expect(polyline.length / 2).toBeLessThanOrEqual(200);
+      expect(polyline.slice(0, 2)).toEqual([51.5, -0.1]);
+      expect(polyline.slice(-2)).toEqual([route[2000].lat, -0.1]);
+      expect(corridorPolyline([])).toBe('');
+    });
+
+    it('keeps every corner of a short route', () => {
+      const route = [
+        { lat: 51.5, lng: -0.1 },
+        { lat: 51.502, lng: -0.1 },
+        { lat: 51.502, lng: -0.097 },
+      ];
+      expect(corridorPolyline(route)).toBe('51.5,-0.1,51.502,-0.1,51.502,-0.097');
+    });
+
+    it('merges by type and id, keeping elements that have no id', () => {
+      const a = { type: 'way' as const, id: 1, tags: {} };
+      const b = { type: 'way' as const, id: 2, tags: {} };
+      const n = { type: 'node' as const, id: 1, tags: {} };
+      const anon = { type: 'way' as const, tags: {} };
+      expect(mergeOverpassElements([a, b, anon], [b, n, anon])).toEqual([a, b, anon, n, anon]);
+    });
+  });
+
   describe('when only the elevation lookup fails', () => {
     it.each([
       ['a non-2xx status', (): ReturnType<typeof createFetchStub>['fetch'] => createFetchStub({ elevationStatus: 429 }).fetch],
@@ -598,6 +739,7 @@ describe('RouteEnrichmentService', () => {
 
       expect(enrichment.source).toBe('network');
       expect(enrichment.elevationSource).toBe('unavailable');
+      expect(enrichment.enrichmentSource).toBe('osm-no-elevation');
       // Flat relief, one value per coordinate, never NaN.
       expect(enrichment.elevations).toEqual(routeFixture.coordinates.map(() => 0));
       // The 14 m canal from the Overpass fixture, not the fallback width.
@@ -662,7 +804,7 @@ describe('RouteEnrichmentService', () => {
     const enrichment = await service.enrichRoute(routeFixture);
 
     expect(stub.elevationCalls()).toHaveLength(1);
-    expect(stub.overpassCalls()).toHaveLength(1);
+    expect(stub.overpassCalls()).toHaveLength(2);
     expect(enrichment.source).toBe('network');
     // Network data wins over the stale entry.
     expect(enrichment.waterBodyType).toBe('canal');
@@ -682,13 +824,13 @@ describe('RouteEnrichmentService', () => {
     expect(second).toBe(first);
     expect(first.source).toBe('network');
     expect(stub.elevationCalls()).toHaveLength(1);
-    expect(stub.overpassCalls()).toHaveLength(1);
+    expect(stub.overpassCalls()).toHaveLength(2);
 
     const third = await service.enrichRoute(routeFixture);
 
     expect(third.source).toBe('cache');
     expect(stub.elevationCalls()).toHaveLength(1);
-    expect(stub.overpassCalls()).toHaveLength(1);
+    expect(stub.overpassCalls()).toHaveLength(2);
   });
 
   it('clears one or all cached routes', async () => {

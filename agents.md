@@ -92,7 +92,7 @@ No external state library. State lives in:
 | rownative.icu courses | GitHub mirror (`raw.githubusercontent.com/rownative/courses/`) | CORS-locked live API; mirror is the sole data path. Mirror, `/api/courses` and `/courses` all serve the same 169 courses with identical ids (measured 2026-09-03). Ids run to 277 with gaps — that maximum is where the old "277 live courses, ~60% mirror coverage" figure came from |
 | intervals.icu | OAuth PKCE via CORS proxy | Token exchange, profile, planned workout calendar, and activity upload (`POST /api/v1/athlete/0/activities`, multipart FIT). The proxy forwards multipart `POST` unchanged — verified, see MaximumTrainer_Redux#359 |
 | OpenTopoData | `api.opentopodata.org/v1/srtm30m` | Batched in groups of 100 coordinates |
-| Overpass API | `overpass-api.de/api/interpreter` | Land-use, waterway, building queries by bounding box |
+| Overpass API | `overpass-api.de/api/interpreter`, retried once on `overpass.kumi.systems/api/interpreter` | Two queries, one at a time (#741): water, waterways, coast and islands in the 650 m shore box first; then buildings and bridges within 300 m of the route (an `around` polyline) and land use in the 200 m box. `out geom qt`, 20 s / 40 s client timeouts. A scenery failure keeps the water and is not cached |
 
 ---
 
