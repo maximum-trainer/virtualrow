@@ -10,12 +10,39 @@ import { assetUrl } from './assetUrl';
  * each one weighs is what turns that into a decision.
  */
 
+/**
+ * The model's XZ footprint in scene metres (#723 FR3). Reported by
+ * `scripts/generate-scenery-manifest.mjs` from the GLB's `getBounds`
+ * (KHR_mesh_quantization + EXT_meshopt_compression + node transforms
+ * applied). `radius` is half the longer of `extentX`/`extentZ` and is
+ * what the keep-clear maths compare against the model's distance from
+ * the centreline. `centreX`/`centreZ` are the AABB centre's offset
+ * from the GLB origin — zero for symmetric models, non-zero for a
+ * boathouse whose porch sticks out one side.
+ *
+ * Absent on entries loaded before footprints were generated and on
+ * models with no renderable primitives (e.g. the boat `shell.bin`
+ * placeholder); callers must fall back when `footprint` is undefined.
+ */
+export interface SceneryModelFootprint {
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+  extentX: number;
+  extentZ: number;
+  radius: number;
+  centreX: number;
+  centreZ: number;
+}
+
 export interface SceneryManifestEntry {
   /** Path under `public/`, e.g. `assets/scenery/tier-f/f01-bank-earth-cut.glb`. */
   path: string;
   bytes: number;
   triangles: number;
   compressed: boolean;
+  footprint?: SceneryModelFootprint;
 }
 
 export interface SceneryManifest {
