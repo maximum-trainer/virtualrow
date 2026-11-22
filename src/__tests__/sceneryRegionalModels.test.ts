@@ -94,6 +94,24 @@ describe('resolveSceneryModels with a region', () => {
     expect(it.buildings).toContain('d-it-02-castello-valentino');
   });
 
+  // #712 FR5 phase 2c slice 2 — the D4 minimum-kit gap meshes authored in
+  // `scripts/build_scenery.py` join their region's kit (small shop → GB
+  // built-up, mid-rise office → US built-up, orchard tree row → IT rural).
+  it('includes the slice 2c-2 small shop in the GB built-up kit', () => {
+    const gb = resolveSceneryModels('town', 'river', [], 'gb');
+    expect(gb.buildings).toContain('d-gb-07-small-shop');
+  });
+
+  it('includes the slice 2c-2 mid-rise office in the US built-up kit', () => {
+    const us = resolveSceneryModels('small-city', 'river', [], 'us');
+    expect(us.buildings).toContain('d-us-07-mid-rise-office');
+  });
+
+  it('includes the slice 2c-2 orchard tree row in the IT rural kit', () => {
+    const it = resolveSceneryModels('farmland', 'river', [], 'it');
+    expect(it.buildings).toContain('d-it-04-orchard-tree-row');
+  });
+
   it('parkland / orchard / scrub / woodland / forest-* stay unbuilt (open or wild)', () => {
     for (const profile of [
       'parkland',

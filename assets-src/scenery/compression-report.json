@@ -2260,6 +2260,57 @@
       ],
       "simplified": true,
       "boundsDrift": 0.00892
+    },
+    "d-gb-07-small-shop": {
+      "path": "public/assets/scenery/tier-d/d-gb-07-small-shop.glb",
+      "bytesBefore": 36836,
+      "bytesAfter": 34092,
+      "trianglesBefore": 352,
+      "trianglesAfter": 352,
+      "bounds": [
+        -4000,
+        -7.771561172376096e-13,
+        -5282.942871093748,
+        4000,
+        7399.999999999998,
+        3500.0000000000005
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "d-it-04-orchard-tree-row": {
+      "path": "public/assets/scenery/tier-d/d-it-04-orchard-tree-row.glb",
+      "bytesBefore": 280344,
+      "bytesAfter": 76676,
+      "trianglesBefore": 12186,
+      "trianglesAfter": 10080,
+      "bounds": [
+        -8600,
+        -1.7763568394002505e-13,
+        -1598.8161621093739,
+        8699.8662109375,
+        4699.999999999999,
+        1598.8161621093752
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "d-us-07-mid-rise-office": {
+      "path": "public/assets/scenery/tier-d/d-us-07-mid-rise-office.glb",
+      "bytesBefore": 79272,
+      "bytesAfter": 34072,
+      "trianglesBefore": 312,
+      "trianglesAfter": 312,
+      "bounds": [
+        -14500,
+        -2.0317081350640365e-12,
+        -11399.999999999998,
+        14500,
+        40299.99999999999,
+        9150.000000000007
+      ],
+      "simplified": true,
+      "boundsDrift": 0
     }
   }
 }

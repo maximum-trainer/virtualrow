@@ -1058,6 +1058,71 @@ def d_it_02():  # castello valentino 60x45x30
     p.append((box(50000,8000,1500,(0,24000,750)), EMB_ST))             # river terrace
     return "d","60000 x 45000 x 30000mm (D-IT)",p
 
+# ============================================================
+# #712 slice 2c-2 — fills the D4 minimum-kit gaps (small shop,
+# pure mid-rise office, orchard tree row) left from slice 2c-1,
+# so `town` / `small-city` segments pick up a generic retail /
+# commercial frontage alongside the regional heroes.
+# ============================================================
+def d_gb_07():  # small corner shop with awning 8x7x6
+    p=[]
+    p.append((box(8000,7000,5500,(0,0,2750)), TER_BRK))                # brick body
+    p.append((gable(8000,7000,5500,6000,0,0,0), TER_SLATE))            # slate roof
+    # ground-floor shopfront on +Y face (street)
+    p.append((box(6400,80,2800,(0,3540,1400)), GLAZE_MOD))             # shopfront glazing
+    p.append((box(6600,150,500,(0,3600,3000)), PUB_TRIM))              # fascia band
+    p.append((box(6000,140,220,(0,3620,3200)), PUB_SIGN))              # sign band (painted)
+    # retractable awning, tilted down over the pavement
+    aw = box(5600,1800,80,(0,0,0)).rotate((0,0,0),(1,0,0),-14).translate((0,4400,2650))
+    p.append((aw, PUB_SIGN))
+    # upstairs sash windows
+    for xo in (-2400, 0, 2400):
+        p.append((box(900,80,1200,(xo,3580,4400)), GLAZE_MOD))
+    p.append((cyl(350,1400,(3300,0,6000)), CHIM))                      # chimney
+    return "d","8000 x 7000 x 6000mm (D-GB)",p
+
+def d_us_07():  # mid-rise commercial office 28x18x40
+    p=[]
+    # Main shaft: light panel cladding, tall and narrow.
+    p.append((box(28000,18000,38000,(0,0,19000)), BLOCK_MOD))
+    # Dark glazing bands per storey (10 storeys @ ~3.6m).
+    for i in range(10):
+        z = 2200 + i*3600
+        p.append((box(28200,18200,1800,(0,0,z)), GLAZE_MOD))
+    # Vertical mullion strips front and back.
+    for xo in range(-12000, 12001, 3000):
+        p.append((box(200,18300,38000,(xo,0,19000)), FRAME_STL))
+    # Corner piers in a slightly different tone.
+    for xo in (-13500,13500):
+        for yo in (-8500,8500):
+            p.append((box(1200,1200,38000,(xo,yo,19000)), FASCIA_MOD))
+    # Low ground-floor lobby canopy.
+    p.append((box(29000,2400,300,(0,10200,2800)), FASCIA_MOD))
+    # Roof plant / mechanical cowl.
+    p.append((box(18000,12000,2200,(0,0,39200)), FRAME_STL))
+    return "d","28000 x 18000 x 40000mm (D-US)",p
+
+def d_it_04():  # orchard tree row 16x3x5 (rural, Italian stone-fruit style)
+    # A line of 5 clipped crowns on short trunks over a low trellis.
+    # Tier D because it reads as an authored farm element, not a wild tree.
+    p=[]
+    trellis_h = 1200
+    # Low stone/earth strip under the row.
+    p.append((box(16000,1600,300,(0,0,150)), EMB_ST))
+    # Wire trellis: two horizontal rails on posts every 4m.
+    for xo in (-8000,-4000,0,4000,8000):
+        p.append((box(120,120,trellis_h+400,(xo,0,(trellis_h+400)/2)), OAK_BARK))
+    for z in (700,1500):
+        p.append((box(16200,80,40,(0,0,z)), FRAME_STL))
+    # Five fruit trees in a line (short clear trunk, dense rounded crown).
+    for i, xo in enumerate((-7000,-3500,0,3500,7000)):
+        p.append((cone(220,160,1800,(xo,0,300)), OAK_BARK))            # trunk
+        p.append((ellipsoid(1600,1600,1400,(xo,0,3200)), OAK_FOL))     # main crown
+        # One asymmetric secondary mass per tree so the row is not perfectly uniform.
+        off = 600 if i % 2 == 0 else -600
+        p.append((ellipsoid(1100,1100,900,(xo+off,200,3800)), OAK_FOL))
+    return "d","16000 x 3000 x 5000mm (D-IT, orchard row)",p
+
 def d_it_03():  # arcaded embankment 30x8x8
     p=[]
     p.append((box(30000,8000,4000,(0,0,2000)), EMB_ST))         # lower mass
@@ -1199,9 +1264,11 @@ MODELS.update({
     "d-us-01-clapboard-house": d_us_01, "d-us-02-brick-mill": d_us_02,
     "d-us-03-collegiate-dome": d_us_03, "d-us-04-collegiate-tower": d_us_04,
     "d-us-05-water-tower": d_us_05, "d-us-06-highway-sign-gantry": d_us_06,
+    "d-us-07-mid-rise-office": d_us_07,
     "d-gb-01-terrace-brick": d_gb_01, "d-gb-02-church-square-tower": d_gb_02,
     "d-gb-03-riverside-pub": d_gb_03, "d-gb-04-stone-cottage": d_gb_04,
     "d-gb-05-stone-barn": d_gb_05, "d-gb-06-regatta-marquee": d_gb_06,
+    "d-gb-07-small-shop": d_gb_07,
     "d-nl-01-gabled-canal-house": d_nl_01, "d-nl-02-polder-windmill": d_nl_02,
     "d-nl-03-polder-farmhouse": d_nl_03, "d-nl-04-canal-lock": d_nl_04,
     "d-nl-05-wind-turbine": d_nl_05, "d-nl-06-reed-bank-edge": d_nl_06,
@@ -1209,6 +1276,7 @@ MODELS.update({
     "d-ce-03-riverside-villa": d_ce_03, "d-ce-04-hydro-weir-house": d_ce_04,
     "d-it-01-po-palazzo": d_it_01, "d-it-02-castello-valentino": d_it_02,
     "d-it-03-arcaded-embankment": d_it_03,
+    "d-it-04-orchard-tree-row": d_it_04,
     "e01-london-plane": e01, "e02-weeping-willow": e02,
     "e03-lombardy-poplar": e03, "e04-english-oak": e04,
     "e05-red-maple": e05, "e06-white-birch": e06,
