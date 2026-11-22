@@ -116,6 +116,7 @@ import {
   createFleet,
   fleetFadeFor,
   fleetHullTintFor,
+  fleetMemberOnCourse,
   fleetStrokeOffset,
   fleetPaletteIndexForColor,
   fleetWaterHalfWidth,
@@ -1650,6 +1651,9 @@ export const createRideScene = async (
       else if (relative < -half) relative += totalDistanceMeters;
       const fade = fleetFadeFor(relative);
       if (fade <= 0) continue;
+      // #757 VP-33 — not behind the start or past the finish of a route
+      // that does not loop.
+      if (!fleetMemberOnCourse(relative, boatPlacement.distanceMeters, totalDistanceMeters, !!rideFrame?.loop)) continue;
       const slot = visibleFleet;
       visibleFleet += 1;
       const syntheticFrame: RideFrame = {
