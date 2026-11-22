@@ -240,7 +240,7 @@ export interface RegionalModelSet {
 
 export const REGIONAL_MODELS: Record<SceneryRegion, RegionalModelSet> = {
   gb: {
-    builtUp: ['d-gb-01-terrace-brick', 'd-gb-02-church-square-tower', 'd-gb-03-riverside-pub'],
+    builtUp: ['d-gb-01-terrace-brick', 'd-gb-02-church-square-tower', 'd-gb-03-riverside-pub', 'd-gb-07-small-shop'],
     rural: ['d-gb-04-stone-cottage', 'd-gb-05-stone-barn', 'd-gb-06-regatta-marquee'],
     bankEdge: [],
   },
@@ -251,7 +251,7 @@ export const REGIONAL_MODELS: Record<SceneryRegion, RegionalModelSet> = {
   },
   it: {
     builtUp: ['d-it-01-po-palazzo', 'd-it-02-castello-valentino'],
-    rural: [],
+    rural: ['d-it-04-orchard-tree-row'],
     bankEdge: ['d-it-03-arcaded-embankment'],
   },
   nl: {
@@ -267,6 +267,7 @@ export const REGIONAL_MODELS: Record<SceneryRegion, RegionalModelSet> = {
       'd-us-04-collegiate-tower',
       'd-us-05-water-tower',
       'd-us-06-highway-sign-gantry',
+      'd-us-07-mid-rise-office',
     ],
     rural: [],
     bankEdge: [],
@@ -284,9 +285,12 @@ export const REGIONAL_MODELS: Record<SceneryRegion, RegionalModelSet> = {
  * church, town hall, mid-rise, high-rise, warehouse, orchard row) overlaps
  * heavily with the tier-D authored meshes already in `REGIONAL_MODELS`
  * (cottage, terrace, parish church, pub, warehouse, canal house, polder
- * farmhouse, clapboard house, brick mill, collegiate dome/tower); Python
- * authoring of the few that remain (small shop, town hall, pure mid-rise
- * office, orchard tree row) is a follow-up slice.
+ * farmhouse, clapboard house, brick mill, collegiate dome/tower). Slice 2c-2
+ * fills the three remaining gaps with authored CadQuery meshes:
+ * `d-gb-07-small-shop` (town retail frontage), `d-us-07-mid-rise-office`
+ * (pure mid-rise glass-and-panel office) and `d-it-04-orchard-tree-row`
+ * (a row of clipped fruit trees over a low wire trellis, carried in the
+ * `rural` kit so Italian farmland segments pick it up).
  */
 const REGIONAL_KIT_FOR_PROFILE: Partial<Record<SceneryProfile, keyof RegionalModelSet>> = {
   residential: 'builtUp',
