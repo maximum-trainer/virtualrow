@@ -14,7 +14,12 @@ import {
   FLEET_MAX,
   FLEET_WINDOW_AHEAD_M,
   FLEET_WINDOW_BEHIND_M,
+  FLEET_SPEED_SPREAD,
+  LANE_BANK_CLEARANCE_M,
   NOMINAL_CRUISE_MPS,
+  fleetFadeFor,
+  fleetWaterHalfWidth,
+  type FleetState,
 } from '../fleet';
 import { GHOST_LANE_OFFSET_M } from '../../../../components/rower3d/ghost';
 
@@ -89,7 +94,8 @@ describe('#577 advanceFleet — cruise + window respawn (D4c, D5b)', () => {
     const next = advanceFleet(state, 5_000 + NOMINAL_CRUISE_MPS * dt, dt);
     for (let i = 0; i < next.members.length; i += 1) {
       const delta = next.members[i].distanceMeters - beforeDistances[i];
-      expect(delta).toBeCloseTo(NOMINAL_CRUISE_MPS * dt, 3);
+      // #728 FR5: each member rows at its own share of the pace.
+      expect(delta).toBeCloseTo(NOMINAL_CRUISE_MPS * next.members[i].speedFactor * dt, 3);
     }
   });
 
@@ -238,5 +244,186 @@ describe('#577 D6b fleetPaletteIndexForColor — map the player top to a palette
         expect(Array.from(tint)).not.toEqual(Array.from(FLEET_HULL_PALETTE[playerIndex]));
       }
     }
+  });
+});
+
+// #728 VP-10 — lanes clear of the player's blades and inside the water
+// (FR3), no spawning in view (FR4), and per-member speeds around the
+// player's own pace (FR5).
+
+/** The player rows at `mps` for `seconds`, at 60 fps. Returns every frame's state. */
+const row = (start: FleetState, fromMeters: number, mps: (t: number) => number, seconds: number) => {
+  const dt = 1 / 60;
+  const frames: { state: FleetState; player: number }[] = [];
+  let state = start;
+  let player = fromMeters;
+  for (let t = 0; t < seconds; t += dt) {
+    player += mps(t) * dt;
+    state = advanceFleet(state, player, dt);
+    frames.push({ state, player });
+  }
+  return frames;
+};
+
+const relativeTo = (d: number, player: number, routeMeters: number): number => {
+  let r = d - player;
+  while (r > routeMeters / 2) r -= routeMeters;
+  while (r < -routeMeters / 2) r += routeMeters;
+  return r;
+};
+
+describe('#728 FR3 lanes', () => {
+  // A scull's blade tip is ~2.9 m off the centreline, so two boats need
+  // 2 × 2.9 + 1 m between centrelines for the blades to stay 1 m apart.
+  const BLADE_TIP_M = 2.9;
+
+  it('puts the ghost a full lane from the player, with 1 m between blade tips', () => {
+    expect(GHOST_LANE_OFFSET_M).toBeGreaterThanOrEqual(7);
+    expect(GHOST_LANE_OFFSET_M - 2 * BLADE_TIP_M).toBeGreaterThanOrEqual(1);
+  });
+
+  it('keeps every fleet lane at least 7 m from the player, the ghost and each other', () => {
+    const state = createFleet({ count: 8, routeMeters: 6_000 });
+    const lanes = [0, -GHOST_LANE_OFFSET_M, ...state.members.map((m) => m.laneOffsetMeters)];
+    for (let i = 0; i < lanes.length; i += 1) {
+      for (let j = i + 1; j < lanes.length; j += 1) {
+        expect(Math.abs(lanes[i] - lanes[j])).toBeGreaterThanOrEqual(7);
+      }
+    }
+  });
+
+  it('drops lanes that would sit within 2 m of the bank, so narrow water gets a smaller fleet', () => {
+    const half = 22.5;
+    const state = createFleet({ count: 8, routeMeters: 6_000, waterHalfWidth: { left: half, right: half } });
+    expect(LANE_BANK_CLEARANCE_M).toBe(2);
+    expect(state.members.length).toBeGreaterThan(0);
+    expect(state.members.length).toBeLessThan(8);
+    for (const m of state.members) {
+      expect(Math.abs(m.laneOffsetMeters)).toBeLessThanOrEqual(half - LANE_BANK_CLEARANCE_M);
+    }
+  });
+
+  it('fields one boat on a 20 m river and none on a 10 m one', () => {
+    expect(createFleet({ count: 8, routeMeters: 6_000, waterHalfWidth: { left: 10, right: 10 } }).members.map((m) => m.laneOffsetMeters)).toEqual([GHOST_LANE_OFFSET_M]);
+    expect(createFleet({ count: 8, routeMeters: 6_000, waterHalfWidth: { left: 5, right: 5 } }).members).toEqual([]);
+  });
+
+  it('reads each bank on its own side: positive lanes against the right bank, negative against the left', () => {
+    const state = createFleet({ count: 8, routeMeters: 6_000, waterHalfWidth: { left: 31, right: 9 } });
+    const lanes = state.members.map((m) => m.laneOffsetMeters);
+    expect(lanes).toEqual([7, -14, -21, -28]);
+  });
+});
+
+describe('#728 FR3 fleetWaterHalfWidth — the width the lanes are fitted to', () => {
+  it('uses the fallback when the route has no water edges', () => {
+    expect(fleetWaterHalfWidth(undefined, 20)).toEqual({ left: 20, right: 20 });
+  });
+
+  it("takes each side's narrow reaches (10th percentile), not its single narrowest point", () => {
+    // Right bank 30 m out except a 2% pinch at a bridge; left bank narrows to 12 m for a fifth of the course.
+    const edges = (t: number) => ({ left: t > 0.8 ? 12 : 25, right: t > 0.49 && t < 0.51 ? 4 : 30 });
+    const w = fleetWaterHalfWidth(edges, 20);
+    expect(w.right).toBe(30);
+    expect(w.left).toBe(12);
+  });
+
+  it('ignores samples that are not finite', () => {
+    expect(fleetWaterHalfWidth(() => ({ left: Number.NaN, right: 15 }), 20)).toEqual({ left: 20, right: 15 });
+  });
+});
+
+describe('#728 FR4 no spawning in view', () => {
+  it('fades a member out completely before the window edge, and in fully at its middle', () => {
+    expect(fleetFadeFor(FLEET_WINDOW_AHEAD_M)).toBe(0);
+    expect(fleetFadeFor(-FLEET_WINDOW_BEHIND_M)).toBe(0);
+    expect(fleetFadeFor(0)).toBe(1);
+    expect(fleetFadeFor(100)).toBe(1);
+    // Monotonic towards each edge.
+    expect(fleetFadeFor(240)).toBeLessThan(fleetFadeFor(200));
+    expect(fleetFadeFor(-110)).toBeLessThan(fleetFadeFor(-70));
+  });
+
+  const assertNoBlink = (frames: { state: FleetState; player: number }[], start: FleetState) => {
+    let prev = start;
+    let jumps = 0;
+    for (const { state, player } of frames) {
+      for (let i = 0; i < state.members.length; i += 1) {
+        const a = prev.members[i].distanceMeters;
+        const b = state.members[i].distanceMeters;
+        if (Math.abs(relativeTo(b, a, state.routeMeters)) <= 15) continue;
+        jumps += 1;
+        const rel = relativeTo(b, player, state.routeMeters);
+        // Lands out of sight: far ahead (beyond 250 m of the camera) or
+        // astern of the player, behind a chase camera; and invisible.
+        expect(rel >= 250 || rel <= -FLEET_WINDOW_BEHIND_M + 30).toBe(true);
+        expect(fleetFadeFor(rel)).toBe(0);
+        expect(fleetFadeFor(relativeTo(a, player, state.routeMeters))).toBe(0);
+      }
+      prev = state;
+    }
+    return jumps;
+  };
+
+  it('respawns only where the boat cannot be seen, over a 5 minute row with surges and a stop', () => {
+    const start = createFleet({ count: 8, routeMeters: 20_000, routeId: 'willowbrook', playerStartMeters: 1_000 });
+    // Steady, then a sprint, then stopped for a minute: the fleet keeps
+    // rowing and cycles off the front.
+    const pace = (t: number) => (t < 120 ? 4 : t < 180 ? 5.5 : t < 240 ? 0 : 3.6);
+    const frames = row(start, 1_000, pace, 300);
+    const jumps = assertNoBlink(frames, start);
+    expect(jumps).toBeGreaterThan(0);
+  });
+});
+
+describe('#728 FR5 per-member speeds', () => {
+  it('gives each member its own speed within ±8% of the pace, some faster and some slower', () => {
+    const state = createFleet({ count: 8, routeMeters: 6_000, routeId: 'willowbrook' });
+    expect(FLEET_SPEED_SPREAD).toBe(0.08);
+    const f = state.members.map((m) => m.speedFactor);
+    for (const k of f) {
+      expect(k).toBeGreaterThanOrEqual(1 - FLEET_SPEED_SPREAD);
+      expect(k).toBeLessThanOrEqual(1 + FLEET_SPEED_SPREAD);
+    }
+    expect(f.some((k) => k > 1)).toBe(true);
+    expect(f.some((k) => k < 1)).toBe(true);
+  });
+
+  it("follows the player's rolling average pace", () => {
+    const start = createFleet({ count: 4, routeMeters: 20_000, playerStartMeters: 1_000 });
+    expect(start.paceMps).toBe(NOMINAL_CRUISE_MPS);
+    const frames = row(start, 1_000, () => 5, 120);
+    expect(frames[frames.length - 1].state.paceMps).toBeCloseTo(5, 1);
+    // Rolling, not instant: one second in it has barely moved.
+    expect(frames[59].state.paceMps).toBeLessThan(4.2);
+  });
+
+  it('keeps the pace through a stop rather than dropping to zero', () => {
+    const start = createFleet({ count: 4, routeMeters: 20_000, playerStartMeters: 1_000 });
+    const frames = row(start, 1_000, () => 0, 30);
+    expect(frames[frames.length - 1].state.paceMps).toBe(NOMINAL_CRUISE_MPS);
+  });
+
+  it('ignores a jump in the player distance (a seek), which is not a pace', () => {
+    const start = createFleet({ count: 4, routeMeters: 20_000, playerStartMeters: 1_000 });
+    const next = advanceFleet(start, 1_800, 1 / 60);
+    expect(next.paceMps).toBe(NOMINAL_CRUISE_MPS);
+  });
+
+  it('lets the player overtake slower boats and watch faster ones pull away, without teleports', () => {
+    const start = createFleet({ count: 8, routeMeters: 20_000, routeId: 'willowbrook', playerStartMeters: 5_000 });
+    const frames = row(start, 5_000, () => 4, 60);
+    const end = frames[frames.length - 1];
+    let gained = 0;
+    let lost = 0;
+    for (let i = 0; i < start.members.length; i += 1) {
+      const before = relativeTo(start.members[i].distanceMeters, 5_000, 20_000);
+      const after = relativeTo(end.state.members[i].distanceMeters, end.player, 20_000);
+      if (Math.abs(after - before) > 50) continue; // respawned
+      if (after > before + 1) gained += 1;
+      if (after < before - 1) lost += 1;
+    }
+    expect(gained).toBeGreaterThan(0);
+    expect(lost).toBeGreaterThan(0);
   });
 });

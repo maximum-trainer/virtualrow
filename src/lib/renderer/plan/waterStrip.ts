@@ -15,6 +15,9 @@
 import { RouteCurve } from '../math/curve';
 import { vec3, vec3Normalize, type Vec3 } from '../math/vec3';
 
+/** Half-width of the water when a route carries no edges. */
+export const DEFAULT_WATER_HALF_WIDTH_M = 20;
+
 /** Scene Y of the water surface, matching the React port's constant. */
 export const WATER_SURFACE_Y = -0.1;
 
@@ -49,7 +52,7 @@ export const buildWaterStrip = (
   curve: RouteCurve | null,
   options: BuildWaterStripOptions = {},
 ): WaterStripGeometry => {
-  const halfWidth = options.halfWidth ?? 20;
+  const halfWidth = options.halfWidth ?? DEFAULT_WATER_HALF_WIDTH_M;
   const length = options.length ?? 400;
   // Default divisions scale with the route's chord length so each strip
   // quad represents ≈10 m of route. Low division counts (the old 128) let a

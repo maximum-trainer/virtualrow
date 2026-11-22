@@ -132,8 +132,13 @@ export const ghostFinishSeconds = (ghost: GhostSource, meters: number): number |
  *
  * Two boats on one line is one boat with z-fighting. Far enough apart to read
  * as two crews, close enough that the gap between them is the thing you watch.
+ *
+ * #728 VP-10 FR3: a sculling blade tip is ~2.9 m off the centreline, so at
+ * the old 2.5 m the ghost's hull ran through the player's port oar. 7 m
+ * leaves 1.2 m between the two boats' blade tips. The fleet uses the same
+ * pitch for its lanes.
  */
-export const GHOST_LANE_OFFSET_M = 2.5;
+export const GHOST_LANE_OFFSET_M = 7;
 
 /**
  * The world offset that puts a boat `metres` to port of the centreline.
