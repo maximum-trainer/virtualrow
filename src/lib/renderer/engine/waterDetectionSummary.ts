@@ -12,6 +12,12 @@
  * line markers.
  */
 
+import {
+  enrichmentSourceOf,
+  type EnrichmentSource,
+  type RouteEnrichmentData,
+} from '../../services/routeEnrichmentService';
+
 export type WaterWidthSource = 'measured' | 'tag' | 'default' | 'none';
 
 export interface WaterDetectionSummary {
@@ -20,6 +26,8 @@ export interface WaterDetectionSummary {
   unknown: number;
   islandCount: number;
   widthSource: WaterWidthSource;
+  /** #741 FR1 — what the scene was built from; absent with no enrichment at all. */
+  enrichmentSource?: EnrichmentSource;
 }
 
 const EMPTY: WaterDetectionSummary = {
@@ -52,3 +60,29 @@ export const clearWaterDetectionSummary = (): void => {
 };
 
 export { EMPTY as EMPTY_WATER_DETECTION_SUMMARY };
+
+/**
+ * #741 — roll the route's enrichment up into the summary the engine
+ * publishes. Widths are `measured` when OSM detection measured a shore on
+ * any segment, `tag` when real OSM data gave them otherwise, `default` on
+ * the synthetic fallback and `none` with no enrichment.
+ */
+export const waterDetectionSummaryOf = (
+  enrichment: RouteEnrichmentData | null | undefined,
+): WaterDetectionSummary => {
+  if (!enrichment) return EMPTY;
+  const source = enrichmentSourceOf(enrichment);
+  const measured = enrichment.segmentProfiles.some(
+    (segment) =>
+      (segment.leftShoreMeters ?? null) !== null || (segment.rightShoreMeters ?? null) !== null,
+  );
+  const polygons = enrichment.lakes?.polygons ?? [];
+  return {
+    onWater: enrichment.waterDetection?.water ?? 0,
+    onLand: enrichment.waterDetection?.land ?? 0,
+    unknown: enrichment.waterDetection?.unknown ?? 0,
+    islandCount: polygons.reduce((sum, lake) => sum + (lake.inner?.length ?? 0), 0),
+    widthSource: source === 'fallback' ? 'default' : measured ? 'measured' : 'tag',
+    enrichmentSource: source,
+  };
+};
