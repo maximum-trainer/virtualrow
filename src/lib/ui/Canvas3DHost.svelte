@@ -16,7 +16,7 @@
 -->
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
-  import type { RideAttach, RideRenderer, RideFrame } from './rideCanvas';
+  import type { RideAttach, RideRenderer, RideFrame, RideViewportInsets } from './rideCanvas';
   import { crashReporterService } from '../services/crashReporterService';
 
   export type CanvasBackend = 'stub' | 'live' | 'unavailable';
@@ -61,6 +61,11 @@
      */
     appearancePatch?: { palette: unknown } | undefined;
     /**
+     * #733 VP-15 — CSS px the HUD covers along each canvas edge. Passed at
+     * attach; a change goes through `handle.setViewportInsets`.
+     */
+    viewportInsets?: RideViewportInsets;
+    /**
      * #730 VP-12 — the rower's resolved conditions (`dawn` | `midday` |
      * `golden` | `overcast` | `dusk`). Passed at attach; a later change
      * relights the running scene through `handle.setConditions`, no
@@ -94,6 +99,7 @@
     crew,
     appearance,
     appearancePatch,
+    viewportInsets,
     conditions,
     onBackend,
     rebuildOnRouteChange = false,
@@ -114,6 +120,13 @@
     const next = conditions;
     if (!next || !liveHandle) return;
     liveHandle.setConditions?.(next);
+  });
+
+  // #733 VP-15 FR1 — forward the HUD's covered area as it changes.
+  $effect(() => {
+    const next = viewportInsets;
+    if (!next || !liveHandle) return;
+    liveHandle.setViewportInsets?.(next);
   });
 
   let container = $state<HTMLDivElement | undefined>(undefined);
@@ -169,6 +182,7 @@
           crew,
           appearance,
           conditions,
+          viewportInsets,
         }),
       )
       .then((r) => {

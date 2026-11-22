@@ -191,6 +191,14 @@ export interface Rower3DBoat {
    *  in #623 Phase 1 so the user-facing path can report `'failed'`
    *  instead of silently drawing the procedural stub — see D4-a). */
   meshSource: 'baked' | 'procedural' | 'failed';
+  /**
+   * #733 VP-15 — the player boat on screen (bow, stern, both blade tips and
+   * the rower's head), in CSS px of the canvas, or null before the first
+   * frame or when part of it is behind the camera.
+   */
+  screenBounds: { left: number; top: number; right: number; bottom: number } | null;
+  /** #733 VP-15 — the canvas area the HUD leaves clear, in CSS px. */
+  clearRect: { left: number; top: number; right: number; bottom: number };
 }
 
 /**
@@ -346,6 +354,8 @@ export const createTelemetry = (forceRender: () => void): TelemetryHandles => {
       finished: false,
       isPlaying: false,
       meshSource: 'procedural',
+      screenBounds: null,
+      clearRect: { left: 0, top: 0, right: 0, bottom: 0 },
     },
     crew: { cadenceSpm: 0, strokePhase: 0, amplitude: 0, rowers: 1 },
     ghostMeters: { value: 0, active: false },

@@ -63,3 +63,52 @@ export const HUD_METRIC_LABEL: Record<HudMetric, string> = {
   distance: 'Meters',
   time: 'Time',
 };
+
+/** A DOM rectangle, in CSS px, as `getBoundingClientRect` reports it. */
+export interface HudRect {
+  readonly left: number;
+  readonly top: number;
+  readonly right: number;
+  readonly bottom: number;
+}
+
+/** How far each HUD edge reaches into the stage, in CSS px (#733 VP-15). */
+export interface HudInsets {
+  readonly top: number;
+  readonly right: number;
+  readonly bottom: number;
+  readonly left: number;
+}
+
+/**
+ * Which part of the stage the HUD covers (#733 FR1), from the stage's rect
+ * and the rects of the panels drawn over it. A panel in the lower half pushes
+ * the bottom inset up to its top edge; one in the upper half pushes the top
+ * inset down to its bottom edge. Side insets stay 0: the panels span the
+ * stage, so moving the boat sideways would not uncover it. Hidden (zero-size)
+ * and off-stage panels are ignored.
+ */
+export const hudInsetsFromRects = (stage: HudRect, panels: readonly HudRect[]): HudInsets => {
+  const height = stage.bottom - stage.top;
+  const mid = stage.top + height / 2;
+  let top = 0;
+  let bottom = 0;
+  for (const p of panels) {
+    if (p.right - p.left <= 0 || p.bottom - p.top <= 0) continue;
+    if (p.bottom <= stage.top || p.top >= stage.bottom) continue;
+    if (p.right <= stage.left || p.left >= stage.right) continue;
+    const centre = (p.top + p.bottom) / 2;
+    if (centre >= mid) bottom = Math.max(bottom, stage.bottom - Math.max(p.top, stage.top));
+    else top = Math.max(top, Math.min(p.bottom, stage.bottom) - stage.top);
+  }
+  return { top, right: 0, bottom, left: 0 };
+};
+
+/**
+ * Below this stage height the workout block and the metrics collapse to one
+ * line each (#733 FR4), so the HUD keeps to about a quarter of the stage.
+ */
+export const COMPACT_HUD_MAX_STAGE_PX = 800;
+
+export const isCompactHud = (stageHeight: number): boolean =>
+  stageHeight > 0 && stageHeight < COMPACT_HUD_MAX_STAGE_PX;

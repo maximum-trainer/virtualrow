@@ -56,6 +56,11 @@ export interface RideRenderer {
    * unknown value is ignored. Optional so a test fake can skip it.
    */
   setConditions?(conditions: unknown): void;
+  /**
+   * #733 VP-15 — CSS px the HUD covers along each canvas edge. Reframes on
+   * the next frame; survives a device-lost rebuild.
+   */
+  setViewportInsets?(insets: unknown): void;
 }
 
 export { isSceneryRoute, type SceneryRoute };
@@ -120,6 +125,8 @@ export type RideAttachOpts = {
    * = the engine default (today's Midday frame).
    */
   conditions?: string;
+  /** #733 VP-15 — CSS px the HUD covers along each canvas edge. */
+  viewportInsets?: { top: number; right: number; bottom: number; left: number };
 };
 
 export type RideAttach = (
@@ -132,6 +139,7 @@ const FORCE_LOST_KEY = '__ROWER3D_FORCE_DEVICE_LOST' as const;
 
 export const attach: RideAttach = async (canvas, opts = {}) => {
   let currentConditions: unknown = opts.conditions;
+  let currentInsets: unknown = opts.viewportInsets;
   const telemetry = createTelemetry(() => void frameOnce());
   canvas.setAttribute('data-backend', 'webgpu');
 
@@ -284,7 +292,7 @@ export const attach: RideAttach = async (canvas, opts = {}) => {
     // smoke page that passes a palette through.
     // #730: a device-lost rebuild relights with the latest conditions, not
     // the ones the ride started with.
-    const sceneOpts = { ...opts, conditions: currentConditions } as unknown as Parameters<typeof createRideScene>[3];
+    const sceneOpts = { ...opts, conditions: currentConditions, viewportInsets: currentInsets } as unknown as Parameters<typeof createRideScene>[3];
     const handle = await createRideScene(canvas, session.state.device, telemetry, sceneOpts, session);
     return handle;
   };
@@ -321,6 +329,10 @@ export const attach: RideAttach = async (canvas, opts = {}) => {
     _telemetry: telemetry,
     get _liveDevice() {
       return scene?.device;
+    },
+    setViewportInsets(insets) {
+      currentInsets = insets;
+      scene?.setViewportInsets(insets);
     },
     setConditions(conditions) {
       if (typeof conditions !== 'string') return;

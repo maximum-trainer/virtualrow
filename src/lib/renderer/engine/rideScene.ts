@@ -22,12 +22,19 @@ import {
   mat4Identity,
   mat4LookAt,
   mat4Multiply,
-  mat4Perspective,
   mat4FromRotationY,
   type Mat4,
 } from '../math/mat4';
 import { vec3 } from '../math/vec3';
 import { cameraTarget, createRigTarget } from './camera';
+import {
+  NO_INSETS,
+  clearRect,
+  effectiveFovY,
+  projectedBounds,
+  projectionWithInsets,
+  type ViewportInsets,
+} from '../math/projectionWithInsets';
 import { createBankPass } from '../passes/bank';
 import { createBoatPass } from '../passes/boat';
 import { createBuildingsPass } from '../passes/buildings';
@@ -286,6 +293,12 @@ export interface RideSceneOpts {
    */
   conditions?: LightingConditions;
   /**
+   * #733 VP-15 — CSS px the HUD covers along each canvas edge. The camera
+   * frames the boat in the clear part. Omitted = none (today's framing).
+   * Live changes come through `setViewportInsets`.
+   */
+  viewportInsets?: ViewportInsets;
+  /**
    * #623 Phase 1 — the attach test harness (`attach({testMode: true})`)
    * sets this so the SSR/test boat fallback keeps working: a mocked
    * canvas cannot fetch `shell.bin`, so without this flag the user-
@@ -322,12 +335,39 @@ export interface RideSceneHandle {
    * unknown value is ignored.
    */
   setConditions(conditions: unknown): void;
+  /** #733 VP-15 — the HUD's covered area changed; reframe on the next frame. */
+  setViewportInsets(insets: unknown): void;
   /**
    * Release every GPU resource this scene owns, including the device
    * session that owns the `GPUDevice`. Safe to call more than once.
    */
   dispose(): void;
 }
+
+/**
+ * #733 VP-15 — points on the player boat, in scull space (bow +Z, metres):
+ * bow and stern, both blade tips at the catch and the finish, and the
+ * rower's head. `__ROWER3D_BOAT.screenBounds` is the box around them.
+ */
+const BOAT_FOOTPRINT: readonly (readonly [number, number, number])[] = [
+  [0, 0, 4.1],
+  [0, 0, -4.1],
+  [2.9, 0, 1.4],
+  [-2.9, 0, 1.4],
+  [2.9, 0, -1.4],
+  [-2.9, 0, -1.4],
+  [0, 1.15, 0],
+];
+
+const sanitiseInsets = (v: unknown): ViewportInsets => {
+  if (!v || typeof v !== 'object') return NO_INSETS;
+  const o = v as Record<string, unknown>;
+  const n = (k: string): number => {
+    const x = o[k];
+    return typeof x === 'number' && Number.isFinite(x) && x > 0 ? x : 0;
+  };
+  return { top: n('top'), right: n('right'), bottom: n('bottom'), left: n('left') };
+};
 
 /** Internal clock used by the test harness. */
 const now = (): number =>
@@ -1234,6 +1274,7 @@ export const createRideScene = async (
 
   const start = now();
   let disposed = false;
+  let viewportInsets: ViewportInsets = sanitiseInsets(opts.viewportInsets);
 
   const resize = (): void => {
     const w = Math.max(1, Math.floor(canvas.clientWidth || canvas.width || width));
@@ -1582,8 +1623,24 @@ export const createRideScene = async (
     const target = cameraRig.lookAt;
     const up = vec3(0, 1, 0);
     mat4LookAt(frame.view, eye, target, up);
-    mat4Perspective(frame.proj, (cameraRig.fov * Math.PI) / 180, width / height, 0.1, 2000);
+    const fovY = (cameraRig.fov * Math.PI) / 180;
+    projectionWithInsets(frame.proj, fovY, width, height, viewportInsets, 0.1, 2000);
     mat4Multiply(frame.viewProj, frame.proj, frame.view);
+    // #733 VP-15 FR3 telemetry: where the player boat lands on screen, and
+    // the area the HUD leaves clear, so a spec can check one is inside the
+    // other in every camera view.
+    {
+      const c = Math.cos(boatPlacement.heading);
+      const sn = Math.sin(boatPlacement.heading);
+      const bx = boatPlacement.world[0];
+      const by = boatPlacement.world[1];
+      const bz = boatPlacement.world[2];
+      const pts = BOAT_FOOTPRINT.map(
+        ([x, y, z]) => [bx + c * x + sn * z, by + y, bz - sn * x + c * z] as [number, number, number],
+      );
+      telemetry.boat.screenBounds = projectedBounds(frame.viewProj, pts, width, height);
+      telemetry.boat.clearRect = clearRect(width, height, viewportInsets);
+    }
     frame.camPos[0] = eye[0];
     frame.camPos[1] = eye[1];
     frame.camPos[2] = eye[2];
@@ -1595,7 +1652,8 @@ export const createRideScene = async (
       cascades: atlas.cascades,
       near: 0.5,
       far: 400,
-      fovY: (58 * Math.PI) / 180,
+      // #733: cover the whole canvas, including what shows through the HUD.
+      fovY: effectiveFovY((58 * Math.PI) / 180, height, viewportInsets),
       aspect: width / height,
       camPos: eye,
       camForward: vec3(target[0] - eye[0], target[1] - eye[1], target[2] - eye[2]),
@@ -1720,6 +1778,11 @@ export const createRideScene = async (
     (globalThis as unknown as Record<string, unknown>)[SET_APPEARANCE_KEY] = setAppearance;
   } catch { /* non-browser (SSR) — the shell never calls it there anyway */ }
 
+  const setViewportInsets = (insets: unknown): void => {
+    if (disposed) return;
+    viewportInsets = sanitiseInsets(insets);
+  };
+
   const setConditions = (conditions: unknown): void => {
     if (disposed || !isLightingConditions(conditions)) return;
     applyLighting(conditionsToFrameLighting(conditions));
@@ -1741,6 +1804,7 @@ export const createRideScene = async (
     frameOnce,
     setAppearance,
     setConditions,
+    setViewportInsets,
     dispose() {
       if (disposed) return;
       disposed = true;

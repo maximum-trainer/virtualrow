@@ -28,6 +28,8 @@
   import { resolveCrew } from '../../components/rower3d/crewModel';
   import { RowerAppearanceStore } from '$lib/ui/useRowerAppearance.svelte';
   import { sharedConditionsStore } from '$lib/ui/useConditions.svelte';
+  import { observeHudInsets } from '$lib/ui/hudInsets';
+  import { isCompactHud, type HudInsets } from '$lib/ui/rowHudPlan';
   import { paletteFromPreference } from '$lib/renderer/plan/crewPalette';
   import { FullscreenStore } from '$lib/ui/fullscreen.svelte';
   import { CameraViewStore } from '$lib/ui/cameraView.svelte';
@@ -77,6 +79,22 @@
   const fullscreen = new FullscreenStore();
   let stageEl = $state<HTMLDivElement | undefined>(undefined);
   $effect(() => fullscreen.bind(stageEl ?? null));
+
+  // #733 VP-15 — the HUD panels cover the bottom of the stage. Measure what
+  // they cover (on resize, fullscreen, the workout panel showing or hiding)
+  // and hand it to the engine, which frames the boat in the clear part. On a
+  // short stage the HUD also compacts (FR4).
+  let hudInsets = $state<HudInsets | undefined>(undefined);
+  let stageHeight = $state(0);
+  $effect(() => {
+    const el = stageEl;
+    if (!el) return;
+    return observeHudInsets(el, (insets, height) => {
+      hudInsets = insets;
+      stageHeight = height;
+    });
+  });
+  const compactHud = $derived(isCompactHud(stageHeight));
 
   // Camera view, cycled on V (#328). The store owns persistence; the page owns
   // the window listener so it leaves with the ride view.
@@ -160,7 +178,7 @@
   {#if session.sessionActive && ride.currentSession}
     <div class="view-container activity-view{fullscreen.active && !fullscreen.supported ? ' activity-view--fullscreen' : ''}">
       <div class="activity-screen">
-        <div class="activity-route-stage" bind:this={stageEl}>
+        <div class="activity-route-stage{compactHud ? ' activity-route-stage--compact-hud' : ''}" bind:this={stageEl}>
           <!-- #542 AC11: when the engine declines (no WebGPU, software adapter,
                attach throw) we show the "needs WebGPU" screen as an overlay.
                The stage below stays mounted so specs that assert around
@@ -202,6 +220,7 @@
             appearance={initialPalette}
             {appearancePatch}
             conditions={conditions.conditions}
+            viewportInsets={hudInsets}
             rebuildOnRouteChange={!testMode}
             onBackend={(b) => (canvasBackend = b)}
           />

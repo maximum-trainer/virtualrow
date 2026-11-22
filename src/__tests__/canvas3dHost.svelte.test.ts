@@ -222,4 +222,32 @@ describe('Canvas3DHost', () => {
       expect(setConditions).toHaveBeenLastCalledWith('dusk');
     });
   });
+
+  // #733 VP-15 FR1 — the HUD's covered area reaches the engine at attach
+  // and as a live update.
+  describe('viewportInsets', () => {
+    const flush = async (): Promise<void> => {
+      for (let i = 0; i < 4; i++) await Promise.resolve();
+    };
+    const insets = { top: 0, right: 0, bottom: 300, left: 0 };
+
+    it('passes the insets to attach', async () => {
+      const attach = vi.fn<RideAttach>(() => ({ dispose: vi.fn() }));
+      render(Canvas3DHost, { attach, viewportInsets: insets });
+      await flush();
+      expect(attach.mock.calls[0][1]).toMatchObject({ viewportInsets: insets });
+    });
+
+    it('forwards a change to the running scene without reattaching', async () => {
+      const setViewportInsets = vi.fn();
+      const attach = vi.fn<RideAttach>(() => ({ dispose: vi.fn(), setViewportInsets }));
+      const { rerender } = render(Canvas3DHost, { attach, viewportInsets: insets });
+      await flush();
+      const next = { ...insets, bottom: 120 };
+      await rerender({ attach, viewportInsets: next });
+      await flush();
+      expect(attach).toHaveBeenCalledTimes(1);
+      expect(setViewportInsets).toHaveBeenLastCalledWith(next);
+    });
+  });
 });
