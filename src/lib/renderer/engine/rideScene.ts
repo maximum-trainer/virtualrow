@@ -1258,7 +1258,6 @@ export const createRideScene = async (
     updateWake(
       wakeState,
       boatPlacement.world[0],
-      boatPlacement.world[1],
       boatPlacement.world[2],
       boatPlacement.heading,
       wakeMoving,

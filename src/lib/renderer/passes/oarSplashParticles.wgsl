@@ -1,11 +1,13 @@
-// Oar-blade splash particles (#571). Instanced camera-facing billboards —
-// same storage layout as wake particles but each particle carries a
-// per-particle (vx, vz) that the vertex shader uses to arc the splash
-// outward from the blade over its short life. Gravity is applied in-
-// shader so there's no CPU per-frame vy update.
+// Oar-blade splash particles (#571, reworked by #722 VP-04). Burst-fed
+// by `engine/oarSplashParticles.ts` at the catch and finish of each
+// stroke; the storage buffer is uploaded whole each frame.
 //
-// Burst-fed by `engine/oarSplashParticles.ts` at the catch and finish
-// of each stroke; the storage buffer is uploaded whole each frame.
+// Two kinds share the pool:
+//   - drops: small camera-facing specks thrown in a low ballistic arc,
+//     hidden the moment they fall back to the water (FR4);
+//   - rings: one flat annulus per blade spreading on the water (FR4).
+// Both fade out near the camera (FR5) and use the pre-exposed foam colour
+// (FR6). Constants marked `mirror` are checked by the engine unit tests.
 
 struct Frame {
   view: mat4x4<f32>,
@@ -21,15 +23,32 @@ struct Frame {
 };
 @group(0) @binding(0) var<uniform> frame: Frame;
 
-// Each particle is stored as two vec4<f32>:
-//   particles[ii*2]     = (x, y, z, age)
-//   particles[ii*2 + 1] = (lifetime, size, vx, vz)
+// Each particle is stored as three vec4<f32>:
+//   particles[ii*3]     = (x, y, z, age)
+//   particles[ii*3 + 1] = (lifetime, size, vx, vz)
+//   particles[ii*3 + 2] = (kind, seed, _, _)
 @group(2) @binding(0) var<storage, read> particles: array<vec4<f32>>;
+
+const INITIAL_UP: f32 = 1.4;          // mirror: OAR_SPLASH_DROP_INITIAL_UP_MPS
+const GRAVITY: f32 = -9.8;            // m/s² (world +Y is up)
+const RING_START_RADIUS: f32 = 0.08;  // mirror: OAR_SPLASH_RING_START_RADIUS_METRES
+const RING_END_RADIUS: f32 = 0.3;     // mirror: OAR_SPLASH_RING_END_RADIUS_METRES
+const DROP_PEAK_ALPHA: f32 = 0.5;
+const RING_PEAK_ALPHA: f32 = 0.3;
+const NEAR_FADE_START: f32 = 1.5;     // mirror: PARTICLE_NEAR_FADE_START_METRES
+const NEAR_FADE_END: f32 = 3.0;       // mirror: PARTICLE_NEAR_FADE_END_METRES
+const FOAM_R: f32 = 0.8;              // mirror: foamColour
+const FOAM_G: f32 = 0.83;
+const FOAM_B: f32 = 0.86;
+const FOAM_SUN_WARM: f32 = 0.06;
 
 struct VSOut {
   @builtin(position) pos: vec4<f32>,
   @location(0) local: vec2<f32>,
   @location(1) lifeFrac: f32,
+  @location(2) world: vec3<f32>,
+  // x = 1 for a ring, y = 0 once a drop has landed (hide it).
+  @location(3) flags: vec2<f32>,
 };
 
 const CORNERS = array<vec2<f32>, 6>(
@@ -41,61 +60,68 @@ const CORNERS = array<vec2<f32>, 6>(
   vec2<f32>(-1.0,  1.0),
 );
 
-// Gravity drag + initial upward kick: a splash leaves the blade going
-// mostly upward and outward, peaks ~0.15 s in, then falls back toward
-// the water. Values picked so the arc tops out around 0.4 m above the
-// water surface for a 0.6 s lifetime, which reads clearly from the
-// chase camera without covering the hull.
-const INITIAL_UP: f32 = 2.6;      // m/s
-const GRAVITY: f32 = -9.8;        // m/s² (world +Y is up)
-
 @vertex
 fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VSOut {
-  let a = particles[ii * 2u];
-  let b = particles[ii * 2u + 1u];
+  let a = particles[ii * 3u];
+  let b = particles[ii * 3u + 1u];
+  let k = particles[ii * 3u + 2u];
   let origin = vec3<f32>(a.x, a.y, a.z);
   let age = a.w;
   let lifetime = b.x;
   let size = b.y;
-  let vx = b.z;
-  let vz = b.w;
+  let isRing = k.x > 0.5;
 
   let dead = lifetime <= 0.0 || age >= lifetime;
   let lifeFrac = select(age / max(lifetime, 1e-5), 1.0, dead);
-
-  // Arc the particle under gravity. x and z integrate linearly with the
-  // stored (vx, vz); y is a ballistic parabola from INITIAL_UP.
-  let dx = vx * age;
-  let dz = vz * age;
-  let dy = INITIAL_UP * age + 0.5 * GRAVITY * age * age;
-  let world = origin + vec3<f32>(dx, dy, dz);
-
-  // Shrink the quad as the particle ages so the plume thins out.
-  let liveScale = size * (1.0 - lifeFrac * 0.5);
-  let scale = select(liveScale, 0.0, dead);
-
   let corner = CORNERS[vi];
-  let viewCentre = (frame.view * vec4<f32>(world, 1.0)).xyz;
-  let viewOffset = vec3<f32>(corner.x * scale, corner.y * scale, 0.0);
-  let viewPos = viewCentre + viewOffset;
+
+  var world: vec3<f32>;
+  var airborne = 1.0;
+  if (isRing) {
+    let radius = select(mix(RING_START_RADIUS, RING_END_RADIUS, lifeFrac), 0.0, dead);
+    world = origin + vec3<f32>(corner.x * radius, 0.0, corner.y * radius);
+  } else {
+    // Low ballistic arc: x/z drift with the stored velocity, y rises and
+    // falls back. Once it is below the launch point it is in the water.
+    let dy = INITIAL_UP * age + 0.5 * GRAVITY * age * age;
+    airborne = step(0.0, dy);
+    let centre = origin + vec3<f32>(b.z * age, dy, b.w * age);
+    let scale = select(size * (1.0 - lifeFrac * 0.4), 0.0, dead || dy < 0.0);
+    // Billboard the speck around its centre using the camera's right/up.
+    let right = vec3<f32>(frame.view[0][0], frame.view[1][0], frame.view[2][0]);
+    let up = vec3<f32>(frame.view[0][1], frame.view[1][1], frame.view[2][1]);
+    world = centre + (right * corner.x + up * corner.y) * scale;
+  }
 
   var out: VSOut;
-  out.pos = frame.proj * vec4<f32>(viewPos, 1.0);
+  out.pos = frame.viewProj * vec4<f32>(world, 1.0);
   out.local = corner;
   out.lifeFrac = lifeFrac;
+  out.world = world;
+  out.flags = vec2<f32>(select(0.0, 1.0, isRing), airborne);
   return out;
 }
 
 @fragment
 fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
-  // Soft disc with a stronger centre than wake foam so individual drops
-  // read as distinct spray rather than a continuous sheet.
   let r = length(in.local);
-  let shape = clamp(1.0 - r, 0.0, 1.0);
-  let fadeIn = smoothstep(0.0, 0.1, in.lifeFrac);
-  let fadeOut = 1.0 - smoothstep(0.4, 1.0, in.lifeFrac);
-  let alpha = shape * shape * fadeIn * fadeOut * 0.75;
-  let sunWarm = max(normalize(frame.sunDir).y, 0.0) * 0.08;
-  let col = vec3<f32>(0.94 + sunWarm, 0.95, 0.98);
+  var shape: f32;
+  var peak: f32;
+  if (in.flags.x > 0.5) {
+    // Thin annulus that thins further as it spreads.
+    let width = mix(0.35, 0.15, in.lifeFrac);
+    shape = 1.0 - smoothstep(0.0, width, abs(r - (1.0 - width)));
+    peak = RING_PEAK_ALPHA;
+  } else {
+    let d = clamp(1.0 - r, 0.0, 1.0);
+    shape = d * d * in.flags.y;
+    peak = DROP_PEAK_ALPHA;
+  }
+  let fadeIn = smoothstep(0.0, 0.08, in.lifeFrac);
+  let fadeOut = 1.0 - smoothstep(0.5, 1.0, in.lifeFrac);
+  let near = smoothstep(NEAR_FADE_START, NEAR_FADE_END, distance(in.world, frame.camPos));
+  let alpha = shape * fadeIn * fadeOut * near * peak;
+  let sunWarm = max(normalize(frame.sunDir).y, 0.0) * FOAM_SUN_WARM;
+  let col = vec3<f32>(FOAM_R + sunWarm, FOAM_G, FOAM_B);
   return vec4<f32>(col * alpha, alpha);
 }
