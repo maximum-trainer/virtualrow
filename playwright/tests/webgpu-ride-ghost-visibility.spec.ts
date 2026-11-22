@@ -118,17 +118,25 @@ const grab = async (page: Page, box: Rect) => {
  * colour there, and the frame without it (`__ROWER3D_HIDE_GHOST`) the
  * water under those same pixels.
  */
-const sampleGhost = async (page: Page, box: Rect) => {
-  // Hold the ride still so all three frames show the boat in one place.
+const sampleGhost = async (page: Page) => {
+  // Hold the ride still so all three frames show the boat in one place,
+  // and read its box only once it is held. Two draws after each toggle:
+  // the page's composited frame can trail the canvas' last draw by one.
+  const settle = async () => {
+    await forceRender(page);
+    await forceRender(page);
+  };
   await page.evaluate(() => (window as W).__ROWER3D_HOLD_FRAME?.(true));
-  await forceRender(page);
+  await settle();
+  const box = await page.evaluate(() => (window as W).__ROWER3D_GHOST_METERS?.screenBounds ?? null);
+  if (!box) return null;
   const withGhost = await grab(page, box);
   await page.evaluate(() => (window as W).__ROWER3D_GHOST_MASK?.(true));
-  await forceRender(page);
+  await settle();
   const mask = await grab(page, box);
   await page.evaluate(() => (window as W).__ROWER3D_GHOST_MASK?.(false));
   await page.evaluate(() => (window as W).__ROWER3D_HIDE_GHOST?.(true));
-  await forceRender(page);
+  await settle();
   const without = await grab(page, box);
   await page.evaluate(() => (window as W).__ROWER3D_HIDE_GHOST?.(false));
   await page.evaluate(() => (window as W).__ROWER3D_HOLD_FRAME?.(false));
@@ -190,10 +198,8 @@ test('the ghost is the scull, a full lane off, rowing, and stands off the water 
   for (const c of ['dawn', 'midday', 'golden', 'overcast', 'dusk']) {
     await page.evaluate((name) => (window as W).__ROWER3D_SET_CONDITIONS?.(name), c);
     for (let i = 0; i < 3; i++) await forceRender(page);
-    const b = await page.evaluate(() => (window as W).__ROWER3D_GHOST_METERS?.screenBounds ?? null);
-    expect(b, `${c}: ghost on screen`).not.toBeNull();
-    const s = await sampleGhost(page, b as Rect);
-    expect(s, `${c}: ghost box readable`).not.toBeNull();
+    const s = await sampleGhost(page);
+    expect(s, `${c}: ghost on screen and readable`).not.toBeNull();
     // WCAG: the lighter over the darker. The ghost is the darker one (a
     // dark hull, #728 FR2), but either way round counts.
     const [lg, lw] = [luminance(s!.ghost) + 0.05, luminance(s!.water) + 0.05];
