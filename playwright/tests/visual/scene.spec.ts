@@ -32,6 +32,15 @@ import {
  * lands on a VM without the NVIDIA Vulkan ICD the engine declines, each
  * shot `test.skip`s with a well-formed decline, and no baseline is written.
  * That keeps a routine fleet-VM gap from reading as a visual regression.
+ *
+ * #712 Phase 2d — the Willowbrook demo route moved to the Loisach / Kochelsee
+ * (PR #714) and picks up the new per-segment biome schedule from Phase 2a
+ * (`forest-medium` → `farmland` → `scrub` → `village` → `wetland`), with the
+ * per-tier building cap from Phase 2b (`maxBuildingsPerSegment`) and the new
+ * `village` → `rural` kit wiring from Phase 2c slice 1. The committed PNGs
+ * under `__snapshots__/` are re-recorded on this PR by labelling it
+ * `visual-baseline`; the GPU runner uploads the recorded shots as an
+ * artifact for review before they are committed back.
  */
 
 test.use({ launchOptions: GPU_RIDE_LAUNCH_OPTIONS });
