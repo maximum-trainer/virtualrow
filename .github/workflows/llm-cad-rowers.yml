@@ -38,7 +38,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Guard: skip when LLM_CAD_MODEL_API_KEY is absent
+      - name: "Guard: skip when LLM_CAD_MODEL_API_KEY is absent"
         id: guard
         env:
           LLM_CAD_MODEL_API_KEY: ${{ secrets.LLM_CAD_MODEL_API_KEY }}
