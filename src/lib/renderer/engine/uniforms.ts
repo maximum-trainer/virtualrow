@@ -30,6 +30,7 @@
 
 import type { Mat4 } from '../math/mat4';
 import type { FrameUniforms } from './frameGraph';
+import type { FrameLighting } from '../plan/conditionsLighting';
 
 export const FRAME_UNIFORMS_FLOATS = 68;
 export const FRAME_UNIFORMS_BYTES = FRAME_UNIFORMS_FLOATS * 4;
@@ -195,5 +196,52 @@ export const packFrameUniforms = (
   out[65] = frame.wind?.[1] ?? 0;
   out[66] = 0;
   // 67 pad (trailing vec3 rounds the struct up to 272 bytes).
+  return out;
+};
+
+/**
+ * Conditions lighting block (#730 VP-12). Eight vec4s, bound at group 0
+ * binding 1 by the sky, clouds, water and bank passes, whose WGSL
+ * `Lighting` struct mirrors this layout (checked in `wgsl.test.ts`). Kept
+ * out of `Frame` so the 272-byte contract every other pass relies on
+ * stays as it is.
+ *
+ *   0  sun.rgb (colour × intensity)   shadowStrength
+ *   4  ambient.rgb                    sunDisc
+ *   8  skyZenith.rgb                  cloudThresholdShift
+ *  12  skyHorizonCool.rgb             cloudAlpha
+ *  16  skyHorizonWarm.rgb             waterSpecular
+ *  20  sunDiscColour.rgb              exposureBias (read by postFx, not WGSL)
+ *  24  cloudTint.rgb                  cloudCover
+ *  28  waterTint.rgb                  fogDensityScale (applied to frame.fog)
+ */
+export const LIGHTING_UNIFORMS_FLOATS = 32;
+export const LIGHTING_UNIFORMS_BYTES = LIGHTING_UNIFORMS_FLOATS * 4;
+
+export const createLightingUniformBuffer = (device: GPUDevice): GPUBuffer =>
+  device.createBuffer({
+    label: 'lighting-uniforms',
+    size: LIGHTING_UNIFORMS_BYTES,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+
+export const packFrameLighting = (
+  l: FrameLighting,
+  out = new Float32Array(LIGHTING_UNIFORMS_FLOATS),
+): Float32Array => {
+  const put = (offset: number, rgb: readonly number[], w: number): void => {
+    out[offset] = rgb[0];
+    out[offset + 1] = rgb[1];
+    out[offset + 2] = rgb[2];
+    out[offset + 3] = w;
+  };
+  put(0, l.sun, l.shadowStrength);
+  put(4, l.ambient, l.sunDisc);
+  put(8, l.skyZenith, l.cloudThresholdShift);
+  put(12, l.skyHorizonCool, l.cloudAlpha);
+  put(16, l.skyHorizonWarm, l.waterSpecular);
+  put(20, l.sunDiscColour, l.exposureBias);
+  put(24, l.cloudTint, l.cloudCover);
+  put(28, l.waterTint, l.fogDensityScale);
   return out;
 };

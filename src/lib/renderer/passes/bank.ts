@@ -31,6 +31,8 @@ export interface BankPassOptions {
   device: GPUDevice;
   format: GPUTextureFormat;
   frameUniforms: GPUBuffer;
+  /** #730 VP-12 — the conditions lighting block (`packFrameLighting`). */
+  lightingUniforms: GPUBuffer;
   shadow: ShadowResources;
   /** Route curve the bank follows. Null → straight-line fallback. */
   curve?: RouteCurve | null;
@@ -44,6 +46,7 @@ export const createBankPass = ({
   device,
   format,
   frameUniforms,
+  lightingUniforms,
   shadow,
   curve = null,
   edgesForProgress,
@@ -81,7 +84,10 @@ export const createBankPass = ({
   });
   const bindGroup = device.createBindGroup({
     layout: pipeline.getBindGroupLayout(0),
-    entries: [{ binding: 0, resource: { buffer: frameUniforms } }],
+    entries: [
+      { binding: 0, resource: { buffer: frameUniforms } },
+      { binding: 1, resource: { buffer: lightingUniforms } },
+    ],
   });
   const shadowBindGroup = device.createBindGroup({
     label: 'bank-shadow',

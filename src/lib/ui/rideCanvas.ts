@@ -96,6 +96,13 @@ export interface RideRendererOptions {
    * in `plan/crewPalette.ts`.
    */
   readonly appearance?: unknown;
+  /**
+   * #730 VP-12 — the rower's resolved conditions from the picker
+   * (`useConditions.svelte.ts`): `dawn` | `midday` | `golden` | `overcast` |
+   * `dusk`. A plain string so the seam stays framework-free. Omitted = the
+   * engine default, which is today's Midday frame.
+   */
+  readonly conditions?: string;
 }
 
 /** A running renderer. The host calls {@link dispose} when the ride unmounts. */
@@ -109,6 +116,11 @@ export interface RideRenderer {
    * test fake can skip it; the engine's own `attach` always supplies it.
    */
   setAppearance?(palette: unknown): void;
+  /**
+   * #730 VP-12 — relight the running scene for new conditions on the next
+   * frame, with no reattach. Optional so a test fake can skip it.
+   */
+  setConditions?(conditions: string): void;
 }
 
 /**

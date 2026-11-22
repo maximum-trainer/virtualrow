@@ -7,9 +7,11 @@ export interface SkyPassOptions {
   device: GPUDevice;
   format: GPUTextureFormat;
   frameUniforms: GPUBuffer;
+  /** #730 VP-12 — the conditions lighting block (`packFrameLighting`). */
+  lightingUniforms: GPUBuffer;
 }
 
-export const createSkyPass = ({ device, format, frameUniforms }: SkyPassOptions): Pass => {
+export const createSkyPass = ({ device, format, frameUniforms, lightingUniforms }: SkyPassOptions): Pass => {
   const module = device.createShaderModule({ label: 'sky', code: skyWgsl });
   const pipeline = device.createRenderPipeline({
     label: 'sky',
@@ -26,7 +28,10 @@ export const createSkyPass = ({ device, format, frameUniforms }: SkyPassOptions)
   });
   const bindGroup = device.createBindGroup({
     layout: pipeline.getBindGroupLayout(0),
-    entries: [{ binding: 0, resource: { buffer: frameUniforms } }],
+    entries: [
+      { binding: 0, resource: { buffer: frameUniforms } },
+      { binding: 1, resource: { buffer: lightingUniforms } },
+    ],
   });
 
   let disposed = false;

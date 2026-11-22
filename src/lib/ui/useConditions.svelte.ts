@@ -66,3 +66,12 @@ export class ConditionsStore {
     }
   }
 }
+
+let shared: ConditionsStore | undefined;
+
+/**
+ * The one store the home screen's picker and the ride view share (#730
+ * VP-12), so the resolved conditions reach the engine through
+ * `Canvas3DHost` and a change relights the running scene.
+ */
+export const sharedConditionsStore = (): ConditionsStore => (shared ??= new ConditionsStore());

@@ -154,12 +154,20 @@ import { tierCapsFor } from './tierCaps';
 import { publishSpeedMps, type TelemetryHandles } from './telemetry';
 import { createPostFx, type PostFxCaps } from './postFx';
 import {
+  conditionsToFrameLighting,
+  isLightingConditions,
+  type FrameLighting,
+  type LightingConditions,
+} from '../plan/conditionsLighting';
+import {
   createFrameUniformBuffer,
   createShadowUniformBuffer,
   createSproutUniformBuffer,
   fogDistanceScaleFor,
   FRAME_UNIFORMS_FLOATS,
   packFrameUniforms,
+  createLightingUniformBuffer,
+  packFrameLighting,
   packShadowUniforms,
   packSproutUniforms,
   sproutWindowFor,
@@ -272,6 +280,12 @@ export interface RideSceneOpts {
    */
   appearance?: CrewPalette;
   /**
+   * #730 VP-12 — the rower's resolved conditions (Dawn / Midday / Golden
+   * hour / Overcast / Dusk). Omitted or unknown = the engine default, which
+   * is today's Midday frame. Live changes come through `setConditions`.
+   */
+  conditions?: LightingConditions;
+  /**
    * #623 Phase 1 — the attach test harness (`attach({testMode: true})`)
    * sets this so the SSR/test boat fallback keeps working: a mocked
    * canvas cannot fetch `shell.bin`, so without this flag the user-
@@ -301,6 +315,13 @@ export interface RideSceneHandle {
    * whose GLB node name does not match a slot (hull, oar) is left alone.
    */
   setAppearance(palette: CrewPalette): void;
+  /**
+   * #730 VP-12 — relight the running scene for new conditions. Writes the
+   * lighting uniforms, the sun direction (which the shadow cascades follow)
+   * and the fog; the next frame shows it. No device or scene rebuild. An
+   * unknown value is ignored.
+   */
+  setConditions(conditions: unknown): void;
   /**
    * Release every GPU resource this scene owns, including the device
    * session that owns the `GPUDevice`. Safe to call more than once.
@@ -368,6 +389,7 @@ export const createRideScene = async (
   });
 
   const frameUniforms = createFrameUniformBuffer(device);
+  const lightingUniforms = createLightingUniformBuffer(device);
   const uniformScratch = new Float32Array(FRAME_UNIFORMS_FLOATS);
 
   // #559 P4: shadow atlas + per-tier cascade config. Default tier is medium
@@ -801,6 +823,7 @@ export const createRideScene = async (
     device,
     format,
     frameUniforms,
+    lightingUniforms,
     shadow: shadowResources,
     curve: waterCurve,
     edgesForProgress: waterEdgesForProgress,
@@ -823,6 +846,7 @@ export const createRideScene = async (
         device,
         format,
         frameUniforms,
+        lightingUniforms,
         shadow: shadowResources,
         polygons: polygonLakes,
       })
@@ -870,6 +894,7 @@ export const createRideScene = async (
       device,
       format,
       frameUniforms,
+      lightingUniforms,
       shadow: shadowResources,
       curve: waterCurve,
       edgesForProgress: waterEdgesForProgress,
@@ -883,7 +908,7 @@ export const createRideScene = async (
     telemetry: telemetry.buildings,
   });
   const cloudsPass = tierCaps.drawClouds
-    ? createCloudsPass({ device, format, frameUniforms })
+    ? createCloudsPass({ device, format, frameUniforms, lightingUniforms })
     : null;
   // #574 rain overlay: on only when the tier allows it AND the dev has
   // flipped `window.__VIRTUALROW_RAIN=true` (so a mobile ride isn't
@@ -934,7 +959,7 @@ export const createRideScene = async (
 
   const passes: Pass[] = [
     shadowStage,
-    createSkyPass({ device, format, frameUniforms }),
+    createSkyPass({ device, format, frameUniforms, lightingUniforms }),
     ...(cloudsPass ? [cloudsPass] : []),
     bankPass,
     buildingsPass,
@@ -974,8 +999,40 @@ export const createRideScene = async (
   // fog, and a narrower one pulls the curtain in. Scales both density terms by
   // one factor; medium/undefined leaves the baseline untouched.
   const fogScale = fogDistanceScaleFor(opts.distanceTier ?? opts.tier);
-  frame.fog[0] *= fogScale;
-  frame.fog[1] *= fogScale;
+  const baseFogNear = frame.fog[0];
+  const baseFogFar = frame.fog[1];
+  frame.fog[0] = baseFogNear * fogScale;
+  frame.fog[1] = baseFogFar * fogScale;
+
+  // #730 VP-12 — the rower's conditions. One function writes everything a
+  // condition touches, at attach and on every live switch: the sun (which
+  // the shadow cascades read from `frame.sunDir` each frame, FR3), the fog
+  // density, the lighting block the sky / clouds / water / bank read, the
+  // post-fx exposure, and the `__ROWER3D_CONDITIONS` telemetry (FR5).
+  const lightingScratch = new Float32Array(32);
+  const applyLighting = (l: FrameLighting): void => {
+    frame.sunDir[0] = l.sunDir[0];
+    frame.sunDir[1] = l.sunDir[1];
+    frame.sunDir[2] = l.sunDir[2];
+    frame.fog[0] = baseFogNear * fogScale * l.fogDensityScale;
+    frame.fog[1] = baseFogFar * fogScale * l.fogDensityScale;
+    packFrameLighting(l, lightingScratch);
+    device.queue.writeBuffer(lightingUniforms, 0, lightingScratch as BufferSource);
+    postFx.setExposureBias(l.exposureBias);
+    const t = telemetry.conditions;
+    t.name = l.name;
+    t.sunElevationDeg = l.sunElevationDeg;
+    t.sunAzimuthDeg = l.sunAzimuthDeg;
+    t.sunDir = [...l.sunDir];
+    t.sunDisc = l.sunDisc;
+    t.cloudCover = l.cloudCover;
+    t.shadowStrength = l.shadowStrength;
+    t.exposureBias = l.exposureBias;
+    t.fogDensityScale = l.fogDensityScale;
+    t.skyZenith = [...l.skyZenith];
+    t.skyHorizon = [...l.skyHorizonCool];
+  };
+  applyLighting(conditionsToFrameLighting(opts.conditions));
 
   const routeCurve = waterCurve;
   const curveLength = routeCurve.approximateLength(32);
@@ -1662,6 +1719,20 @@ export const createRideScene = async (
   try {
     (globalThis as unknown as Record<string, unknown>)[SET_APPEARANCE_KEY] = setAppearance;
   } catch { /* non-browser (SSR) — the shell never calls it there anyway */ }
+
+  const setConditions = (conditions: unknown): void => {
+    if (disposed || !isLightingConditions(conditions)) return;
+    applyLighting(conditionsToFrameLighting(conditions));
+    telemetry.conditions.updates += 1;
+  };
+  // #730 — the same seam for specs that switch conditions mid-row. The
+  // shell goes through `RideRenderer.setConditions`; this is for tests.
+  const SET_CONDITIONS_KEY = '__ROWER3D_SET_CONDITIONS' as const;
+  if (opts.testMode) {
+    try {
+      (globalThis as unknown as Record<string, unknown>)[SET_CONDITIONS_KEY] = setConditions;
+    } catch { /* non-browser */ }
+  }
   // Reference so a build-time dead-code pass doesn't drop the helper:
   void flatPrimitiveColors;
 
@@ -1669,6 +1740,7 @@ export const createRideScene = async (
     device,
     frameOnce,
     setAppearance,
+    setConditions,
     dispose() {
       if (disposed) return;
       disposed = true;
@@ -1681,12 +1753,14 @@ export const createRideScene = async (
       sceneTexture.destroy();
       depthTexture.destroy();
       frameUniforms.destroy();
+      lightingUniforms.destroy();
       shadowUniformsBuf.destroy();
       sproutUniforms.destroy();
       atlasHandle?.texture.dispose();
       atlas.dispose();
       try {
         delete (globalThis as unknown as Record<string, unknown>)[SET_APPEARANCE_KEY];
+        delete (globalThis as unknown as Record<string, unknown>)[SET_CONDITIONS_KEY];
       } catch { /* non-browser */ }
       clearPolygonWaterTelemetry();
       session.dispose();

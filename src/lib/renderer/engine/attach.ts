@@ -28,6 +28,7 @@ import {
   type RideSceneHandle,
   type SceneryRoute,
 } from './rideScene';
+import { isLightingConditions } from '../plan/conditionsLighting';
 import {
   createTelemetry,
   publishBanner,
@@ -48,6 +49,13 @@ export interface RideRenderer {
    * plan layer in. Optional so a lightweight test fake can skip it.
    */
   setAppearance?(palette: unknown): void;
+  /**
+   * #730 VP-12 — relight the active scene for the rower's conditions
+   * (`dawn` | `midday` | `golden` | `overcast` | `dusk`). Takes effect on
+   * the next frame, with no reattach; survives a device-lost rebuild. An
+   * unknown value is ignored. Optional so a test fake can skip it.
+   */
+  setConditions?(conditions: unknown): void;
 }
 
 export { isSceneryRoute, type SceneryRoute };
@@ -107,6 +115,11 @@ export type RideAttachOpts = {
    * callers hand it through as-is.
    */
   appearance?: unknown;
+  /**
+   * #730 VP-12 — the resolved conditions the shell's picker chose. Omitted
+   * = the engine default (today's Midday frame).
+   */
+  conditions?: string;
 };
 
 export type RideAttach = (
@@ -118,6 +131,7 @@ const PLAYWRIGHT_TESTING_KEY = '__PLAYWRIGHT_TESTING' as const;
 const FORCE_LOST_KEY = '__ROWER3D_FORCE_DEVICE_LOST' as const;
 
 export const attach: RideAttach = async (canvas, opts = {}) => {
+  let currentConditions: unknown = opts.conditions;
   const telemetry = createTelemetry(() => void frameOnce());
   canvas.setAttribute('data-backend', 'webgpu');
 
@@ -268,7 +282,9 @@ export const attach: RideAttach = async (canvas, opts = {}) => {
     // seam type stays framework-free; the scene types it as `CrewPalette`.
     // The cast lives here, at the one call site, instead of in every
     // smoke page that passes a palette through.
-    const sceneOpts = opts as unknown as Parameters<typeof createRideScene>[3];
+    // #730: a device-lost rebuild relights with the latest conditions, not
+    // the ones the ride started with.
+    const sceneOpts = { ...opts, conditions: currentConditions } as unknown as Parameters<typeof createRideScene>[3];
     const handle = await createRideScene(canvas, session.state.device, telemetry, sceneOpts, session);
     return handle;
   };
@@ -305,6 +321,11 @@ export const attach: RideAttach = async (canvas, opts = {}) => {
     _telemetry: telemetry,
     get _liveDevice() {
       return scene?.device;
+    },
+    setConditions(conditions) {
+      if (typeof conditions !== 'string') return;
+      scene?.setConditions(conditions);
+      if (isLightingConditions(conditions)) currentConditions = conditions;
     },
     setAppearance(palette) {
       // No-op when the scene is gone (dispose, device-lost second strike)
