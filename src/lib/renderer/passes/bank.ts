@@ -2,7 +2,13 @@
 
 import type { FrameContext, Pass } from '../engine/frameGraph';
 import type { RouteCurve } from '../math/curve';
-import { SAMPLE_SHADOW_WGSL, SHADOW_UNIFORMS_WGSL } from '../engine/shaderSnippets';
+import {
+  HORIZON_BLEND,
+  HORIZON_HAZE_WGSL,
+  SAMPLE_SHADOW_WGSL,
+  SHADOW_UNIFORMS_WGSL,
+} from '../engine/shaderSnippets';
+import { buildGroundPlane } from '../plan/groundPlane';
 import { buildBankStrips } from '../plan/bankStrip';
 import type { WaterEdges } from '../plan/waterStrip';
 import { paintBiomeDensityR8 } from '../../scenery/biomeDensity';
@@ -40,6 +46,27 @@ export interface BankPassOptions {
   grass?: BankGrassConfig;
 }
 
+const srgbToLinear = (v: number): number => {
+  const c = v / 255;
+  return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+};
+
+/**
+ * Mean colour of the grass (left) half of the bank atlas, in linear space,
+ * which is what the `-srgb` texture format hands the shader.
+ */
+export const meanLinearGrass = (pixels: Uint8Array): [number, number, number] => {
+  let r = 0, g = 0, b = 0, n = 0;
+  for (let y = 0; y < BANK_ATLAS_SIZE; y++) {
+    for (let x = 0; x < BANK_ATLAS_SIZE / 2; x++) {
+      const i = (y * BANK_ATLAS_SIZE + x) * 4;
+      r += srgbToLinear(pixels[i]); g += srgbToLinear(pixels[i + 1]); b += srgbToLinear(pixels[i + 2]);
+      n++;
+    }
+  }
+  return [r / n, g / n, b / n];
+};
+
 export const createBankPass = ({
   device,
   format,
@@ -49,7 +76,7 @@ export const createBankPass = ({
   edgesForProgress,
   grass,
 }: BankPassOptions): Pass => {
-  const code = SHADOW_UNIFORMS_WGSL + SAMPLE_SHADOW_WGSL + bankWgsl;
+  const code = SHADOW_UNIFORMS_WGSL + SAMPLE_SHADOW_WGSL + HORIZON_HAZE_WGSL + bankWgsl;
   const module = device.createShaderModule({ label: 'bank', code });
   const pipeline = device.createRenderPipeline({
     label: 'bank',
@@ -71,11 +98,37 @@ export const createBankPass = ({
         },
       ],
     },
-    fragment: { module, entryPoint: 'fs_main', targets: [{ format }] },
+    fragment: { module, entryPoint: 'fs_main', targets: [{ format, blend: HORIZON_BLEND }] },
     primitive: { topology: 'triangle-list', cullMode: 'none' },
     depthStencil: {
       depthWriteEnabled: true,
       depthCompare: 'less',
+      format: 'depth32float',
+    },
+  });
+  // The land beyond the strips (`plan/groundPlane.ts`). Same shader module
+  // and the same three bind groups, so its colour matches the strips where
+  // they meet. No depth write and no depth test: it is drawn first, straight
+  // over the sky, and everything else draws over it. That rules out
+  // z-fighting with the water 0.1 m below it at any distance.
+  const groundPipeline = device.createRenderPipeline({
+    label: 'bank-ground',
+    layout: 'auto',
+    vertex: {
+      module,
+      entryPoint: 'vs_ground',
+      buffers: [
+        {
+          arrayStride: 12,
+          attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }],
+        },
+      ],
+    },
+    fragment: { module, entryPoint: 'fs_main', targets: [{ format, blend: HORIZON_BLEND }] },
+    primitive: { topology: 'triangle-list', cullMode: 'none' },
+    depthStencil: {
+      depthWriteEnabled: false,
+      depthCompare: 'always',
       format: 'depth32float',
     },
   });
@@ -124,18 +177,21 @@ export const createBankPass = ({
   });
   const grassUniforms = device.createBuffer({
     label: 'bank-grass-uniforms',
-    size: 16,
+    size: 32,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
-  device.queue.writeBuffer(
-    grassUniforms,
-    0,
-    new Float32Array([grassStrength, grassTileMetres, 0, 0]),
-  );
   // #591-fu P0b: shared grass+earth albedo atlas (left half grass, right
   // half earth). One tile per pass, `rgba8unorm-srgb`. Sampled twice in the
   // fragment and mixed by shore distance.
   const bankAtlasPixels = paintBankAtlas();
+  // strength, tileMetres, pad, pad, then the grass half's linear-space mean
+  // (the far ground's stand-in for the tile, which has no mips).
+  const grassMean = meanLinearGrass(bankAtlasPixels);
+  device.queue.writeBuffer(
+    grassUniforms,
+    0,
+    new Float32Array([grassStrength, grassTileMetres, 0, 0, grassMean[0], grassMean[1], grassMean[2], 0]),
+  );
   const bankAtlasTexture = device.createTexture({
     label: 'bank-atlas',
     size: { width: BANK_ATLAS_SIZE, height: BANK_ATLAS_SIZE },
@@ -159,6 +215,47 @@ export const createBankPass = ({
   const grassBindGroup = device.createBindGroup({
     label: 'bank-grass',
     layout: pipeline.getBindGroupLayout(2),
+    entries: [
+      { binding: 0, resource: { buffer: grassUniforms } },
+      { binding: 1, resource: grassTexture.createView() },
+      { binding: 2, resource: grassSampler },
+      { binding: 3, resource: bankAtlasTexture.createView() },
+      { binding: 4, resource: bankAtlasSampler },
+    ],
+  });
+
+  const ground = buildGroundPlane();
+  const groundPositionBuffer = device.createBuffer({
+    label: 'bank-ground-pos',
+    size: ground.positions.byteLength,
+    usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+  });
+  device.queue.writeBuffer(groundPositionBuffer, 0, ground.positions as BufferSource);
+  const groundIndexBuffer = device.createBuffer({
+    label: 'bank-ground-idx',
+    // Index buffers are sized in multiples of 4 bytes.
+    size: Math.ceil(ground.indices.byteLength / 4) * 4,
+    usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+  });
+  device.queue.writeBuffer(groundIndexBuffer, 0, ground.indices as BufferSource);
+  // `layout: 'auto'` gives each pipeline its own layouts, so the ground
+  // pipeline needs bind groups made from its own.
+  const groundBindGroup = device.createBindGroup({
+    layout: groundPipeline.getBindGroupLayout(0),
+    entries: [{ binding: 0, resource: { buffer: frameUniforms } }],
+  });
+  const groundShadowBindGroup = device.createBindGroup({
+    label: 'bank-ground-shadow',
+    layout: groundPipeline.getBindGroupLayout(1),
+    entries: [
+      { binding: 0, resource: { buffer: shadow.uniforms } },
+      { binding: 1, resource: shadow.atlasView },
+      { binding: 2, resource: shadow.cmpSampler },
+    ],
+  });
+  const groundGrassBindGroup = device.createBindGroup({
+    label: 'bank-ground-grass',
+    layout: groundPipeline.getBindGroupLayout(2),
     entries: [
       { binding: 0, resource: { buffer: grassUniforms } },
       { binding: 1, resource: grassTexture.createView() },
@@ -208,6 +305,14 @@ export const createBankPass = ({
           depthStoreOp: 'store',
         },
       });
+      pass.setPipeline(groundPipeline);
+      pass.setBindGroup(0, groundBindGroup);
+      pass.setBindGroup(1, groundShadowBindGroup);
+      pass.setBindGroup(2, groundGrassBindGroup);
+      pass.setVertexBuffer(0, groundPositionBuffer);
+      pass.setIndexBuffer(groundIndexBuffer, 'uint16');
+      pass.drawIndexed(ground.indices.length);
+
       pass.setPipeline(pipeline);
       pass.setBindGroup(0, bindGroup);
       pass.setBindGroup(1, shadowBindGroup);
@@ -222,6 +327,8 @@ export const createBankPass = ({
       if (disposed) return;
       disposed = true;
       positionBuffer.destroy();
+      groundPositionBuffer.destroy();
+      groundIndexBuffer.destroy();
       sideBuffer.destroy();
       indexBuffer.destroy();
       grassTexture.destroy();

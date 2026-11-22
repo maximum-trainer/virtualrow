@@ -59,5 +59,8 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   let lit = sampleShadow(in.worldPos, in.viewZ);
   // Water takes a lighter shadow — only the reflection dims.
   let shaded = col * (0.75 + 0.25 * lit);
-  return vec4<f32>(shaded, 1.0);
+  // Dissolve into the sky at the horizon in step with the land
+  // (HORIZON_HAZE_WGSL), so distant water is not left as a hard blue line.
+  let camDist = length(in.worldPos.xz - frame.camPos.xz);
+  return vec4<f32>(shaded, horizonAlpha(camDist));
 }

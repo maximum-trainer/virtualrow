@@ -2,7 +2,12 @@
 
 import type { FrameContext, Pass } from '../engine/frameGraph';
 import type { RouteCurve } from '../math/curve';
-import { SAMPLE_SHADOW_WGSL, SHADOW_UNIFORMS_WGSL } from '../engine/shaderSnippets';
+import {
+  HORIZON_BLEND,
+  HORIZON_HAZE_WGSL,
+  SAMPLE_SHADOW_WGSL,
+  SHADOW_UNIFORMS_WGSL,
+} from '../engine/shaderSnippets';
 import { buildWaterStrip, type WaterEdges } from '../plan/waterStrip';
 import waterWgsl from './water.wgsl?raw';
 
@@ -32,7 +37,7 @@ export const createWaterPass = ({
   curve = null,
   edgesForProgress,
 }: WaterPassOptions): Pass => {
-  const code = SHADOW_UNIFORMS_WGSL + SAMPLE_SHADOW_WGSL + waterWgsl;
+  const code = SHADOW_UNIFORMS_WGSL + SAMPLE_SHADOW_WGSL + HORIZON_HAZE_WGSL + waterWgsl;
   const module = device.createShaderModule({ label: 'water', code });
   const pipeline = device.createRenderPipeline({
     label: 'water',
@@ -47,7 +52,7 @@ export const createWaterPass = ({
         },
       ],
     },
-    fragment: { module, entryPoint: 'fs_main', targets: [{ format }] },
+    fragment: { module, entryPoint: 'fs_main', targets: [{ format, blend: HORIZON_BLEND }] },
     primitive: { topology: 'triangle-list', cullMode: 'none' },
     depthStencil: {
       depthWriteEnabled: true,

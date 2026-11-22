@@ -17,6 +17,7 @@
 
 /// <reference types="@webgpu/types" />
 
+import { CAMERA_FAR_M, CAMERA_NEAR_M } from './cameraRange';
 import {
   mat4,
   mat4Identity,
@@ -1493,7 +1494,7 @@ export const createRideScene = async (
     const target = cameraRig.lookAt;
     const up = vec3(0, 1, 0);
     mat4LookAt(frame.view, eye, target, up);
-    mat4Perspective(frame.proj, (cameraRig.fov * Math.PI) / 180, width / height, 0.1, 2000);
+    mat4Perspective(frame.proj, (cameraRig.fov * Math.PI) / 180, width / height, CAMERA_NEAR_M, CAMERA_FAR_M);
     mat4Multiply(frame.viewProj, frame.proj, frame.view);
     frame.camPos[0] = eye[0];
     frame.camPos[1] = eye[1];

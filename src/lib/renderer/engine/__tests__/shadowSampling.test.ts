@@ -47,4 +47,12 @@ describe('shared shadow snippet', () => {
     expect(SHADOW_UNIFORMS_WGSL).toContain('sampler_comparison');
     expect(SHADOW_UNIFORMS_WGSL).toContain('texture_depth_2d');
   });
+
+  // WebGPU writes clip z straight to the depth buffer (no GL-style
+  // `z * 0.5 + 0.5` remap), so the reference depth must be `proj.z` itself.
+  it('compares against clip z directly, in WebGPU depth range', () => {
+    expect(SAMPLE_SHADOW_WGSL).toMatch(/let refDepth = proj\.z - /);
+    expect(SAMPLE_SHADOW_WGSL).not.toContain('proj.z * 0.5 + 0.5');
+    expect(SAMPLE_SHADOW_WGSL).toContain('proj.z < 0.0 || proj.z > 1.0');
+  });
 });
