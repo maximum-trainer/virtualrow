@@ -121,3 +121,6 @@ screenshots/webgpu-rower/t160.png
 screenshots/webgpu-rower/t200.png
 screenshots/webgpu-rower/t240.png
 scripts/screenshot-webgpu-rower.mjs
+
+# Cloudflare Wrangler local state
+.wrangler/

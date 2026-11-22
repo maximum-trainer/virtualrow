@@ -11,6 +11,24 @@ export const OPEN_TOPO_DATA_BATCH_LIMIT = 100;
 export const ROUTE_SEGMENT_LENGTH_METERS = 50;
 export const ROUTE_ENRICHMENT_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 export const OPEN_TOPO_DATA_URL = 'https://api.opentopodata.org/v1/srtm30m';
+
+/**
+ * Where elevation requests go.
+ *
+ * The public endpoint above sends no CORS headers, so a browser can make the
+ * request but never read the answer (#741). `workers/geo-proxy` is a
+ * Cloudflare Worker that mirrors the same path behind CORS and an edge cache;
+ * when its base URL is supplied at build time as `VITE_GEO_PROXY_URL` the app
+ * uses it, and otherwise behaves exactly as before (#762 D1).
+ *
+ * Anything that is not https (or http on localhost, for `wrangler dev`) is
+ * ignored rather than trusted.
+ */
+export const resolveElevationUrl = (proxyBase: string | undefined): string => {
+  const base = (proxyBase ?? '').trim().replace(/\/+$/, '');
+  if (!/^(https:\/\/|http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$)/.test(base)) return OPEN_TOPO_DATA_URL;
+  return `${base}/v1/srtm30m`;
+};
 import { findCrossings, type Crossing } from '../utils/bridgeCrossings';
 import { mapOsmTagsToSceneryProfile } from '../utils/sceneryFromTags';
 import { SHORE_RAY_LIMIT_METERS, type DetectedSample } from '../utils/shoreDetection';
@@ -1411,7 +1429,7 @@ export class RouteEnrichmentService {
         .map((coordinate) => `${coordinate.lat},${coordinate.lng}`)
         .join('|');
       const response = await this.fetchImpl(
-        `${OPEN_TOPO_DATA_URL}?locations=${encodeURIComponent(locations)}`,
+        `${resolveElevationUrl(import.meta.env.VITE_GEO_PROXY_URL as string | undefined)}?locations=${encodeURIComponent(locations)}`,
       );
       if (!response.ok) {
         throw new Error(`OpenTopoData request failed with HTTP ${response.status}`);

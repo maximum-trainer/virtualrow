@@ -101,6 +101,10 @@ jobs:
           # a build without these two secrets ships green and silent.
           VITE_CRASH_REPORT_ENDPOINT: ${{ secrets.CRASH_REPORT_ENDPOINT }}
           VITE_CRASH_REPORT_TOKEN: ${{ secrets.CRASH_REPORT_TOKEN }}
+          # #762 D1: base URL of the deployed `workers/geo-proxy` Worker, as a
+          # repository *variable* (it is not a secret). Unset -> the app asks
+          # OpenTopoData directly, which browsers cannot read (#741).
+          VITE_GEO_PROXY_URL: ${{ vars.GEO_PROXY_URL }}
 
       - name: Copy app build into docs/app/
         run: |

@@ -1,0 +1,8 @@
+#:schema node_modules/wrangler/config-schema.json
+# Cloudflare Worker that proxies OpenTopoData for virtualrow (#762, #741).
+# No bindings and no secrets: the upstream is a public, key-less API. The
+# Cloudflare API token that deploys this lives outside the repo.
+name = "virtualrow-geo-proxy"
+main = "src/worker.ts"
+compatibility_date = "2026-11-01"
+workers_dev = true
