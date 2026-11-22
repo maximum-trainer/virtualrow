@@ -1,3 +1,6 @@
+import type { WaterBodyType } from './routeEnrichmentService';
+import { waterBodyFromName } from '../utils/waterBodyFromName';
+import { OsmWaterwayPathProvider } from './osmWaterwayPathProvider';
 import type { WaterRoute } from '../types/index';
 import { routeService, type RownativeRouteImportData } from './routeService';
 import {
@@ -23,6 +26,9 @@ const ROWNATIVE_COURSE_BASE_URL = 'https://raw.githubusercontent.com/rownative/c
 /** Course JSON is a few kB in practice; cap well above that but below anything abusive. */
 const MAX_COURSE_BYTES = 2 * 1024 * 1024;
 /** Shape of a rownative course identifier. Exported so callers validate identically. */
+/** Water with no waterway centreline to follow (#743). */
+const OPEN_WATER_TYPES: ReadonlySet<WaterBodyType> = new Set<WaterBodyType>(['lake', 'reservoir', 'open_water']);
+
 export const ROWNATIVE_ROUTE_ID_PATTERN = /^[a-zA-Z0-9_-]{1,128}$/;
 const ROUTE_ID_PATTERN = ROWNATIVE_ROUTE_ID_PATTERN;
 const ALLOWED_ROUTE_URL_HOSTS = new Set(['rownative.icu', 'www.rownative.icu']);
@@ -78,11 +84,13 @@ export class RownativeService {
   private readonly importRoute: (data: RownativeRouteImportData) => WaterRoute;
   private readonly tracks: TrackAttachmentStore;
   /**
-   * Optional OSM waterway provider (issue #194 R-12).
+   * OSM waterway provider (issue #194 R-12, enabled by #743).
    *
-   * Left unset: the spike found a path for only 2 of 5 river courses against a
-   * "4 of 5" bar, because finish gates sit mid-estuary, far off the mapped
-   * centreline. See OsmWaterwayPathProvider for the measurements.
+   * On by default: a gates-only river course is walked along the mapped
+   * waterway instead of rowed gate to gate across the land between bends. The
+   * provider never throws and answers `null` on open water, a failed request
+   * or a doubtful match, so an import falls through to the gate chain exactly
+   * as before. Pass `null` to switch it off.
    */
   private readonly osmProvider: WaterwayPathProvider | null;
 
@@ -94,12 +102,12 @@ export class RownativeService {
     fetchImpl: typeof fetch = (input, init) => globalThis.fetch(input, init),
     importRoute: (data: RownativeRouteImportData) => WaterRoute = (data) => routeService.importRouteFromRownative(data),
     tracks: TrackAttachmentStore = trackAttachmentStore,
-    osmProvider: WaterwayPathProvider | null = null,
+    osmProvider: WaterwayPathProvider | null | undefined = undefined,
   ) {
     this.fetchImpl = fetchImpl;
     this.importRoute = importRoute;
     this.tracks = tracks;
-    this.osmProvider = osmProvider;
+    this.osmProvider = osmProvider === undefined ? new OsmWaterwayPathProvider(fetchImpl) : osmProvider;
   }
 
   private async fetchJson<T>(url: string): Promise<T> {
@@ -358,7 +366,10 @@ export class RownativeService {
       { ...detail, id: courseId, name },
       {
         attachedTrack: this.tracks.getCoordinates(courseId),
-        osmProvider: this.osmProvider,
+        // A lake has no centreline to walk, and the lookup can take half a
+        // minute on a busy day; the course name is the only water signal the
+        // mirror gives us (#413), so use it to skip the wait.
+        osmProvider: OPEN_WATER_TYPES.has(waterBodyFromName(name)) ? null : this.osmProvider,
       },
     );
 
