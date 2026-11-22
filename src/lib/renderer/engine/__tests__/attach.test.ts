@@ -316,3 +316,51 @@ describe('the boat is never behind the HUD (#733 FR3)', () => {
     }
   }
 });
+
+// #728 VP-10 FR1/FR3 — with the scull GLB loaded, the race ghost is drawn
+// from it (not the placeholder), a full 7 m lane to port, rowing at its
+// own pace-derived rate.
+describe('the race ghost rows the scull GLB (#728)', () => {
+  it('draws the ghost from the scull at its own cadence, 7 m to port', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { resolve } = await import('node:path');
+    const bytes = readFileSync(resolve(process.cwd(), 'public/assets/boat/scull-male.glb'));
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url;
+      if (url.endsWith('/scull-male.glb')) return new Response(bytes);
+      return new Response(null, { status: 404 });
+    }) as typeof fetch;
+    try {
+      const canvas = makeMockCanvas();
+      const renderer = (await attach(canvas, {
+        testMode: true,
+        getFrame: () => ({
+          paceSPer500: 120,
+          distanceMeters: 40,
+          cadence: 20,
+          isPlaying: true,
+          holdBoat: false,
+          finished: false,
+          intensityFactor: 1,
+          elapsedSeconds: 10,
+          ghost: { kind: 'pace', paceSPer500: 105 },
+        }),
+      })) as unknown as WithTest;
+      for (let i = 0; i < 10; i++) renderer._frameOnce();
+      const g = (globalThis as unknown as { window: Record<string, unknown> }).window['__ROWER3D_GHOST_METERS'] as {
+        active: boolean;
+        model: string;
+        cadenceSpm: number;
+        lane: number;
+      };
+      expect(g.active).toBe(true);
+      expect(g.model).toBe('scull');
+      expect(g.cadenceSpm).toBeCloseTo(28, 6);
+      expect(g.lane).toBe(-7);
+      renderer.dispose();
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+});

@@ -17,8 +17,17 @@ struct Frame {
 };
 
 @group(0) @binding(0) var<uniform> frame: Frame;
-// Per-instance mat4 (column-major, 4 × vec4).
-@group(1) @binding(1) var<storage, read> instances: array<mat4x4<f32>>;
+// One record per instance (96 B, `SCENERY_INSTANCE_BYTES`). `tint.rgb` is
+// the colour, `tint.a` how far the authored colour moves to it; `fx.x` is
+// the opacity, `fx.y` a fresnel rim, `fx.z` how flat (unshaded) the tint
+// is. The race ghost (#728 FR2) and the fleet's hulls (#713 D3a) set them;
+// everything else draws as authored (tint.a 0, fx.x 1).
+struct SceneryInstance {
+  model: mat4x4<f32>,
+  tint: vec4<f32>,
+  fx: vec4<f32>,
+};
+@group(1) @binding(1) var<storage, read> instances: array<SceneryInstance>;
 
 struct VsIn {
   @location(0) position: vec3<f32>,
@@ -31,11 +40,13 @@ struct VsOut {
   @location(0) worldNormal: vec3<f32>,
   @location(1) worldDist: f32,
   @location(2) color: vec4<f32>,
+  @location(3) toCamera: vec3<f32>,
+  @location(4) @interpolate(flat) instance: u32,
 };
 
 @vertex
 fn vs_main(in: VsIn, @builtin(instance_index) ii: u32) -> VsOut {
-  let model = instances[ii];
+  let model = instances[ii].model;
   let world = model * vec4<f32>(in.position, 1.0);
   let n = (model * vec4<f32>(in.normal, 0.0)).xyz;
 
@@ -45,6 +56,8 @@ fn vs_main(in: VsIn, @builtin(instance_index) ii: u32) -> VsOut {
   let d = world.xyz - frame.camPos;
   out.worldDist = length(vec3<f32>(d.x, 0.0, d.z));
   out.color = in.color;
+  out.toCamera = frame.camPos - world.xyz;
+  out.instance = ii;
   return out;
 }
 
@@ -61,7 +74,18 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   let sky = clamp(n.y * 0.5 + 0.5, 0.0, 1.0);
   let ambient = mix(vec3<f32>(0.22, 0.20, 0.18), vec3<f32>(0.42, 0.46, 0.52), sky);
   let shade = ambient + halfLambert * halfLambert * 0.75;
-  let col = in.color.rgb * shade;
+  let inst = instances[in.instance];
+  let lit = in.color.rgb * shade;
+  // #728 FR2 / #713 D3a — per-instance tint. `flat` holds the tint's
+  // brightness whatever the light, so the ghost reads the same at dusk
+  // as at midday.
+  let tinted = mix(inst.tint.rgb * shade, inst.tint.rgb, inst.fx.z);
+  var col = mix(lit, tinted, inst.tint.a);
+  if (inst.fx.y > 0.0) {
+    let v = normalize(in.toCamera);
+    let fresnel = pow(1.0 - clamp(abs(dot(n, v)), 0.0, 1.0), 2.0);
+    col = col + vec3<f32>(1.0, 1.0, 1.0) * fresnel * inst.fx.y;
+  }
   // Fog with the frame's exponential density, but capped at a modest
   // atmospheric-haze ceiling. The baseline fog `[0.001, 0.0005]` reaches
   // `f ≈ 0.84` at 60 m, and `fogCol` is a pale blue-grey `(0.72, 0.78, 0.82)`,
@@ -73,5 +97,5 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   let density = frame.fog.x + frame.fog.y * in.worldDist;
   let f = clamp(1.0 - exp(-density * in.worldDist), 0.0, 1.0);
   let fogCol = vec3<f32>(0.72, 0.78, 0.82);
-  return vec4<f32>(mix(col, fogCol, min(f, 0.35)), in.color.a);
+  return vec4<f32>(mix(col, fogCol, min(f, 0.35)), in.color.a * inst.fx.x);
 }

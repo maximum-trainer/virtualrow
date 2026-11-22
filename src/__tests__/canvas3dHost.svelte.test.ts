@@ -250,4 +250,38 @@ describe('Canvas3DHost', () => {
       expect(setViewportInsets).toHaveBeenLastCalledWith(next);
     });
   });
+
+  // #728 VP-10 FR2 — a marker over the race ghost once it is more than 30 m
+  // away. The engine says where; the host draws it.
+  describe('ghost marker', () => {
+    const flush = async (): Promise<void> => {
+      for (let i = 0; i < 4; i++) await Promise.resolve();
+    };
+    type Marker = { x: number; y: number; meters: number; ahead: boolean } | null;
+
+    it('draws the marker the engine reports, with the gap, and hides it on null', async () => {
+      let report: ((m: Marker) => void) | undefined;
+      const attach = vi.fn<RideAttach>((_c, o) => {
+        report = (o as { onGhostMarker?: (m: Marker) => void } | undefined)?.onGhostMarker;
+        return { dispose: vi.fn() };
+      });
+      const { container } = render(Canvas3DHost, { attach });
+      await flush();
+      expect(report).toBeTypeOf('function');
+      expect(container.querySelector('.ghost-marker')).toBeNull();
+
+      report!({ x: 320, y: 140, meters: 52, ahead: true });
+      await flush();
+      const el = container.querySelector('.ghost-marker') as HTMLElement;
+      expect(el).not.toBeNull();
+      expect(el.style.left).toBe('320px');
+      expect(el.style.top).toBe('140px');
+      expect(el.textContent).toContain('52 m');
+      expect(el.dataset.ahead).toBe('true');
+
+      report!(null);
+      await flush();
+      expect(container.querySelector('.ghost-marker')).toBeNull();
+    });
+  });
 });

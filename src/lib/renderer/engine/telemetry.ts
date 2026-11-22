@@ -220,6 +220,17 @@ export interface Rower3DCrew {
 export interface Rower3DGhostMetersHandle {
   value: number;
   active: boolean;
+  /** #728 FR1 — what the ghost is drawn with this frame. */
+  model?: 'scull' | 'placeholder' | 'none';
+  /** #728 FR1 — the ghost's own stroke rate while it rows, else 0. */
+  cadenceSpm?: number;
+  strokePhase?: number;
+  /** #728 FR3 — the ghost's lateral offset, metres (negative = port). */
+  lane?: number;
+  /** #728 FR2 — the marker over a ghost more than 30 m away, or null. */
+  marker?: { x: number; y: number; meters: number; ahead: boolean } | null;
+  /** #728 FR2 — the ghost's CSS-px box on the canvas, or null. */
+  screenBounds?: { left: number; top: number; right: number; bottom: number } | null;
 }
 
 /**

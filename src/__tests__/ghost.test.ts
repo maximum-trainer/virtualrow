@@ -10,6 +10,8 @@ import {
   bestRowOnRoute,
   followClock,
   GHOST_LANE_OFFSET_M,
+  cadenceForPace,
+  ghostStroke,
   type GhostSource,
 } from '../components/rower3d/ghost';
 import type { ActivitySample, WorkoutSession } from '../lib/types/index';
@@ -326,5 +328,49 @@ describe('following the row’s clock', () => {
   // (#295); the ghost must not teleport through the finish because of one.
   it('does not let a long frame throw the ghost down the course', () => {
     expect(followClock(10, 10, 5, true)).toBeCloseTo(10.25, 6);
+  });
+});
+
+/**
+ * #728 VP-10 FR1 — the ghost rows: its oars sweep at a cadence of its own,
+ * derived from its pace, or the cadence a recorded row actually logged.
+ */
+describe('the ghost\'s stroke', () => {
+  it('maps a pace to a plausible rate: faster pace, higher rate', () => {
+    expect(cadenceForPace(120)).toBeCloseTo(24, 6);
+    expect(cadenceForPace(105)).toBeGreaterThan(cadenceForPace(120));
+    expect(cadenceForPace(150)).toBeLessThan(cadenceForPace(120));
+    expect(cadenceForPace(300)).toBe(18);
+    expect(cadenceForPace(60)).toBe(36);
+    expect(cadenceForPace(0)).toBe(0);
+    expect(cadenceForPace(Number.NaN)).toBe(0);
+  });
+
+  it('rows a pace boat at its pace-derived rate once the clock runs', () => {
+    expect(ghostStroke(paceGhost(120), 30)).toEqual({ rowing: true, cadence: 24 });
+    expect(ghostStroke(paceGhost(120), 0).rowing).toBe(false);
+  });
+
+  it('rows a recorded boat at the cadence that row logged', () => {
+    const samples: ActivitySample[] = [
+      { t: 0, distance: 0, cadence: 30 },
+      { t: 10, distance: 45, cadence: 26 },
+      { t: 20, distance: 90, cadence: 22 },
+    ];
+    const ghost = recordedGhost(samples);
+    expect(ghostStroke(ghost, 5)).toEqual({ rowing: true, cadence: 30 });
+    expect(ghostStroke(ghost, 15)).toEqual({ rowing: true, cadence: 26 });
+  });
+
+  it('falls back to the recorded pace when the row logged no cadence', () => {
+    // 50 m in 12 s is 2:00/500 m.
+    const ghost = recordedGhost(recorded([0, 50, 100], [0, 12, 24]));
+    expect(ghostStroke(ghost, 6).cadence).toBeCloseTo(24, 6);
+  });
+
+  it('stops rowing when the recorded row ends, and while that row was paused', () => {
+    const ghost = recordedGhost(recorded([0, 50, 50, 100], [0, 12, 40, 52]));
+    expect(ghostStroke(ghost, 60).rowing).toBe(false);
+    expect(ghostStroke(ghost, 20).rowing).toBe(false);
   });
 });

@@ -1,6 +1,7 @@
 /// <reference types="@webgpu/types" />
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import { createSceneryMeshPass, type SceneryMeshInput } from '../sceneryMesh';
+import { createSceneryMeshPass, SCENERY_INSTANCE_BYTES, type SceneryMeshInput } from '../sceneryMesh';
+import sceneryMeshDepthWgsl from '../sceneryMeshDepth.wgsl?raw';
 import sceneryMeshWgsl from '../sceneryMesh.wgsl?raw';
 import { mat4, mat4Identity } from '../../math/mat4';
 
@@ -292,5 +293,100 @@ describe('createSceneryMeshPass', () => {
     const beginRenderPass = vi.fn();
     p.encode({ encoder: { beginRenderPass } } as unknown as Parameters<typeof p.encode>[0]);
     expect(beginRenderPass).not.toHaveBeenCalled();
+  });
+
+  // #728 VP-10 FR1/FR2 and #713 D3a: the ghost and the fleet draw the
+  // player's scull GLB as further instances of the same primitives, each
+  // with its own tint, opacity and rim.
+  describe('per-instance style (#728, #713 D3a)', () => {
+    const writes = (queue: GPUQueue) =>
+      (queue.writeBuffer as unknown as { mock: { calls: [GPUBuffer, number, Float32Array][] } }).mock.calls;
+    const encode = (p: ReturnType<typeof createSceneryMeshPass>) => {
+      const m = makePass();
+      p.encode({
+        encoder: { beginRenderPass: vi.fn(() => m.pass) },
+        swapView: {},
+        depthView: {},
+      } as unknown as Parameters<typeof p.encode>[0]);
+      return m;
+    };
+
+    it('packs a model, a tint and an effect vec4 per instance (96 B)', () => {
+      expect(SCENERY_INSTANCE_BYTES).toBe(96);
+      const { device, queue } = makeDevice();
+      const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+      p.register(makeInput({ id: 'hull', maxInstances: 2 }));
+      // The pass reuses one scratch array, so keep a copy of each write.
+      const copies: Float32Array[] = [];
+      (queue.writeBuffer as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+        (_b: GPUBuffer, _o: number, data: Float32Array) => { copies.push(Float32Array.from(data)); },
+      );
+      const before = writes(queue).length;
+      p.setInstances('hull', [
+        mat4Identity(mat4()),
+        { model: mat4Identity(mat4()), tint: [0.6, 1, 0.3, 1], alpha: 0.6, rim: 0.8, flat: 1 },
+      ]);
+      const w = writes(queue).slice(before);
+      expect(w).toHaveLength(2);
+      expect(w[0][1]).toBe(0);
+      expect(w[1][1]).toBe(SCENERY_INSTANCE_BYTES);
+      // An unstyled instance keeps its authored colour, fully opaque.
+      expect(Array.from(copies[0].slice(16, 24))).toEqual([0, 0, 0, 0, 1, 0, 0, 0]);
+      expect(Array.from(copies[1].slice(16, 24)).map((v) => Number(v.toFixed(3)))).toEqual([0.6, 1, 0.3, 1, 0.6, 0.8, 1, 0]);
+    });
+
+    it('draws opaque instances first and translucent ones after, with their own pipeline', () => {
+      const { device } = makeDevice();
+      const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+      p.register(makeInput({ id: 'hull', maxInstances: 4 }));
+      p.register(makeInput({ id: 'oar', maxInstances: 4 }));
+      const ghost = { model: mat4Identity(mat4()), tint: [0.6, 1, 0.3, 1] as const, alpha: 0.6 };
+      p.setInstances('hull', [mat4Identity(mat4()), ghost, mat4Identity(mat4()), mat4Identity(mat4())]);
+      p.setInstances('oar', [mat4Identity(mat4()), ghost]);
+      const { drawIndexed, setPipeline } = encode(p);
+      // [indexCount, instanceCount, firstIndex, baseVertex, firstInstance]
+      const calls = drawIndexed.mock.calls.map((c) => [c[1], c[4] ?? 0]);
+      expect(calls).toEqual([
+        [1, 0], [2, 2], // hull: player, then the two fleet boats
+        [1, 0], // oar: player
+        [1, 1], // hull: ghost
+        [1, 1], // oar: ghost
+      ]);
+      expect(setPipeline).toHaveBeenCalledTimes(2);
+      expect(setPipeline.mock.calls[0][0]).not.toBe(setPipeline.mock.calls[1][0]);
+    });
+
+    it('builds the translucent pipeline with alpha blending and no depth write', () => {
+      const { device } = makeDevice();
+      createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+      const descs = (device.createRenderPipeline as unknown as { mock: { calls: [GPURenderPipelineDescriptor][] } }).mock.calls.map((c) => c[0]);
+      const translucent = descs.find((d) => d.label === 'sceneryMesh-translucent');
+      expect(translucent).toBeDefined();
+      expect(translucent!.depthStencil?.depthWriteEnabled).toBe(false);
+      expect((translucent!.fragment!.targets as GPUColorTargetState[])[0].blend?.color.dstFactor).toBe('one-minus-src-alpha');
+    });
+
+    it('skips the translucent pipeline when nothing is translucent', () => {
+      const { device } = makeDevice();
+      const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+      p.register(makeInput({ id: 'hull', maxInstances: 2 }));
+      p.setInstances('hull', [mat4Identity(mat4()), { model: mat4Identity(mat4()), tint: [1, 0, 0, 1] }]);
+      const { drawIndexed, setPipeline } = encode(p);
+      expect(setPipeline).toHaveBeenCalledTimes(1);
+      expect(drawIndexed.mock.calls.map((c) => c[1])).toEqual([2]);
+    });
+
+    it('reads the same 96 B instance record in the lit and the shadow shaders', () => {
+      for (const src of [sceneryMeshWgsl, sceneryMeshDepthWgsl]) {
+        expect(src).toMatch(/struct SceneryInstance\s*\{[^}]*model:\s*mat4x4<f32>[^}]*tint:\s*vec4<f32>[^}]*fx:\s*vec4<f32>/);
+        expect(src).toMatch(/array<SceneryInstance>/);
+      }
+    });
+
+    it('applies the tint, a fresnel rim and the opacity in the lit shader', () => {
+      expect(sceneryMeshWgsl).toMatch(/mix\(\s*lit\s*,[^;]*inst\.tint/);
+      expect(sceneryMeshWgsl).toMatch(/fresnel/);
+      expect(sceneryMeshWgsl).toMatch(/inst\.fx\.x/);
+    });
   });
 });
