@@ -99,15 +99,16 @@ for (const crew of ['female', 'male'] as const) {
     page.on('pageerror', (error) => errors.push(error.message));
 
     await pinSession(page, crew);
-    await page.goto('./');
-
     // The picker reflects the pinned preference, so the storage key and the UI
-    // are known to agree rather than assumed to.
+    // are known to agree rather than assumed to. It lives on the Profile
+    // screen since #777.
+    await page.goto('./profile');
     const label = crew === 'female' ? 'Female' : 'Male';
     await expect(page.getByRole('radio', { name: label, exact: true })).toHaveAttribute(
       'aria-checked',
       'true',
     );
+    await page.goto('./');
 
     await startDemoRow(page);
 

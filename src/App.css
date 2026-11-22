@@ -79,6 +79,9 @@ body {
 .header-auth {
   margin-left: auto;
   flex-shrink: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
 }
 
 .signed-out-notice {

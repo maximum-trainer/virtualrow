@@ -271,3 +271,40 @@
 .auth-dropdown-item--signout {
   color: var(--color-error);
 }
+
+/* ── Profile entry points (#777) ── */
+.auth-dropdown-item--profile {
+  text-decoration: none;
+}
+
+.auth-profile-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  min-height: 44px;
+  min-width: 44px;
+  padding: 6px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  color: var(--color-brand-contrast);
+  font-size: 0.85rem;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.auth-profile-link:hover,
+.auth-profile-link:focus-visible {
+  border-color: rgba(255, 255, 255, 0.42);
+}
+
+.auth-profile-link:focus-visible {
+  outline: 2px solid var(--color-brand-contrast);
+  outline-offset: 2px;
+}
+
+@media (max-width: 600px) {
+  .auth-profile-link-text {
+    display: none;
+  }
+}

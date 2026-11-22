@@ -169,6 +169,7 @@
     if (path === `${base}/row` || path === `${base}/row/`) return 'workout';
     if (path === `${base}/search` || path === `${base}/search/`) return 'route-search';
     if (path === `${base}/challenges` || path === `${base}/challenges/`) return 'challenges';
+    if (path === `${base}/profile` || path === `${base}/profile/`) return 'profile';
     return 'routes';
   });
 
@@ -318,7 +319,7 @@
             ⚙︎
           </button>
         {/if}
-        <AuthButton />
+        <AuthButton profileHref={`${base}/profile`} showProfile={!isWorkoutActive} />
       </div>
     </div>
     {#if !auth.isAuthenticated}

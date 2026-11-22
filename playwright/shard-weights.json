@@ -3,6 +3,7 @@
   "seconds": {
     "default:activity-upload.spec.ts": 86,
     "default:auth.spec.ts": 20,
+    "default:profile-page.spec.ts": 25,
     "default:crash-detection.spec.ts": 31,
     "default:crash-telemetry.spec.ts": 30,
     "default:crew-model-loading.spec.ts": 69,

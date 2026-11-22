@@ -9,6 +9,15 @@
   import { RETRYABLE_AUTH_ERROR_CLASSES } from '../services/authService';
   import './AuthButton.css';
 
+  interface Props {
+    /** Where the profile page lives (#777); the layout passes `base + '/profile'`. */
+    profileHref?: string;
+    /** The profile entry points stand down during a row, as the nav does (#777 D8). */
+    showProfile?: boolean;
+  }
+
+  let { profileHref = '/profile', showProfile = true }: Props = $props();
+
   const auth = getAuth();
 
   let dropdownOpen = $state(false);
@@ -38,6 +47,12 @@
     <span>Signing in…</span>
   </div>
 {:else if !auth.isAuthenticated || !auth.user}
+  {#if showProfile}
+    <a class="auth-profile-link" href={profileHref} aria-label="Preferences">
+      <span aria-hidden="true">👤</span>
+      <span class="auth-profile-link-text">Preferences</span>
+    </a>
+  {/if}
   <div class="auth-signin-wrapper">
     <button
       type="button"
@@ -105,6 +120,16 @@
           <span class="auth-dropdown-email">{user.email}</span>
         </div>
         <hr class="auth-dropdown-divider" />
+        {#if showProfile}
+          <a
+            role="menuitem"
+            class="auth-dropdown-item auth-dropdown-item--profile"
+            href={profileHref}
+            onclick={() => (dropdownOpen = false)}
+          >
+            👤 Profile
+          </a>
+        {/if}
         <button
           type="button"
           role="menuitem"
