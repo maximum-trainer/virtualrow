@@ -15,7 +15,10 @@
  * before this rule existed).
  */
 
-import { BUOY_LANE_HALF_WIDTH_METRES } from './courseFurniture';
+/** Lane buoys sit this far either side of the centreline. Lives here, not
+ *  in `courseFurniture` (which imports this module), so loading either one
+ *  first gives the same numbers. */
+export const BUOY_LANE_HALF_WIDTH_METRES = 6.5;
 
 export const FLEET_LANE_HALF_WIDTH_METRES = BUOY_LANE_HALF_WIDTH_METRES + 1.5;
 export const CORRIDOR_SAFETY_MARGIN_METRES = 4;

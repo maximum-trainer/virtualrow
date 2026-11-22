@@ -15,7 +15,7 @@
 
 import type { RouteCurve } from '../renderer/math/curve';
 import { vec3 } from '../renderer/math/vec3';
-import { keepClearHalfWidth } from './laneClearance';
+import { BUOY_LANE_HALF_WIDTH_METRES, keepClearHalfWidth } from './laneClearance';
 import {
   BUILT_IN_FOOTPRINT_LOOKUP,
   footprintRadiusFor,
@@ -192,7 +192,7 @@ export interface FurniturePlacement {
 }
 
 /** Lane half-width for buoys: a comfortable rowing lane either side of the centreline. */
-export const BUOY_LANE_HALF_WIDTH_METRES = 6.5;
+export { BUOY_LANE_HALF_WIDTH_METRES };
 /** How far from the waterline course furniture stands on the bank. The
  *  furniture also respects its own footprint radius (#723 FR3) and the
  *  racing-line keep-clear corridor (#723 FR1); this is the extra margin
