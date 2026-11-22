@@ -4,11 +4,11 @@
   row. Finding a different route lives on the Routes screen (#219 R2).
 
   The sidebar holds the device panels (rower + heart-rate); the main panel shows
-  the selected route's map and details with the ghost / conditions / sound /
-  crew / appearance pickers and the start controls. Device connection, the
-  loaded workout and the ghost choice are cross-view, so they come from the
-  shared SessionStore; the per-row picker state (conditions / crew / appearance)
-  is page-local and persisted to localStorage. Class names, data-testids and
+  the selected route's map and details with the ghost / conditions / sound
+  pickers and the start controls; the rower's appearance lives on the Profile
+  screen (#777). Device connection, the loaded workout and the ghost choice are
+  cross-view, so they come from the shared SessionStore; the conditions choice
+  is persisted to localStorage. Class names, data-testids and
   copy are kept verbatim so the Row Playwright specs keep passing. Starting a
   session navigates to the workout route via the shell's session bridge.
 -->
@@ -29,8 +29,6 @@
   import { getDeepLink } from '$lib/ui/deepLinkContext';
   import { routeGeometrySource } from '$lib/ui/routesStore.svelte';
   import { sharedConditionsStore } from '$lib/ui/useConditions.svelte';
-  import { CrewPreferenceStore } from '$lib/ui/useCrewPreference.svelte';
-  import { RowerAppearanceStore } from '$lib/ui/useRowerAppearance.svelte';
   import { debugPreferencesStore } from '$lib/services/debugPreferencesStore';
   import BluetoothDevice from '$lib/ui/BluetoothDevice.svelte';
   import FTMSDevice from '$lib/ui/FTMSDevice.svelte';
@@ -39,7 +37,6 @@
   import GhostPicker from '$lib/ui/GhostPicker.svelte';
   import ConditionsPicker from '$lib/ui/ConditionsPicker.svelte';
   import SoundPicker from '$lib/ui/SoundPicker.svelte';
-  import RowerAppearancePicker from '$lib/ui/RowerAppearancePicker.svelte';
   import LoadTodaysWorkoutButton from '$lib/ui/LoadTodaysWorkoutButton.svelte';
   import LoopConfigPanel from '$lib/ui/LoopConfigPanel.svelte';
   import { getRideSession } from '$lib/ui/rideSessionContext';
@@ -73,12 +70,10 @@
     }
   });
 
-  // Per-row mood controls (#346 / #443 / #474): local to this screen and
-  // persisted, so they survive a navigation without being session state.
-  // #730: shared with the ride view, which hands it to the engine.
+  // Per-row mood control (#346): persisted, so it survives a navigation
+  // without being session state. #730: shared with the ride view, which hands
+  // it to the engine.
   const conditions = sharedConditionsStore();
-  const crew = new CrewPreferenceStore();
-  const rowerAppearance = new RowerAppearanceStore();
 
   const testMode = typeof window !== 'undefined' && !!window.__PLAYWRIGHT_TESTING;
   // Guests are not recorded as a real workout (App.tsx line 138).
@@ -291,16 +286,6 @@
             volume={session.soundVolume}
             onToggle={(enabled) => session.setSoundEnabled(enabled)}
             onVolume={(volume) => session.setSoundVolume(volume)}
-          />
-
-          <!-- Rower (Male / Female / Auto) and clothing / hair picker. Shown to
-               everyone: an explicit rower choice overrides the intervals.icu
-               profile's sex, Auto follows it (#672, reverses #443). -->
-          <RowerAppearancePicker
-            appearance={rowerAppearance.appearance}
-            onChange={rowerAppearance.setSlot.bind(rowerAppearance)}
-            crew={crew.preference}
-            onCrewChange={(preference) => crew.setPreference(preference)}
           />
         </div>
       </div>
