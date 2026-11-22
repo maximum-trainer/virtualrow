@@ -8,6 +8,8 @@ import {
   finishSweep,
   gripPoint,
   oarSweep,
+  rigToScull,
+  scullPartTransform,
   type Vec3,
 } from '../crewStroke';
 
@@ -140,5 +142,40 @@ describe('crew stroke rig', () => {
   it('knows where the oar pivots', () => {
     expect(OAR_RIG.gate).toEqual([0.8, 0.34, 0.5]);
     expect(OAR_RIG.droopDeg).toBe(10);
+  });
+
+  // #721 VP-03 — the rig is authored facing +Z; the GLB is turned so the
+  // rower faces the stern (-Z, bow +Z). Scull-space transforms conjugate.
+  it('rigToScull turns the rig half a turn about +Y', () => {
+    expect(rigToScull([1, 2, 3])).toEqual([-1, 2, -3]);
+  });
+
+  it.each(CREWS)('%s: on the drive the blades go sternward and the seat bowward (FR2)', (crew) => {
+    const c = catchSweep(crew);
+    const f = finishSweep(crew);
+    // The blade is the oar's outboard end: the far side of the gate from the grip.
+    for (const side of ['left', 'right'] as const) {
+      const gate = side === 'left' ? [-OAR_RIG.gate[0], OAR_RIG.gate[1], OAR_RIG.gate[2]] : OAR_RIG.gate;
+      const blade = (sweep: number): Vec3 => {
+        const g = gripPoint(crew, side, sweep);
+        return rigToScull([2 * gate[0] - g[0], g[1], 2 * gate[2] - g[2]]);
+      };
+      expect(blade(f)[2], `${side} blade`).toBeLessThan(blade(c)[2]);
+    }
+    const rig = CREW_RIGS[crew];
+    const seatAt = (sweep: number) =>
+      apply(scullPartTransform('Seat_Pan', crewStrokePose(crew, sweep))!, rigToScull(rig.pelvis));
+    const travel = seatAt(f)[2] - seatAt(c)[2];
+    expect(travel).toBeGreaterThan(0);
+    expect(travel).toBeCloseTo(crewStrokePose(crew, f).slide, 5);
+  });
+
+  it.each(CREWS)('%s: scull-space parts move scull-space joints where the rig moves rig joints', (crew) => {
+    const pose = crewStrokePose(crew, finishSweep(crew));
+    const r = CREW_RIGS[crew].left;
+    const rigElbow = apply(crewPartTransform('LeftArm_Upper', pose)!, r.elbow);
+    const scullElbow = apply(scullPartTransform('LeftArm_Upper', pose)!, rigToScull(r.elbow));
+    expect(dist(scullElbow, rigToScull(rigElbow))).toBeLessThan(1e-5);
+    expect(scullPartTransform('Hull', pose)).toBeUndefined();
   });
 });

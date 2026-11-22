@@ -82,7 +82,7 @@ import {
   BOAT_BONE_TORSO,
 } from '../plan/boatMesh';
 import { loadBoatMesh } from '../plan/boatMeshLoader';
-import { crewPartTransform, crewStrokePose, oarSweep } from '../plan/crewStroke';
+import { crewStrokePose, oarSweep, scullPartTransform } from '../plan/crewStroke';
 import {
   classifyCrewSlot,
   DEFAULT_CREW_PALETTE,
@@ -1382,7 +1382,7 @@ export const createRideScene = async (
           mat4Multiply(tmp, fromPivot, nodeAfterSwing);
           mat4Multiply(perInstance, boatTrs, tmp);
         } else {
-          const part = crewPartTransform(prim.nodeName, stroke);
+          const part = scullPartTransform(prim.nodeName, stroke);
           if (part) {
             mat4Multiply(tmp, part, prim.nodeWorld);
             mat4Multiply(perInstance, boatTrs, tmp);

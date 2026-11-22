@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseGlbJson, readGlbWorldBounds } from '../lib/utils/glbBounds';
-import { CREW_RIGS, OAR_RIG, type Vec3 } from '../lib/renderer/plan/crewStroke';
+import { CREW_RIGS, OAR_RIG, rigToScull, type Vec3 } from '../lib/renderer/plan/crewStroke';
 
 /**
  * #672 follow-up: the stroke rig in `crewStroke.ts` hardcodes the joints from
@@ -14,10 +14,15 @@ import { CREW_RIGS, OAR_RIG, type Vec3 } from '../lib/renderer/plan/crewStroke';
 const GLB = { male: 'scull-male.glb', female: 'scull-female.glb' } as const;
 const boat = (file: string) => fs.readFileSync(path.join(process.cwd(), 'public/assets/boat', file));
 
-/** True when `p` lies in the named node's world box grown by `pad` metres. */
-const near = (glb: Buffer, node: string, p: Vec3, pad: number): boolean => {
+/**
+ * True when the rig-space joint `rigP` lies in the named node's world box
+ * grown by `pad` metres. The GLB is turned to face the stern (#721), so the
+ * joint is carried into scull space first.
+ */
+const near = (glb: Buffer, node: string, rigP: Vec3, pad: number): boolean => {
   const b = readGlbWorldBounds(glb, (n) => n === node);
   if (!b) return false;
+  const p = rigToScull(rigP);
   return [0, 1, 2].every((i) => p[i] >= b.min[i] - pad && p[i] <= b.max[i] + pad);
 };
 

@@ -100,7 +100,9 @@ describe('the rig matches how a single is set up', () => {
     const blade = worldBounds(file, (name) => name === 'RightOar_Blade');
     const oar = worldBounds(file, (name) => name.startsWith('RightOar'));
 
-    expect(blade!.max[0]).toBeCloseTo(oar!.max[0], 2);
+    // The scull is turned to face the stern (#721), so the right oar's
+    // outboard end is world -X.
+    expect(blade!.min[0]).toBeCloseTo(oar!.min[0], 2);
   });
 });
 

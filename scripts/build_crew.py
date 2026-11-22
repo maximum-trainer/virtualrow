@@ -2,8 +2,10 @@
 Tier H crew & craft builder (issue #229): single scull + female/male rowers.
 The rower is the high-definition llm-cad body in `crew_body.py` (issue #672).
 
-Authored in METRES (the boat loader consumes true scale), bow toward +Z, up +Y,
-pivot at the hull's geometric centre at the waterline (Y=0).
+Authored in METRES (the boat loader consumes true scale), up +Y, with the
+rower facing +Z; the export turns the scull half a turn about Y so the
+shipped GLB has the bow at +Z and the rower facing the stern (#721 VP-03).
+Pivot at the hull's geometric centre at the waterline (Y=0).
 
 Exports crewed GLBs to public/assets/boat/ with the node tree the slot requires
 (public/assets/boat/README.md): Hull, Seat, Left/RightRigger, Left/RightOar,
@@ -235,8 +237,16 @@ def export_and_validate(assembly, filename, name):
     # We author in the scene's own frame (up +Y, length +Z, beam +X), so wrap the
     # assembly in a +90deg X-rotation that cancels the exporter's, leaving our
     # authored coordinates intact in the GLB (hull horizontal, deck up).
+    #
+    # The boat is authored with the rower facing +Z (rig space, the frame
+    # `crewStroke.ts` mirrors). A sculler faces the stern, and the scene's bow
+    # is +Z, so the same node also turns the scull half a turn about the
+    # authored up axis (#721 VP-03). The hull is symmetric fore and aft, so
+    # only the crew, seat, stretcher, riggers and oars visibly change ends.
     root = cq.Assembly(name="scull_root")
-    root.add(assembly, loc=cq.Location(cq.Vector(0, 0, 0), cq.Vector(1, 0, 0), 90))
+    unflip = cq.Location(cq.Vector(0, 0, 0), cq.Vector(1, 0, 0), 90)
+    face_stern = cq.Location(cq.Vector(0, 0, 0), cq.Vector(0, 1, 0), 180)
+    root.add(assembly, loc=unflip * face_stern)
     # Tolerance tuned to the OCCT 7.8+ meshing defaults so a regenerated GLB
     # lands near the 376 KB the Phase 1 commit set on OCCT 7.7 (NFR2 cap is
     # 460 KB). 0.006 / 0.15 (the OCCT 7.7 setting) inflates the hull mesh
