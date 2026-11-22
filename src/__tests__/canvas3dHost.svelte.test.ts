@@ -72,4 +72,128 @@ describe('Canvas3DHost', () => {
       container.querySelector('.rower3d-gpu-backend')?.getAttribute('data-backend'),
     ).toBe('unavailable');
   });
+
+  // The React scene took `enrichment` as a prop, so OSM water shape, shore
+  // widths and buildings re-dressed the course whenever they arrived
+  // (Rower3D.tsx's `useMemo(..., [enrichment])` chain). The Svelte host
+  // attached once in `onMount` and never looked at `route` again, so a rower
+  // who started before the ~30 s Overpass answer kept the placeholder canal
+  // for the whole row. `rebuildOnRouteChange` restores the old behaviour.
+  describe('rebuildOnRouteChange', () => {
+    const flush = async (): Promise<void> => {
+      for (let i = 0; i < 4; i += 1) await Promise.resolve();
+    };
+
+    it('re-attaches with the new route when the engine route object changes', async () => {
+      const disposeA = vi.fn();
+      const disposeB = vi.fn();
+      const attach = vi
+        .fn<RideAttach>()
+        .mockImplementationOnce(() => ({ dispose: disposeA }))
+        .mockImplementationOnce(() => ({ dispose: disposeB }));
+      const plain = { id: 'r1', enriched: false };
+      const enriched = { id: 'r1', enriched: true };
+
+      const { rerender, container } = render(Canvas3DHost, {
+        attach,
+        route: plain,
+        tier: 'medium',
+        rebuildOnRouteChange: true,
+      });
+      await flush();
+      expect(attach).toHaveBeenCalledTimes(1);
+
+      await rerender({ attach, route: enriched, tier: 'medium', rebuildOnRouteChange: true });
+      await flush();
+
+      expect(disposeA).toHaveBeenCalledTimes(1);
+      expect(attach).toHaveBeenCalledTimes(2);
+      expect(attach.mock.calls[1][1]).toMatchObject({ route: enriched, tier: 'medium' });
+      expect(attach.mock.calls[1][0]).toBe(container.querySelector('canvas.rower3d-canvas'));
+      expect(disposeB).not.toHaveBeenCalled();
+      expect(
+        container.querySelector('.rower3d-gpu-backend')?.getAttribute('data-backend'),
+      ).toBe('live');
+    });
+
+    it('does nothing when the same route object is passed again', async () => {
+      const dispose = vi.fn();
+      const attach = vi.fn<RideAttach>(() => ({ dispose }));
+      const route = { id: 'r1' };
+
+      const { rerender } = render(Canvas3DHost, { attach, route, rebuildOnRouteChange: true });
+      await flush();
+      await rerender({ attach, route, tier: 'high', rebuildOnRouteChange: true });
+      await flush();
+
+      expect(attach).toHaveBeenCalledTimes(1);
+      expect(dispose).not.toHaveBeenCalled();
+    });
+
+    it('stays attached once by default, so the test-mode device budget is unchanged', async () => {
+      const dispose = vi.fn();
+      const attach = vi.fn<RideAttach>(() => ({ dispose }));
+
+      const { rerender } = render(Canvas3DHost, { attach, route: { id: 'a' } });
+      await flush();
+      await rerender({ attach, route: { id: 'b' } });
+      await flush();
+
+      expect(attach).toHaveBeenCalledTimes(1);
+      expect(dispose).not.toHaveBeenCalled();
+    });
+
+    it('does not retry an engine that declined', async () => {
+      const attach = vi.fn<RideAttach>(() => null);
+
+      const { rerender } = render(Canvas3DHost, {
+        attach,
+        route: { id: 'a' },
+        rebuildOnRouteChange: true,
+      });
+      await flush();
+      await rerender({ attach, route: { id: 'b' }, rebuildOnRouteChange: true });
+      await flush();
+
+      expect(attach).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps only the latest scene when routes change faster than attach resolves', async () => {
+      const disposes = [vi.fn(), vi.fn(), vi.fn()];
+      const resolvers: Array<() => void> = [];
+      let call = 0;
+      const attach = vi.fn<RideAttach>(() => {
+        const mine = disposes[call];
+        call += 1;
+        return new Promise((resolve) => {
+          resolvers.push(() => resolve({ dispose: mine }));
+        });
+      });
+
+      const { rerender, unmount } = render(Canvas3DHost, {
+        attach,
+        route: { id: 'a' },
+        rebuildOnRouteChange: true,
+      });
+      await flush();
+      resolvers[0]();
+      await flush();
+      await rerender({ attach, route: { id: 'b' }, rebuildOnRouteChange: true });
+      await flush();
+      await rerender({ attach, route: { id: 'c' }, rebuildOnRouteChange: true });
+      await flush();
+      // 'c' resolves before 'b': 'b' is stale when it lands and must be dropped.
+      resolvers[2]();
+      await flush();
+      resolvers[1]();
+      await flush();
+
+      expect(disposes[0]).toHaveBeenCalledTimes(1);
+      expect(disposes[1]).toHaveBeenCalledTimes(1);
+      expect(disposes[2]).not.toHaveBeenCalled();
+
+      unmount();
+      expect(disposes[2]).toHaveBeenCalledTimes(1);
+    });
+  });
 });

@@ -112,6 +112,13 @@ export interface RouteEnrichmentData {
    * build axis-aligned prisms through the `BuildingsPass`.
    */
   buildings?: OsmBuilding[];
+  /**
+   * Where `elevations` came from. `'unavailable'` means the elevation lookup
+   * failed and the profile is flat zeros while everything else (water shape,
+   * shore widths, land use, buildings, crossings) is real OSM data. Absent on
+   * entries cached before this field and on the synthetic fallback.
+   */
+  elevationSource?: 'network' | 'unavailable';
   fetchedAt: number;
   source: 'network' | 'cache' | 'fallback';
 }
@@ -1473,10 +1480,23 @@ export class RouteEnrichmentService {
         return fallback;
       };
       try {
-        const [elevations, elements] = await Promise.all([
-          this.fetchElevations(route.coordinates),
+        // Two independent upstreams, settled independently. Elevation only
+        // drives bank relief; Overpass carries the water shape, shore widths,
+        // land use, buildings and crossings. The public OpenTopoData endpoint
+        // sends no CORS headers, so in a browser the elevation call rejects on
+        // every route, and a single `Promise.all` used to let that rejection
+        // discard a perfectly good Overpass answer (every imported course then
+        // rendered as the same fallback canal). An Overpass failure still
+        // falls through to the catch below: without it there is nothing real
+        // to draw.
+        const [elevationResult, elements] = await Promise.all([
+          this.fetchElevations(route.coordinates).then(
+            (values) => ({ ok: true as const, values }),
+            () => ({ ok: false as const, values: normalizeElevations([], route.coordinates.length) }),
+          ),
           this.fetchOverpassElements(route.coordinates),
         ]);
+        const elevations = elevationResult.values;
         const nearElements = elementsNearRoute(route.coordinates, elements);
         // D3 b then a: what the route is detected on first, then the old
         // nearest-feature tags, then the route's own tags and name.
@@ -1523,6 +1543,7 @@ export class RouteEnrichmentService {
             segmentProfiles,
             lakeLandSamples(segmentRanges, detection.samples, lakeIds),
           ),
+          elevationSource: elevationResult.ok ? 'network' : 'unavailable',
           fetchedAt: Date.now(),
           source: 'network',
         };
