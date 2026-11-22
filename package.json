@@ -30,7 +30,7 @@
     "test:visual:update": "npx playwright test --config=playwright/playwright.config.visual.ts --update-snapshots",
     "test:marketing": "npx playwright test --config=playwright/playwright.config.marketing.ts",
     "test:mutation": "stryker run",
-    "test:mutation:ci": "stryker run --concurrency 2",
+    "test:mutation:ci": "stryker run --concurrency 4",
     "start:sim": "node ./playwright/simulators/sim-server.cjs",
     "start:sim:bg": "node scripts/start-sim-bg.mjs",
     "stop:sim": "node scripts/stop-sim.mjs",

@@ -60,7 +60,7 @@ export default {
   // Concurrency defaults to the host's CPU count, which starves CI
   // runners of memory. A conservative cap (`maxTestRunnerReuse` not
   // supported by the vitest runner — rely on concurrency alone).
-  concurrency: 2,
+  concurrency: 4,
   tempDirName: '.stryker-tmp',
   // Keep the HTML report small on disk by only emitting the survived
   // and killed states in detail; untested mutants are summarised.
