@@ -366,6 +366,11 @@ describe('the race ghost rows the scull GLB (#728)', () => {
       renderer._frameOnce();
       expect(g.active, 'still raced, only not drawn').toBe(true);
       hide(false);
+      const mask = (globalThis as unknown as Record<string, unknown>)['__ROWER3D_GHOST_MASK'] as (on: boolean) => void;
+      expect(mask).toBeTypeOf('function');
+      mask(true);
+      renderer._frameOnce();
+      mask(false);
       renderer.dispose();
       expect((globalThis as unknown as Record<string, unknown>)['__ROWER3D_HIDE_GHOST']).toBeUndefined();
     } finally {

@@ -45,6 +45,7 @@ type W = Window & {
   __ROWER3D_BOAT?: { distanceMeters: number };
   __ROWER3D_SET_CONDITIONS?: (c: string) => void;
   __ROWER3D_HIDE_GHOST?: (hidden: boolean) => void;
+  __ROWER3D_GHOST_MASK?: (on: boolean) => void;
 };
 
 const startWithGhost = async (page: Page, pace: string): Promise<'ready' | 'fallback'> => {
@@ -98,28 +99,33 @@ const grab = (page: Page, box: Rect) =>
   }, box);
 
 /**
- * The ghost's silhouette against the water right behind it: the same box
- * drawn with and without the ghost (`__ROWER3D_HIDE_GHOST`, test mode).
- * Pixels the ghost changed are its silhouette; the hidden frame gives the
- * water under exactly those pixels. Nothing else on screen counts.
+ * The ghost's silhouette against the water right behind it. Three frames
+ * of the same box (test-mode seams): the ghost drawn flat magenta
+ * (`__ROWER3D_GHOST_MASK`) marks exactly its own pixels, not its
+ * reflection or shadow on the water; the normal frame gives the ghost's
+ * colour there, and the frame without it (`__ROWER3D_HIDE_GHOST`) the
+ * water under those same pixels.
  */
 const sampleGhost = async (page: Page, box: Rect) => {
   const withGhost = await grab(page, box);
+  await page.evaluate(() => (window as W).__ROWER3D_GHOST_MASK?.(true));
+  await forceRender(page);
+  const mask = await grab(page, box);
+  await page.evaluate(() => (window as W).__ROWER3D_GHOST_MASK?.(false));
   await page.evaluate(() => (window as W).__ROWER3D_HIDE_GHOST?.(true));
   await forceRender(page);
   const without = await grab(page, box);
   await page.evaluate(() => (window as W).__ROWER3D_HIDE_GHOST?.(false));
   await forceRender(page);
-  if (!withGhost || !without || withGhost.length !== without.length) return null;
+  if (!withGhost || !mask || !without) return null;
+  if (withGhost.length !== without.length || mask.length !== without.length) return null;
   const ghost = [0, 0, 0];
   const water = [0, 0, 0];
   let n = 0;
-  for (let i = 0; i < withGhost.length; i += 4) {
-    const d =
-      Math.abs(withGhost[i] - without[i]) +
-      Math.abs(withGhost[i + 1] - without[i + 1]) +
-      Math.abs(withGhost[i + 2] - without[i + 2]);
-    if (d < 24) continue;
+  for (let i = 0; i < mask.length; i += 4) {
+    // Magenta: red and blue high, green low. A reflection of it in the
+    // water is tinted by the water and fails this.
+    if (!(mask[i] > 180 && mask[i + 2] > 180 && mask[i + 1] < 90)) continue;
     for (let k = 0; k < 3; k++) {
       ghost[k] += withGhost[i + k];
       water[k] += without[i + k];

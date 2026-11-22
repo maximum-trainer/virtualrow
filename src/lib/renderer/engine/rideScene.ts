@@ -1352,6 +1352,11 @@ export const createRideScene = async (
   // spec can diff the two and read the ghost's silhouette against the very
   // water behind it.
   let ghostHidden = false;
+  // …and draw the ghost flat magenta, so a spec can tell its own pixels
+  // from its reflection and shadow on the water, which a with/without
+  // diff also catches.
+  let ghostMask = false;
+  const GHOST_MASK_STYLE = { tint: [1, 0, 1, 1] as const, alpha: 1, rim: 0, flat: 1 };
 
   const frameOnce = (): void => {
     if (disposed) return;
@@ -1515,7 +1520,7 @@ export const createRideScene = async (
             scullGhostInstances.set(prim.id, ghost);
             instances.push({
               model: scullPrimitiveTransform(ghost, prim, { boatTrs: ghostTrs, sweep: ghostSweep, stroke: ghostPose }),
-              ...GHOST_SCULL_STYLE,
+              ...(ghostMask ? GHOST_MASK_STYLE : GHOST_SCULL_STYLE),
             });
           }
         }
@@ -1871,11 +1876,15 @@ export const createRideScene = async (
   // shell goes through `RideRenderer.setConditions`; this is for tests.
   const SET_CONDITIONS_KEY = '__ROWER3D_SET_CONDITIONS' as const;
   const HIDE_GHOST_KEY = '__ROWER3D_HIDE_GHOST' as const;
+  const GHOST_MASK_KEY = '__ROWER3D_GHOST_MASK' as const;
   if (opts.testMode) {
     try {
       (globalThis as unknown as Record<string, unknown>)[SET_CONDITIONS_KEY] = setConditions;
       (globalThis as unknown as Record<string, unknown>)[HIDE_GHOST_KEY] = (hidden: boolean) => {
         ghostHidden = !!hidden;
+      };
+      (globalThis as unknown as Record<string, unknown>)[GHOST_MASK_KEY] = (on: boolean) => {
+        ghostMask = !!on;
       };
     } catch { /* non-browser */ }
   }
@@ -1909,6 +1918,7 @@ export const createRideScene = async (
         delete (globalThis as unknown as Record<string, unknown>)[SET_APPEARANCE_KEY];
         delete (globalThis as unknown as Record<string, unknown>)[SET_CONDITIONS_KEY];
         delete (globalThis as unknown as Record<string, unknown>)[HIDE_GHOST_KEY];
+        delete (globalThis as unknown as Record<string, unknown>)[GHOST_MASK_KEY];
       } catch { /* non-browser */ }
       clearPolygonWaterTelemetry();
       session.dispose();
