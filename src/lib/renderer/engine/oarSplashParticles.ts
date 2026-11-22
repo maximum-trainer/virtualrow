@@ -1,31 +1,53 @@
 /**
  * Oar-blade splash particles (#571 slice: oar-blade splash / puddle at
- * catch/finish). Pairs with the hull wake pass — the wake lays down a
- * continuous foam trail behind the stern; this fires a short burst at
- * each blade tip whenever the stroke phase crosses the catch (phase 0)
- * or finish (phase 0.5) boundary. Pure TypeScript state + a GPU-side
- * billboard pass; no CPU work on the GPU, no GPU work on the CPU.
+ * catch/finish, reworked by #722 VP-04). Pairs with the hull wake pass —
+ * the wake lays down a continuous foam trail behind the stern; this fires
+ * a short burst at each blade tip whenever the stroke phase crosses the
+ * catch (phase 0) or finish (phase 0.5) boundary.
  *
- * Burst detection is a phase-crossing on `strokePhase` (the same
- * sinusoidal driver `characterPlacement.strokePhase` returns). Each
- * burst drops N particles per blade, each with a slight random
- * horizontal spread and a positive initial velocity so the shader can
- * arc them under gravity.
+ * Each blade burst is a few small drops thrown in a low arc (FR4) plus one
+ * flat ring spreading on the water. Drops are back in the water before
+ * their lifetime ends, and the shader hides them once they land, so
+ * nothing hangs in mid-air.
  *
- * Pool layout per particle (8 floats, aligned for `vec4<f32>` reads in
- * WGSL — matches wakeParticles):
- *   [0..3]  x, y, z, age
- *   [4..7]  lifetime, size, vx, vz (vy comes from a shader-side gravity
- *   model so we don't store it; the horizontal velocity is per-particle
- *   so splashes aren't collinear with the boat heading).
+ * Pool layout per particle (12 floats = three `vec4<f32>` reads in WGSL):
+ *   [0..3]   x, y, z, age
+ *   [4..7]   lifetime, size, vx, vz (vy comes from the shader-side arc,
+ *            `oarSplashDropHeight`, so it isn't stored)
+ *   [8..11]  kind (drop / ring), seed, _pad, _pad
  */
 
-export const OAR_SPLASH_FLOATS_PER_PARTICLE = 8;
+import { WATER_SURFACE_Y } from '../plan/waterStrip';
+
+export const OAR_SPLASH_FLOATS_PER_PARTICLE = 12;
 export const OAR_SPLASH_POOL_SIZE_DEFAULT = 128;
-export const OAR_SPLASH_LIFETIME_SEC = 0.6;
-export const OAR_SPLASH_BURST_SIZE = 6; // particles per blade per burst
+/** FR4: a splash is gone within 0.45 s. */
+export const OAR_SPLASH_LIFETIME_SEC = 0.4;
+export const OAR_SPLASH_DROPS_PER_BLADE = 4;
+/** Drops plus the one ring, per blade per burst. */
+export const OAR_SPLASH_BURST_SIZE = OAR_SPLASH_DROPS_PER_BLADE + 1;
 export const OAR_SPLASH_LATERAL_OFFSET_METRES = 2.4; // blade tip offset from hull centreline
-export const OAR_SPLASH_HEIGHT_METRES = -0.05; // just below the water line
+export const OAR_SPLASH_HEIGHT_METRES = -0.05; // where a drop leaves the water
+
+export const OAR_SPLASH_KIND_DROP = 0;
+export const OAR_SPLASH_KIND_RING = 1;
+
+/** FR4: drop radius cap (the issue's 0.3 m ceiling, with headroom). */
+export const OAR_SPLASH_DROP_MAX_SIZE_METRES = 0.14;
+const OAR_SPLASH_DROP_MIN_SIZE_METRES = 0.06;
+/** FR4 low arc: launch speed. 1.4 m/s tops out ~0.1 m above the blade. */
+export const OAR_SPLASH_DROP_INITIAL_UP_MPS = 1.4;
+const GRAVITY_MPS2 = 9.8;
+
+/** FR4: the ring lies flat just above the water and spreads to 0.3 m. */
+export const OAR_SPLASH_RING_Y = WATER_SURFACE_Y + 0.025;
+export const OAR_SPLASH_RING_START_RADIUS_METRES = 0.08;
+export const OAR_SPLASH_RING_END_RADIUS_METRES = 0.3;
+
+/** Height of a drop above its launch point `age` seconds after the catch;
+ *  mirrors the arc in `oarSplashParticles.wgsl`. */
+export const oarSplashDropHeight = (age: number): number =>
+  OAR_SPLASH_DROP_INITIAL_UP_MPS * age - 0.5 * GRAVITY_MPS2 * age * age;
 
 export interface OarSplashState {
   readonly pool: Float32Array;
@@ -63,6 +85,7 @@ const ageAll = (state: OarSplashState, dt: number): void => {
 
 const spawnOne = (
   state: OarSplashState,
+  kind: number,
   x: number,
   y: number,
   z: number,
@@ -79,6 +102,10 @@ const spawnOne = (
   state.pool[base + 5] = size;
   state.pool[base + 6] = vx;
   state.pool[base + 7] = vz;
+  state.pool[base + 8] = kind;
+  state.pool[base + 9] = (state.spawnCount * 0.618034) % 1;
+  state.pool[base + 10] = 0;
+  state.pool[base + 11] = 0;
   state.cursor = (state.cursor + 1) % state.size;
   state.spawnCount += 1;
 };
@@ -113,21 +140,22 @@ const burstAt = (
   centreZ: number,
   perp: { x: number; z: number },
 ): void => {
-  for (let i = 0; i < OAR_SPLASH_BURST_SIZE; i += 1) {
-    // Spread particles in a tight patch around the blade tip.
+  for (let i = 0; i < OAR_SPLASH_DROPS_PER_BLADE; i += 1) {
+    // Spread drops in a tight patch around the blade tip.
     const seed = state.spawnCount + i * 0.37;
-    const offU = (jitter(seed) - 0.5) * 0.6;
-    const offV = (jitter(seed + 1) - 0.5) * 0.6;
-    const x = centreX + offU;
-    const z = centreZ + offV;
-    // Lateral velocity: outward from the blade centre, so the plume
-    // reads as water flung sideways rather than drifting straight back.
-    const vMag = 0.6 + jitter(seed + 2) * 0.6;
-    const vx = perp.x * vMag + (jitter(seed + 3) - 0.5) * 0.4;
-    const vz = perp.z * vMag + (jitter(seed + 4) - 0.5) * 0.4;
-    const size = 0.25 + jitter(seed + 5) * 0.15;
-    spawnOne(state, x, OAR_SPLASH_HEIGHT_METRES, z, size, vx, vz);
+    const x = centreX + (jitter(seed) - 0.5) * 0.3;
+    const z = centreZ + (jitter(seed + 1) - 0.5) * 0.3;
+    // Lateral velocity: outward from the blade centre, so the spray
+    // reads as water flicked sideways rather than drifting straight back.
+    const vMag = 0.3 + jitter(seed + 2) * 0.4;
+    const vx = perp.x * vMag + (jitter(seed + 3) - 0.5) * 0.3;
+    const vz = perp.z * vMag + (jitter(seed + 4) - 0.5) * 0.3;
+    const size =
+      OAR_SPLASH_DROP_MIN_SIZE_METRES +
+      jitter(seed + 5) * (OAR_SPLASH_DROP_MAX_SIZE_METRES - OAR_SPLASH_DROP_MIN_SIZE_METRES);
+    spawnOne(state, OAR_SPLASH_KIND_DROP, x, OAR_SPLASH_HEIGHT_METRES, z, size, vx, vz);
   }
+  spawnOne(state, OAR_SPLASH_KIND_RING, centreX, OAR_SPLASH_RING_Y, centreZ, 1, 0, 0);
 };
 
 /**
