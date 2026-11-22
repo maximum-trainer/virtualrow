@@ -6,3 +6,17 @@ name = "virtualrow-geo-proxy"
 main = "src/worker.ts"
 compatibility_date = "2026-11-01"
 workers_dev = true
+
+# Durable per-point cache (optional; see README "Durable cache").
+# Without it the Worker runs on the edge cache alone. To turn it on:
+#   npx wrangler d1 create virtualrow-elevations
+# paste the printed database_id below, uncomment, then
+#   npx wrangler d1 migrations apply virtualrow-elevations --remote
+#   npx wrangler deploy
+# A D1 database id is not a secret and is safe to commit.
+#
+# [[d1_databases]]
+# binding = "ELEVATIONS"
+# database_name = "virtualrow-elevations"
+# database_id = "<paste the id wrangler prints>"
+# migrations_dir = "migrations"

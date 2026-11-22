@@ -44,6 +44,17 @@ export interface Deps {
     match: (key: string) => Promise<Response | undefined>;
     put: (key: string, response: Response) => Promise<void>;
   };
+  /**
+   * Optional durable per-point store (D1, see `store.ts`). Absent, the Worker
+   * runs on the edge cache alone and passes upstream's body through.
+   */
+  store?: PointStore;
+}
+
+/** Elevations by canonical point (`"lat,lng"`). A present key with `null` means "no data here". */
+export interface PointStore {
+  get: (points: string[]) => Promise<Map<string, number | null>>;
+  put: (entries: Array<[string, number | null]>) => Promise<void>;
 }
 
 const corsHeaders = (origin: string): Record<string, string> => ({
@@ -122,30 +133,89 @@ export const handle = async (request: Request, deps: Deps): Promise<Response> =>
   const cached = await deps.cache.match(upstreamUrl);
   if (cached) return json(await cached.json(), 200, { ...good, 'X-Geo-Proxy-Cache': 'HIT' });
 
+  const remember = (body: unknown): Promise<void> =>
+    deps.cache.put(
+      upstreamUrl,
+      new Response(JSON.stringify(body), {
+        headers: { 'Content-Type': 'application/json', 'Cache-Control': `public, max-age=${CACHE_TTL_SECONDS}` },
+      }),
+    );
+
+  if (!deps.store) {
+    const fetched = await fetchUpstream(deps, upstreamUrl);
+    if (!fetched.ok) return json({ error: fetched.error }, fetched.status, { ...cors, ...fetched.headers });
+    await remember(fetched.body);
+    return json(fetched.body, 200, { ...good, 'X-Geo-Proxy-Cache': 'MISS' });
+  }
+
+  // Per-point path. A store that is down must not take the proxy down with
+  // it: treat a failed read as "nothing known" and a failed write as lost.
+  const asked = locations.value.split('|');
+  const unique = [...new Set(asked)];
+  let known = new Map<string, number | null>();
+  try {
+    known = await deps.store.get(unique);
+  } catch {
+    known = new Map();
+  }
+  const missing = unique.filter((p) => !known.has(p));
+
+  if (missing.length > 0) {
+    const fetched = await fetchUpstream(
+      deps,
+      `${UPSTREAM_BASE}${DATASET_PATH}?locations=${encodeURIComponent(missing.join('|'))}`,
+    );
+    if (!fetched.ok) return json({ error: fetched.error }, fetched.status, { ...cors, ...fetched.headers });
+    const results = (fetched.body as { results?: Array<{ elevation?: unknown }> } | null)?.results;
+    if (!Array.isArray(results) || results.length !== missing.length) {
+      return json({ error: 'elevation source sent an answer of the wrong length' }, 502, cors);
+    }
+    const fresh: Array<[string, number | null]> = missing.map((p, i) => {
+      const e = results[i]?.elevation;
+      return [p, typeof e === 'number' && Number.isFinite(e) ? e : null];
+    });
+    for (const [p, e] of fresh) known.set(p, e);
+    try {
+      await deps.store.put(fresh);
+    } catch {
+      // Lost write: the points are fetched again another time.
+    }
+  }
+
+  // Always answer in upstream's shape, built the same way whichever layer
+  // supplied each point.
+  const body = {
+    status: 'OK',
+    results: asked.map((p) => {
+      const [lat, lng] = p.split(',').map(Number) as [number, number];
+      return { elevation: known.get(p) ?? null, location: { lat, lng }, dataset: 'srtm30m' };
+    }),
+  };
+  await remember(body);
+  const served = missing.length === 0 ? 'STORE' : missing.length === unique.length ? 'MISS' : 'PARTIAL';
+  return json(body, 200, { ...good, 'X-Geo-Proxy-Cache': served });
+};
+
+type Fetched =
+  | { ok: true; body: unknown }
+  | { ok: false; status: number; error: string; headers: Record<string, string> };
+
+const fetchUpstream = async (deps: Deps, upstreamUrl: string): Promise<Fetched> => {
   let upstream: Response;
   try {
     upstream = await deps.fetch(upstreamUrl, { headers: { Accept: 'application/json' } });
   } catch {
-    return json({ error: 'elevation source unreachable' }, 502, cors);
+    return { ok: false, status: 502, error: 'elevation source unreachable', headers: {} };
   }
   if (upstream.status === 429) {
-    return json({ error: 'elevation source is rate limited' }, 429, { ...cors, 'Retry-After': '1' });
+    return { ok: false, status: 429, error: 'elevation source is rate limited', headers: { 'Retry-After': '1' } };
   }
   if (!upstream.ok) {
-    return json({ error: `elevation source answered ${upstream.status}` }, 502, cors);
+    return { ok: false, status: 502, error: `elevation source answered ${upstream.status}`, headers: {} };
   }
-
-  let body: unknown;
   try {
-    body = await upstream.json();
+    return { ok: true, body: await upstream.json() };
   } catch {
-    return json({ error: 'elevation source sent an unreadable answer' }, 502, cors);
+    return { ok: false, status: 502, error: 'elevation source sent an unreadable answer', headers: {} };
   }
-  await deps.cache.put(
-    upstreamUrl,
-    new Response(JSON.stringify(body), {
-      headers: { 'Content-Type': 'application/json', 'Cache-Control': `public, max-age=${CACHE_TTL_SECONDS}` },
-    }),
-  );
-  return json(body, 200, { ...good, 'X-Geo-Proxy-Cache': 'MISS' });
 };
