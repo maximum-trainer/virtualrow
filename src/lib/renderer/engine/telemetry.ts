@@ -234,6 +234,24 @@ export interface Rower3DGhostMetersHandle {
 }
 
 /**
+ * The fleet (#713). Published as `__ROWER3D_FLEET`: what each visible
+ * member is drawn with this frame.
+ */
+export interface Rower3DFleet {
+  model: 'scull' | 'placeholder' | 'none';
+  members: {
+    crew: 'male' | 'female';
+    /** The member's hull colour, linear rgb (D3a). */
+    hullColor: number[];
+    /** Its share of a stroke ahead of the player's phase (D4a). */
+    strokeOffset: number;
+    lane: number;
+    distanceMeters: number;
+    fade: number;
+  }[];
+}
+
+/**
  * Boat speed (#570 — world-scale spec reads `__ROWER3D_SPEED_MPS`). The
  * engine computes this from the per-frame `distanceMeters` delta divided by
  * frame dt; zero when the boat is holding (`holdBoat`) or paused.
@@ -279,6 +297,7 @@ export interface TelemetryHandles {
   boat: Rower3DBoat;
   crew: Rower3DCrew;
   ghostMeters: Rower3DGhostMetersHandle;
+  fleet: Rower3DFleet;
   speed: Rower3DSpeedHandle;
   banner: Rower3DBanner;
   conditions: Rower3DConditions;
@@ -370,6 +389,7 @@ export const createTelemetry = (forceRender: () => void): TelemetryHandles => {
     },
     crew: { cadenceSpm: 0, strokePhase: 0, amplitude: 0, rowers: 1 },
     ghostMeters: { value: 0, active: false },
+    fleet: { model: 'none', members: [] },
     speed: { value: 0 },
     banner: { visible: false, message: '', variant: '' },
     conditions: {
@@ -406,6 +426,7 @@ export const createTelemetry = (forceRender: () => void): TelemetryHandles => {
     w['__ROWER3D_BOAT'] = handles.boat;
     w['__ROWER3D_CREW'] = handles.crew;
     w['__ROWER3D_GHOST_METERS'] = handles.ghostMeters;
+    w['__ROWER3D_FLEET'] = handles.fleet;
     // Speed is published as a scalar so the legacy world-scale spec can
     // read it with a simple compare; the engine re-assigns the global each
     // frame via `publishSpeedMps` below.
@@ -461,6 +482,7 @@ export const releaseTelemetry = (): void => {
     '__ROWER3D_BOAT',
     '__ROWER3D_CREW',
     '__ROWER3D_GHOST_METERS',
+    '__ROWER3D_FLEET',
     '__ROWER3D_SPEED_MPS',
     '__ROWER3D_BANNER',
     '__ROWER3D_CONDITIONS',

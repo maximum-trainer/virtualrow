@@ -5,6 +5,7 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  fleetStrokeOffset,
   advanceFleet,
   createFleet,
   FLEET_HULL_PALETTE,
@@ -425,5 +426,26 @@ describe('#728 FR5 per-member speeds', () => {
     }
     expect(gained).toBeGreaterThan(0);
     expect(lost).toBeGreaterThan(0);
+  });
+});
+
+describe('#713 D4a fleetStrokeOffset — the pack does not row in lockstep', () => {
+  it('is a deterministic share of a stroke per seed, in [0, 1)', () => {
+    const seeds = [1, 2, 3, 99, 2654435761, 0xdeadbeef];
+    for (const s of seeds) {
+      const o = fleetStrokeOffset(s);
+      expect(o).toBeGreaterThanOrEqual(0);
+      expect(o).toBeLessThan(1);
+      expect(fleetStrokeOffset(s)).toBe(o);
+    }
+    expect(new Set(seeds.map(fleetStrokeOffset)).size).toBe(seeds.length);
+  });
+
+  it('is independent of the crew roll for the same seed', () => {
+    // A seed that rolls a male crew does not force a matching offset.
+    const offsets = Array.from({ length: 64 }, (_, i) => fleetStrokeOffset(i * 7919));
+    const low = offsets.filter((o) => o < 0.5).length;
+    expect(low).toBeGreaterThan(16);
+    expect(low).toBeLessThan(48);
   });
 });
