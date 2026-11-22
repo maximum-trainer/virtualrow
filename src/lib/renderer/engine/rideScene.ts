@@ -1357,6 +1357,10 @@ export const createRideScene = async (
   // diff also catches.
   let ghostMask = false;
   const GHOST_MASK_STYLE = { tint: [1, 0, 1, 1] as const, alpha: 1, rim: 0, flat: 1, haze: 0 };
+  // …and hold the ride still (the same time and ride frame each draw), so
+  // those three frames sample the same pixels of a boat that has not moved.
+  let holdFrame = false;
+  let heldFrame: { time: number; ride: RideFrame | null; smoothed?: RideFrame | null } | null = null;
 
   const frameOnce = (): void => {
     if (disposed) return;
@@ -1367,11 +1371,19 @@ export const createRideScene = async (
     // asks for the feature (device.ts) but no pass writes a timestamp yet.
     const cpuStart = now();
     resize();
-    frame.time = (now() - start) / 1000;
+    if (holdFrame && heldFrame) {
+      frame.time = heldFrame.time;
+    } else {
+      frame.time = (now() - start) / 1000;
+    }
+    const rideFrame: RideFrame | null =
+      holdFrame && heldFrame ? heldFrame.ride : opts.getFrame ? opts.getFrame() : null;
+    if (holdFrame && !heldFrame) heldFrame = { time: frame.time, ride: rideFrame };
+    if (!holdFrame) heldFrame = null;
 
-    const rideFrame: RideFrame | null = opts.getFrame ? opts.getFrame() : null;
-
-    const smoothedFrame: RideFrame | null = rideFrame
+    const smoothedFrame: RideFrame | null = heldFrame?.smoothed !== undefined
+      ? heldFrame.smoothed
+      : rideFrame
       ? {
           ...rideFrame,
           distanceMeters: distanceSmoother.update(
@@ -1381,6 +1393,7 @@ export const createRideScene = async (
           ),
         }
       : null;
+    if (heldFrame && heldFrame.smoothed === undefined) heldFrame.smoothed = smoothedFrame;
 
     placeBoat(boatPlacement, routeCurve, smoothedFrame, totalDistanceMeters, curveLength, 0);
     // #571 wake foam: run the CPU particle sim before the pass encodes.
@@ -1877,6 +1890,7 @@ export const createRideScene = async (
   const SET_CONDITIONS_KEY = '__ROWER3D_SET_CONDITIONS' as const;
   const HIDE_GHOST_KEY = '__ROWER3D_HIDE_GHOST' as const;
   const GHOST_MASK_KEY = '__ROWER3D_GHOST_MASK' as const;
+  const HOLD_FRAME_KEY = '__ROWER3D_HOLD_FRAME' as const;
   if (opts.testMode) {
     try {
       (globalThis as unknown as Record<string, unknown>)[SET_CONDITIONS_KEY] = setConditions;
@@ -1885,6 +1899,9 @@ export const createRideScene = async (
       };
       (globalThis as unknown as Record<string, unknown>)[GHOST_MASK_KEY] = (on: boolean) => {
         ghostMask = !!on;
+      };
+      (globalThis as unknown as Record<string, unknown>)[HOLD_FRAME_KEY] = (on: boolean) => {
+        holdFrame = !!on;
       };
     } catch { /* non-browser */ }
   }
@@ -1919,6 +1936,7 @@ export const createRideScene = async (
         delete (globalThis as unknown as Record<string, unknown>)[SET_CONDITIONS_KEY];
         delete (globalThis as unknown as Record<string, unknown>)[HIDE_GHOST_KEY];
         delete (globalThis as unknown as Record<string, unknown>)[GHOST_MASK_KEY];
+        delete (globalThis as unknown as Record<string, unknown>)[HOLD_FRAME_KEY];
       } catch { /* non-browser */ }
       clearPolygonWaterTelemetry();
       session.dispose();

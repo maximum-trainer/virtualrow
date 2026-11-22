@@ -46,6 +46,7 @@ type W = Window & {
   __ROWER3D_SET_CONDITIONS?: (c: string) => void;
   __ROWER3D_HIDE_GHOST?: (hidden: boolean) => void;
   __ROWER3D_GHOST_MASK?: (on: boolean) => void;
+  __ROWER3D_HOLD_FRAME?: (on: boolean) => void;
 };
 
 const startWithGhost = async (page: Page, pace: string): Promise<'ready' | 'fallback'> => {
@@ -107,6 +108,9 @@ const grab = (page: Page, box: Rect) =>
  * water under those same pixels.
  */
 const sampleGhost = async (page: Page, box: Rect) => {
+  // Hold the ride still so all three frames show the boat in one place.
+  await page.evaluate(() => (window as W).__ROWER3D_HOLD_FRAME?.(true));
+  await forceRender(page);
   const withGhost = await grab(page, box);
   await page.evaluate(() => (window as W).__ROWER3D_GHOST_MASK?.(true));
   await forceRender(page);
@@ -116,6 +120,7 @@ const sampleGhost = async (page: Page, box: Rect) => {
   await forceRender(page);
   const without = await grab(page, box);
   await page.evaluate(() => (window as W).__ROWER3D_HIDE_GHOST?.(false));
+  await page.evaluate(() => (window as W).__ROWER3D_HOLD_FRAME?.(false));
   await forceRender(page);
   if (!withGhost || !mask || !without) return null;
   if (withGhost.data.length !== without.data.length || mask.data.length !== without.data.length) return null;
@@ -127,11 +132,10 @@ const sampleGhost = async (page: Page, box: Rect) => {
     const i = (y * w + x) * 4;
     return mask.data[i] > 150 && mask.data[i + 2] > 150 && mask.data[i + 1] < 100;
   };
-  // The ride keeps going between the three frames, so the oars and the
-  // hull's outline move a few pixels. Keep only the mask's interior: a
-  // pixel whose neighbours ERODE_PX away are magenta too. That drops the
-  // thin oar shafts and the edges, which would otherwise sample water in
-  // the normal frame and pull the ghost's colour towards it.
+  // Keep only the mask's interior: a pixel whose neighbours ERODE_PX away
+  // are magenta too. The thin oar shafts and the antialiased edges blend
+  // with the water in the normal frame and would pull the ghost's colour
+  // towards it.
   const ERODE_PX = 2;
   const ghostPx: number[][] = [];
   const waterPx: number[][] = [];

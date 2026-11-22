@@ -377,4 +377,48 @@ describe('the race ghost rows the scull GLB (#728)', () => {
       globalThis.fetch = original;
     }
   });
+  // FR2 spec seam: the contrast check compares three frames (normal, mask,
+  // ghost hidden) of the same pixels, so the ride must stand still between
+  // them, or the oars and the hull's edge sample the water.
+  it('holds the ride still across frames while __ROWER3D_HOLD_FRAME is on', async () => {
+    const canvas = makeMockCanvas();
+    let calls = 0;
+    const renderer = (await attach(canvas, {
+      testMode: true,
+      getFrame: () => {
+        calls += 1;
+        return {
+          paceSPer500: 120,
+          distanceMeters: 40 + calls,
+          cadence: 20,
+          isPlaying: true,
+          holdBoat: false,
+          finished: false,
+          intensityFactor: 1,
+          elapsedSeconds: 10 + calls * 0.5,
+          ghost: { kind: 'pace', paceSPer500: 105 },
+        };
+      },
+    })) as unknown as WithTest;
+    for (let i = 0; i < 5; i++) renderer._frameOnce();
+    const read = () => {
+      const g = (globalThis as unknown as { window: Record<string, unknown> }).window['__ROWER3D_GHOST_METERS'] as {
+        value: number;
+        strokePhase: number;
+      };
+      return { meters: g.value, phase: g.strokePhase };
+    };
+    const hold = (globalThis as unknown as Record<string, unknown>)['__ROWER3D_HOLD_FRAME'] as (on: boolean) => void;
+    expect(hold).toBeTypeOf('function');
+    hold(true);
+    renderer._frameOnce();
+    const held = read();
+    for (let i = 0; i < 3; i++) renderer._frameOnce();
+    expect(read()).toEqual(held);
+    hold(false);
+    renderer._frameOnce();
+    expect(read().meters).not.toBe(held.meters);
+    renderer.dispose();
+    expect((globalThis as unknown as Record<string, unknown>)['__ROWER3D_HOLD_FRAME']).toBeUndefined();
+  });
 });
