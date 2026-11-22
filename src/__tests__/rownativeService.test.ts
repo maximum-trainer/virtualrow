@@ -32,9 +32,14 @@ describe('RownativeService', () => {
 
     const service = new RownativeService();
     await expect(service.importCourseById('1')).resolves.toBeDefined();
-    expect(globalFetch).toHaveBeenCalledTimes(1);
+    // One request to the mirror; the waterway lookup (#743) is a second call
+    // to a different host and goes through the same forwarding arrow.
+    const mirrorCalls = globalFetch.mock.calls.filter(([url]) => !String(url).includes('overpass'));
+    expect(mirrorCalls).toHaveLength(1);
     // Invoked as a plain call, not as a method of the service instance.
-    expect(globalFetch.mock.instances[0]).not.toBeInstanceOf(RownativeService);
+    for (const receiver of globalFetch.mock.instances) {
+      expect(receiver).not.toBeInstanceOf(RownativeService);
+    }
   });
 
   it('searches courses by name from the index', async () => {
@@ -119,9 +124,12 @@ describe('RownativeService', () => {
     );
     const route = await service.importCourseById('106');
 
-    // One request only: the course JSON already carries name/country/distance.
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls[0][0]).toContain('/106.json');
+    // One mirror request only: the course JSON already carries
+    // name/country/distance, so there is no index lookup. (The waterway
+    // lookup added by #743 goes to Overpass, not the mirror.)
+    const mirrorCalls = fetchMock.mock.calls.filter(([url]) => !String(url).includes('overpass'));
+    expect(mirrorCalls).toHaveLength(1);
+    expect(mirrorCalls[0][0]).toContain('/106.json');
     expect(route.name).toBe('HOTS Stake Race');
     expect(route.externalDistanceMeters).toBe(4804);
     expect(Math.abs(route.distance * 1000 - polylineLengthMeters(route.coordinates))).toBeLessThan(1);
@@ -289,4 +297,111 @@ describe('RownativeService', () => {
     );
   });
 
+
+  // #743: the waterway provider is on by default, so a gates-only river course
+  // is rowed along the river.
+  describe('gates-only river courses', () => {
+    const gatePolygon = (order: number, lat: number, lon: number) => ({
+      order,
+      name: order === 0 ? 'Start' : 'Finish',
+      points: [
+        { lat: lat - 0.0001, lon: lon - 0.0002 },
+        { lat: lat - 0.0001, lon: lon + 0.0002 },
+        { lat: lat + 0.0001, lon: lon + 0.0002 },
+        { lat: lat + 0.0001, lon: lon - 0.0002 },
+      ],
+    });
+    const courseFile = {
+      id: '900',
+      name: 'Bend Head',
+      country: 'United Kingdom',
+      distance_m: 2000,
+      polygons: [gatePolygon(0, 52.0, 0.0), gatePolygon(1, 52.018, 0.0)],
+    };
+    // A river that swings about 400 m east between the two gates.
+    const river = {
+      elements: [
+        {
+          type: 'way',
+          geometry: Array.from({ length: 21 }, (_, i) => ({
+            lat: 52.0 + (0.018 * i) / 20,
+            lon: 0.006 * Math.sin((i / 20) * Math.PI),
+          })),
+        },
+      ],
+    };
+    const fetchFor = (overpassBody: unknown, overpassOk = true) =>
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('overpass')) return { ok: overpassOk, json: async () => overpassBody } as Response;
+        if (url.endsWith('index.json')) {
+          return { ok: true, json: async () => [{ id: '900', name: 'Bend Head', country: 'United Kingdom', distance_m: 2000 }] } as Response;
+        }
+        return jsonResponse(courseFile);
+      });
+
+    it('follows the mapped waterway and says so', async () => {
+      const isolated = new RouteService();
+      const service = new RownativeService(
+        fetchFor(river) as unknown as typeof fetch,
+        (data) => isolated.importRouteFromRownative(data),
+      );
+      const [found] = await service.searchCourses('bend');
+      const imported = await service.importCourse(found);
+
+      expect(imported.geometrySource).toBe('osm-derived');
+      // Straight line is 2.0 km; round the bend is nearer 2.2 km.
+      expect(imported.distance).toBeGreaterThan(2.1);
+      expect(imported.externalDistanceMeters).toBe(2000);
+    });
+
+    it('still imports on the gate chain when the map service is down', async () => {
+      const isolated = new RouteService();
+      const service = new RownativeService(
+        fetchFor({}, false) as unknown as typeof fetch,
+        (data) => isolated.importRouteFromRownative(data),
+      );
+      const [found] = await service.searchCourses('bend');
+      const imported = await service.importCourse(found);
+
+      expect(imported.geometrySource).toBe('gate-chain');
+      expect(imported.distance).toBeCloseTo(2.0, 1);
+    });
+
+    it('can be switched off', async () => {
+      const isolated = new RouteService();
+      const fetchMock = fetchFor(river);
+      const service = new RownativeService(
+        fetchMock as unknown as typeof fetch,
+        (data) => isolated.importRouteFromRownative(data),
+        undefined,
+        null,
+      );
+      const [found] = await service.searchCourses('bend');
+      const imported = await service.importCourse(found);
+
+      expect(imported.geometrySource).toBe('gate-chain');
+      expect(fetchMock.mock.calls.some(([u]) => String(u).includes('overpass'))).toBe(false);
+    });
+
+    it('does not ask for a waterway on a course its name says is a lake', async () => {
+      // The lookup costs about half a minute on a busy day and a lake has no
+      // centreline to follow.
+      const isolated = new RouteService();
+      const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('overpass')) return { ok: true, json: async () => river } as Response;
+        return jsonResponse({ ...courseFile, id: '901', name: 'Lake Quinsigamond - 2K Classic' });
+      });
+      const service = new RownativeService(
+        fetchMock as unknown as typeof fetch,
+        (data) => isolated.importRouteFromRownative(data),
+      );
+
+      const imported = await service.importCourseById('901');
+
+      expect(imported.geometrySource).toBe('gate-chain');
+      expect(fetchMock.mock.calls.some(([u]) => String(u).includes('overpass'))).toBe(false);
+    });
+  });
 });

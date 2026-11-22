@@ -38,6 +38,7 @@
 
 import type { Coordinate, GeometrySource } from '../types/index';
 import { polylineLengthMeters } from '../utils/coordinateUtils';
+import { roundCourseCorners } from '../utils/courseCorners';
 import {
   maxVertexExtentMeters,
   projectPointOntoPolyline,
@@ -112,6 +113,8 @@ export interface CourseGate {
   name: string;
   order: number;
   center: Coordinate;
+  /** The gate polygon's own width, vertex to vertex, in metres (#743). */
+  extentMeters?: number;
 }
 
 /** The geometry chosen for a course, and how it was arrived at. */
@@ -158,8 +161,17 @@ export class GateFidelityError extends Error {
 }
 
 /** Something that can propose a water path through a course's gates. */
+export interface WaterwayPathOptions {
+  /**
+   * Each gate's own width in metres, in the same order as the gate centres.
+   * A wide gate across open water may sit further from a mapped centreline
+   * than a narrow one on a canal (#743).
+   */
+  gateExtentsMeters?: number[];
+}
+
 export interface WaterwayPathProvider {
-  findPath(gates: Coordinate[]): Promise<Coordinate[] | null>;
+  findPath(gates: Coordinate[], options?: WaterwayPathOptions): Promise<Coordinate[] | null>;
 }
 
 export interface ResolveCourseGeometryOptions {
@@ -241,7 +253,14 @@ export function classifyPolygons(course: RownativeCourseGeometryInput): Classifi
       return;
     }
     const center = centroid(vertices);
-    if (center) gates.push({ name, order: polygon.order ?? index, center });
+    if (center) {
+      gates.push({
+        name,
+        order: polygon.order ?? index,
+        center,
+        extentMeters: maxVertexExtentMeters(dropClosingVertex(vertices)),
+      });
+    }
   });
 
   return { gates, candidates };
@@ -376,10 +395,43 @@ function confidenceFor(meanOffsetMeters: number): number {
   return Math.min(1, Math.max(0, 1 - meanOffsetMeters / GATE_TOLERANCE_M));
 }
 
-/** Gate centroids in course order, which is what the chain fallback rows. */
-function orderedGateCenters(gates: CourseGate[]): Coordinate[] {
+/** Gates in course order, which is what the chain fallback rows. */
+function orderedGates(gates: CourseGate[]): CourseGate[] {
   const sortKey = (gate: CourseGate) => (Number.isFinite(gate.order) ? gate.order : UNORDERED_POLYGON_SORT_KEY);
-  return [...gates].sort((a, b) => sortKey(a) - sortKey(b)).map((gate) => gate.center);
+  return [...gates].sort((a, b) => sortKey(a) - sortKey(b));
+}
+
+function orderedGateCenters(gates: CourseGate[]): Coordinate[] {
+  return orderedGates(gates).map((gate) => gate.center);
+}
+
+/** A fillet may cut this share of a gate's width inside its centre... */
+const FILLET_CUT_GATE_SHARE = 0.4;
+/** ...but never less than this, nor more than this (well inside tolerance). */
+const FILLET_CUT_MIN_M = 8;
+const FILLET_CUT_MAX_M = 25;
+
+const filletCutFor = (gate: CourseGate): number =>
+  Math.min(FILLET_CUT_MAX_M, Math.max(FILLET_CUT_MIN_M, (gate.extentMeters ?? 0) * FILLET_CUT_GATE_SHARE));
+
+/**
+ * Round a line's corners (#743), unless doing so would carry it further from
+ * a gate than a path is allowed to be. Rounding is cosmetic; passing the gates
+ * is the contract. `cornerGates`, when given, is index-aligned with `line` and
+ * lets each fillet size itself to the gate it rounds.
+ */
+function roundedWithinTolerance(
+  line: Coordinate[],
+  gates: CourseGate[],
+  cornerGates?: CourseGate[],
+): Coordinate[] {
+  const rounded = roundCourseCorners(
+    line,
+    cornerGates ? { maxCutMeters: cornerGates.map(filletCutFor) } : {},
+  );
+  if (rounded === line) return line;
+  const worst = worstGateOffset(rounded, gates);
+  return worst && worst.offsetMeters > GATE_TOLERANCE_M ? line : rounded;
 }
 
 /**
@@ -466,9 +518,15 @@ export async function resolveCourseGeometry(
   //    by contract: any failure falls through to the gate chain.
   if (options.osmProvider && gates.length >= 2) {
     try {
-      const derived = await options.osmProvider.findPath(orderedGateCenters(gates));
+      const inOrder = orderedGates(gates);
+      const derived = await options.osmProvider.findPath(
+        inOrder.map((gate) => gate.center),
+        { gateExtentsMeters: inOrder.map((gate) => gate.extentMeters ?? 0) },
+      );
       if (derived && derived.length >= 2) {
-        const fit = fitCandidateToGates(derived, gates);
+        // The walk joins the centreline to off-line gates with straight
+        // run-ins; round those joints before judging the line against the gates.
+        const fit = fitCandidateToGates(roundedWithinTolerance(derived, gates), gates);
         if (fit.ok) {
           return {
             coordinates: fit.coordinates,
@@ -493,5 +551,13 @@ export async function resolveCourseGeometry(
     throw new RownativeGeometryUnavailableError(course.id, course.name ?? `Course ${course.id}`);
   }
 
-  return { coordinates: chain, source: 'gate-chain', confidence: 0, gates: gateCenters, warnings };
+  // Straight legs between gate centres, with each turn rounded so the boat,
+  // camera and water ribbon do not pivot on the spot at a gate (#743).
+  return {
+    coordinates: roundedWithinTolerance(chain, gates, orderedGates(gates)),
+    source: 'gate-chain',
+    confidence: 0,
+    gates: gateCenters,
+    warnings,
+  };
 }
