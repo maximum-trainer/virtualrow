@@ -7,8 +7,9 @@
  * distance haze so it reads the same in every light, with a lime fresnel
  * rim. A pale ghost can't do it: tone-mapping caps a light colour near
  * sRGB 202 grey, about 2.3:1 on midday water and 1:1 at golden hour
- * (Dan's laptop, 2026-11-22). The dark hull is under every preset's water
- * by 3:1 or more, and unlike every fleet hull colour.
+ * (Dan's laptop, 2026-11-22). The dark hull is solid, since 5% of the
+ * water showing through cost dusk its 3:1, and sits 3:1 or more under
+ * every preset's water. It is unlike every fleet hull colour.
  *
  * Past 30 m the boat is small on screen, so a marker with the gap floats
  * over it; `ghostMarker` places it.
@@ -27,8 +28,8 @@ export interface GhostScullStyle {
 }
 
 export const GHOST_SCULL_STYLE: GhostScullStyle = {
-  tint: [0.006, 0.02, 0.008, 1],
-  alpha: 0.95,
+  tint: [0.004, 0.014, 0.006, 1],
+  alpha: 1,
   rim: 0.35,
   flat: 1,
   haze: 0,

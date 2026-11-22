@@ -15,8 +15,10 @@ const srgbToLinear = (c: number): number => (c <= 0.04045 ? c / 12.92 : ((c + 0.
 const luminance = ([r, g, b]: readonly number[]): number => 0.2126 * r + 0.7152 * g + 0.0722 * b;
 
 describe('GHOST_SCULL_STYLE', () => {
-  it('is near-solid, with a rim, out of the haze, and holds its colour in any light', () => {
-    expect(GHOST_SCULL_STYLE.alpha).toBeGreaterThanOrEqual(0.9);
+  it('is solid, with a rim, out of the haze, and holds its colour in any light', () => {
+    // Solid: at 0.95 the 5% of water showing through lifted the hull
+    // enough to miss 3:1 over dusk water.
+    expect(GHOST_SCULL_STYLE.alpha).toBe(1);
     expect(GHOST_SCULL_STYLE.rim).toBeGreaterThan(0);
     // A thin edge, not a glow: on Dan's laptop a 0.6 rim at fresnel^2 lit
     // the hull's sides to sRGB ~[50,106,61], about 2:1 against the water.
@@ -46,12 +48,15 @@ describe('GHOST_SCULL_STYLE', () => {
     ['golden', [94, 150, 156]],
     ['overcast', [116, 182, 194]],
     ['dusk', [72, 144, 171]],
+    // The darkest dusk water a held frame measured (2026-11-22).
+    ['dusk, held', [47, 120, 159]],
   ])('stands off the %s water by at least 3:1 at its opacity, before its rim', (_name, srgb) => {
     const water = (srgb as number[]).map((c) => srgbToLinear(c / 255));
     const a = GHOST_SCULL_STYLE.alpha;
     const ghost = GHOST_SCULL_STYLE.tint.slice(0, 3).map((c, i) => a * c + (1 - a) * water[i]);
     const ratio = (luminance(water) + 0.05) / (luminance(ghost) + 0.05);
-    expect(ratio).toBeGreaterThanOrEqual(3);
+    // Margin for the rim and the exposure lift the GPU frames show.
+    expect(ratio).toBeGreaterThanOrEqual(3.5);
   });
 });
 
