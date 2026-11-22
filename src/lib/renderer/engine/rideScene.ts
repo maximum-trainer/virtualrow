@@ -137,8 +137,9 @@ import {
   FOLIAGE_SHAPES,
   FOLIAGE_VARIANT_COUNT,
 } from '../../scenery/foliageTexture';
+import { buildFoliageMips } from '../../scenery/foliageMips';
 import { loadFloraAtlas } from './textureLoader';
-import { textureBytes } from './textures';
+import { mipLevelCountFor, textureBytes } from './textures';
 import { createFrameGraph, type FrameGraph, type FrameUniforms, type Pass } from './frameGraph';
 import { createGpuFrameTimer } from './gpuFrameTimer';
 import { createShadowAtlas } from './shadowAtlas';
@@ -446,10 +447,15 @@ export const createRideScene = async (
   // "the same species, different tree" instead of the same card.
   const foliageAtlasSize = 256;
   const foliageAtlasLayers = FOLIAGE_SHAPES.length * FOLIAGE_VARIANT_COUNT;
+  // #719 VP-01 FR3 — full mip chain so the sprite sampler's linear
+  // mipmapFilter doesn't fall back to the top level at distance and
+  // alias against the painted leaf-texture grain.
+  const foliageAtlasMips = mipLevelCountFor(foliageAtlasSize, foliageAtlasSize);
   const foliageAtlasTex = device.createTexture({
     label: 'foliage-atlas',
     size: { width: foliageAtlasSize, height: foliageAtlasSize, depthOrArrayLayers: foliageAtlasLayers },
     format: 'rgba8unorm-srgb',
+    mipLevelCount: foliageAtlasMips,
     usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
   });
   // writeTexture is on the real GPUQueue but not on the attach-test mock;
@@ -461,11 +467,21 @@ export const createRideScene = async (
         const layer = s * FOLIAGE_VARIANT_COUNT + v;
         const pixels = paintFoliage(FOLIAGE_SHAPES[s], foliageAtlasSize, v);
         device.queue.writeTexture(
-          { texture: foliageAtlasTex, origin: { x: 0, y: 0, z: layer } },
+          { texture: foliageAtlasTex, origin: { x: 0, y: 0, z: layer }, mipLevel: 0 },
           pixels as BufferSource,
           { bytesPerRow: foliageAtlasSize * 4, rowsPerImage: foliageAtlasSize },
           { width: foliageAtlasSize, height: foliageAtlasSize, depthOrArrayLayers: 1 },
         );
+        const mips = buildFoliageMips(pixels, foliageAtlasSize);
+        for (let m = 0; m < mips.length; m += 1) {
+          const { size, pixels: mipPixels } = mips[m];
+          device.queue.writeTexture(
+            { texture: foliageAtlasTex, origin: { x: 0, y: 0, z: layer }, mipLevel: m + 1 },
+            mipPixels as BufferSource,
+            { bytesPerRow: size * 4, rowsPerImage: size },
+            { width: size, height: size, depthOrArrayLayers: 1 },
+          );
+        }
       }
     }
   }

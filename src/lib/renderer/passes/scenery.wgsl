@@ -149,10 +149,14 @@ fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> 
   let paletteIdx = min(species, 2u);
   out.baseCol = BASE_PAL[paletteIdx];
   out.crownCol = CROWN_PAL[paletteIdx];
-  // Billboard UV: both crossed quads share the same (0..1, 0..1) space so
-  // the same leaf texture tiles across both. local.x goes −0.6..0.6 and
-  // local.y goes 0..1 before the per-species scale, so remap to UV.
-  out.uv = vec2<f32>(local.x + 0.5, 1.0 - local.y);
+  // Billboard UV (#719 VP-01): each crossed quad maps its own varying
+  // in-plane horizontal axis to u in [0, 1]. For quad A (verts 0..3)
+  // `local.z` is 0 so the sum collapses to `local.x`; for quad B (verts
+  // 4..7) `local.x` is 0 so it collapses to `local.z`. Divide by the
+  // full quad width (1.2) and offset by 0.5 so u is 0 at -0.6 and 1 at
+  // +0.6 on either card. Mirrored in `src/lib/renderer/plan/spriteQuadUv.ts`
+  // (TS twin + regression tests).
+  out.uv = vec2<f32>((local.x + local.z) / 1.2 + 0.5, 1.0 - local.y);
   out.species = paletteIdx;
   out.tintSeed = swaySeed;
   let d = p - frame.camPos;
