@@ -127,6 +127,11 @@ export type RideAttachOpts = {
   conditions?: string;
   /** #733 VP-15 — CSS px the HUD covers along each canvas edge. */
   viewportInsets?: { top: number; right: number; bottom: number; left: number };
+  /**
+   * #728 VP-10 FR2 — called with the race ghost's marker (CSS px over the
+   * canvas, and the gap) whenever it moves, and null when it hides.
+   */
+  onGhostMarker?: (marker: { x: number; y: number; meters: number; ahead: boolean } | null) => void;
 };
 
 export type RideAttach = (

@@ -89,7 +89,8 @@ import {
   BOAT_BONE_TORSO,
 } from '../plan/boatMesh';
 import { loadBoatMesh } from '../plan/boatMeshLoader';
-import { crewStrokePose, oarSweep, scullPartTransform } from '../plan/crewStroke';
+import { crewStrokePose, oarSweep } from '../plan/crewStroke';
+import { scullBoatTrs, scullPrimitiveTransform } from '../plan/scullInstances';
 import {
   classifyCrewSlot,
   DEFAULT_CREW_PALETTE,
@@ -107,7 +108,9 @@ import { createStrokeClock, resetStrokeClock, stepStrokeClock } from './strokeCl
 import { createDistanceSmoother } from './distanceSmoother';
 import type { RideFrame } from './rideFrame';
 import { RouteCurve } from '../math/curve';
-import { GHOST_LANE_OFFSET_M } from '../../../components/rower3d/ghost';
+import { GHOST_LANE_OFFSET_M, gapMeters, ghostStroke } from '../../../components/rower3d/ghost';
+import { GHOST_SCULL_STYLE, ghostMarker, type GhostMarker } from '../plan/ghostStyle';
+import type { SceneryInstance } from '../passes/sceneryMesh';
 import {
   advanceFleet,
   createFleet,
@@ -301,6 +304,12 @@ export interface RideSceneOpts {
    * Live changes come through `setViewportInsets`.
    */
   viewportInsets?: ViewportInsets;
+  /**
+   * #728 VP-10 FR2 — where to draw the race ghost's marker, called when it
+   * moves (to the whole CSS px) and with null when it should hide: the
+   * ghost is within 30 m, off screen, or gone.
+   */
+  onGhostMarker?: (marker: GhostMarker | null) => void;
   /**
    * #623 Phase 1 — the attach test harness (`attach({testMode: true})`)
    * sets this so the SSR/test boat fallback keeps working: a mocked
@@ -623,6 +632,8 @@ export const createRideScene = async (
   // own mesh id so the per-primitive base colours survive.
   const sceneryMeshPass = createSceneryMeshPass({ device, format, frameUniforms });
   const BOAT_SCULL_PREFIX = 'boat-scull';
+  /** #728 FR1 — instances of each scull primitive: the player and the ghost. */
+  const SCULL_INSTANCES = 2;
   const boatScullMeshIds: string[] = [];
   interface BoatScullPrimitive {
     id: string;
@@ -725,7 +736,8 @@ export const createRideScene = async (
           indices: prim.indices,
           baseColor: prim.baseColor,
           colors: initialColors,
-          maxInstances: 1,
+          // #728 FR1: the player, then the race ghost.
+          maxInstances: SCULL_INSTANCES,
         });
         boatScullMeshIds.push(id);
         const nodeWorld = mat4();
@@ -1271,6 +1283,10 @@ export const createRideScene = async (
   // back to today's off-white when the id is empty / undefined.
   const BOAT_TINT = boatTintFromAthlete(opts.athleteId);
   const GHOST_TINT = new Float32Array([0.35, 0.85, 1.0, 0.5]);
+  // #728 FR1 — per-primitive instance matrices, kept across frames.
+  const scullPlayerInstances = new Map<string, Mat4>();
+  const scullGhostInstances = new Map<string, Mat4>();
+  const scullGhostTrs = mat4();
   // #577 D9a — placeholder fleet uses a desaturated solid hull tint so
   // they read as a pack of other boats rather than semi-transparent
   // race ghosts. Slight variation per member via a seed-driven hue
@@ -1329,6 +1345,22 @@ export const createRideScene = async (
   const strokeClock = createStrokeClock();
   let lastStrokeTime = -1;
   let strokeWasPlaying = false;
+  // #728 FR1 — the ghost rows on its own clock, at its own cadence.
+  const ghostStrokeClock = createStrokeClock();
+  let ghostMarkerKey = '';
+  // #728 FR2 spec seam (test mode): draw the frame without the ghost, so a
+  // spec can diff the two and read the ghost's silhouette against the very
+  // water behind it.
+  let ghostHidden = false;
+  // …and draw the ghost flat magenta, so a spec can tell its own pixels
+  // from its reflection and shadow on the water, which a with/without
+  // diff also catches.
+  let ghostMask = false;
+  const GHOST_MASK_STYLE = { tint: [1, 0, 1, 1] as const, alpha: 1, rim: 0, flat: 1, haze: 0 };
+  // …and hold the ride still (the same time and ride frame each draw), so
+  // those three frames sample the same pixels of a boat that has not moved.
+  let holdFrame = false;
+  let heldFrame: { time: number; ride: RideFrame | null; smoothed?: RideFrame | null } | null = null;
 
   const frameOnce = (): void => {
     if (disposed) return;
@@ -1339,11 +1371,19 @@ export const createRideScene = async (
     // asks for the feature (device.ts) but no pass writes a timestamp yet.
     const cpuStart = now();
     resize();
-    frame.time = (now() - start) / 1000;
+    if (holdFrame && heldFrame) {
+      frame.time = heldFrame.time;
+    } else {
+      frame.time = (now() - start) / 1000;
+    }
+    const rideFrame: RideFrame | null =
+      holdFrame && heldFrame ? heldFrame.ride : opts.getFrame ? opts.getFrame() : null;
+    if (holdFrame && !heldFrame) heldFrame = { time: frame.time, ride: rideFrame };
+    if (!holdFrame) heldFrame = null;
 
-    const rideFrame: RideFrame | null = opts.getFrame ? opts.getFrame() : null;
-
-    const smoothedFrame: RideFrame | null = rideFrame
+    const smoothedFrame: RideFrame | null = heldFrame?.smoothed !== undefined
+      ? heldFrame.smoothed
+      : rideFrame
       ? {
           ...rideFrame,
           distanceMeters: distanceSmoother.update(
@@ -1353,6 +1393,7 @@ export const createRideScene = async (
           ),
         }
       : null;
+    if (heldFrame && heldFrame.smoothed === undefined) heldFrame.smoothed = smoothedFrame;
 
     placeBoat(boatPlacement, routeCurve, smoothedFrame, totalDistanceMeters, curveLength, 0);
     // #571 wake foam: run the CPU particle sim before the pass encodes.
@@ -1402,6 +1443,16 @@ export const createRideScene = async (
       dtSeconds: strokeDt,
       isPlaying: isPlayingNow,
     });
+    const ghostSource = rideFrame?.ghost ?? null;
+    const ghostElapsed = rideFrame?.elapsedSeconds ?? frame.time;
+    const ghostRow = ghostSource ? ghostStroke(ghostSource, ghostElapsed) : { rowing: false, cadence: 0 };
+    if (isPlayingNow && ghostElapsed < 0.25) resetStrokeClock(ghostStrokeClock);
+    const ghostRowing = isPlayingNow && ghostRow.rowing && !!ghostInfo;
+    const ghostPhase = stepStrokeClock(ghostStrokeClock, {
+      cadence: ghostRow.cadence,
+      dtSeconds: strokeDt,
+      isPlaying: ghostRowing,
+    });
     // #571 oar-blade splash: fire a burst at catch (phase 0 crossing) and
     // finish (phase 0.5 crossing). `isMoving` matches the wake-pass gate.
     const oarSplashMoving = !!rideFrame?.isPlaying && !rideFrame.holdBoat && !rideFrame.finished;
@@ -1433,7 +1484,9 @@ export const createRideScene = async (
     }
     const scullLoaded = boatScullMeshIds.length > 0;
     boatPass.boatVisible.value = !scullLoaded;
-    boatPass.ghostVisible.value = ghostInfo !== null;
+    // #728 FR1: with the scull GLB loaded the ghost is drawn from it; the
+    // simplified mesh stays the fallback, as it is for the player.
+    boatPass.ghostVisible.value = ghostInfo !== null && !scullLoaded && !ghostHidden;
 
     if (scullLoaded) {
       const boatTrs = mat4();
@@ -1458,47 +1511,33 @@ export const createRideScene = async (
       const sweep = oarSweep(crew, phaseSweep, ampSweep);
       const stroke = crewStrokePose(crew, sweep);
 
-      const nodeAfterSwing = mat4();
-      const toPivot = mat4();
-      const fromPivot = mat4();
-      const rotSweep = mat4();
-      const tmp = mat4();
-      const perInstance = mat4();
+      // #728 FR1 — the ghost: the same primitives at its own placement,
+      // with its own sweep and pose, in its own style.
+      let ghostTrs: Mat4 | null = null;
+      let ghostSweep = 0;
+      let ghostPose = stroke;
+      if (ghostInfo && !ghostHidden) {
+        ghostTrs = scullBoatTrs(scullGhostTrs, ghostPlacement.world, ghostPlacement.heading);
+        ghostSweep = oarSweep(crew, ghostPhase, ghostRowing ? 1 : 0);
+        ghostPose = crewStrokePose(crew, ghostSweep);
+      }
 
       for (const prim of boatScullPrimitives) {
-        if (prim.group && prim.pivotWorld) {
-          const sign = prim.group === 'RightOar' ? -1 : 1;
-          mat4FromRotationY(rotSweep, sweep * sign);
-
-          const px = prim.pivotWorld[12];
-          const py = prim.pivotWorld[13];
-          const pz = prim.pivotWorld[14];
-          mat4Identity(toPivot);
-          toPivot[12] = -px;
-          toPivot[13] = -py;
-          toPivot[14] = -pz;
-          mat4Identity(fromPivot);
-          fromPivot[12] = px;
-          fromPivot[13] = py;
-          fromPivot[14] = pz;
-
-          mat4Multiply(tmp, toPivot, prim.nodeWorld);
-          mat4Multiply(nodeAfterSwing, rotSweep, tmp);
-          mat4Multiply(tmp, fromPivot, nodeAfterSwing);
-          mat4Multiply(perInstance, boatTrs, tmp);
-        } else {
-          const part = scullPartTransform(prim.nodeName, stroke);
-          if (part) {
-            mat4Multiply(tmp, part, prim.nodeWorld);
-            mat4Multiply(perInstance, boatTrs, tmp);
-          } else {
-            mat4Multiply(perInstance, boatTrs, prim.nodeWorld);
+        const instances: SceneryInstance[] = [];
+        if (isCrewNodeVisible(prim.nodeName, currentAppearance)) {
+          const player = scullPlayerInstances.get(prim.id) ?? mat4();
+          scullPlayerInstances.set(prim.id, player);
+          instances.push(scullPrimitiveTransform(player, prim, { boatTrs, sweep, stroke }));
+          if (ghostTrs) {
+            const ghost = scullGhostInstances.get(prim.id) ?? mat4();
+            scullGhostInstances.set(prim.id, ghost);
+            instances.push({
+              model: scullPrimitiveTransform(ghost, prim, { boatTrs: ghostTrs, sweep: ghostSweep, stroke: ghostPose }),
+              ...(ghostMask ? GHOST_MASK_STYLE : GHOST_SCULL_STYLE),
+            });
           }
         }
-        sceneryMeshPass.setInstances(
-          prim.id,
-          isCrewNodeVisible(prim.nodeName, currentAppearance) ? [perInstance] : [],
-        );
+        sceneryMeshPass.setInstances(prim.id, instances);
       }
     }
     boatPass.boat.write(device, {
@@ -1625,6 +1664,11 @@ export const createRideScene = async (
       telemetry.ghostMeters.value = 0;
       telemetry.ghostMeters.active = false;
     }
+    // #728 FR1 telemetry: what the ghost is drawn with, and its stroke.
+    telemetry.ghostMeters.model = !ghostInfo ? 'none' : boatScullMeshIds.length > 0 ? 'scull' : 'placeholder';
+    telemetry.ghostMeters.cadenceSpm = ghostRowing ? ghostRow.cadence : 0;
+    telemetry.ghostMeters.strokePhase = ghostPhase;
+    telemetry.ghostMeters.lane = -GHOST_LANE_OFFSET_M;
 
     const camBoat = vec3(boatPlacement.world[0], boatPlacement.world[1], boatPlacement.world[2]);
     const camTangent = vec3();
@@ -1663,6 +1707,36 @@ export const createRideScene = async (
       );
       telemetry.boat.screenBounds = projectedBounds(frame.viewProj, pts, width, height);
       telemetry.boat.clearRect = clearRect(width, height, viewportInsets);
+    }
+    // #728 FR2 — the ghost's marker past 30 m, for the host to draw.
+    {
+      const marker: GhostMarker | null = ghostInfo
+        ? ghostMarker({
+            ghostWorld: [ghostPlacement.world[0], ghostPlacement.world[1], ghostPlacement.world[2]],
+            gapMeters: gapMeters(boatPlacement.distanceMeters, ghostInfo.metres),
+            viewProj: frame.viewProj,
+            width,
+            height,
+          })
+        : null;
+      telemetry.ghostMeters.marker = marker;
+      // FR2 spec seam: the ghost's box on screen, as for the player boat.
+      if (ghostInfo) {
+        const c = Math.cos(ghostPlacement.heading);
+        const sn = Math.sin(ghostPlacement.heading);
+        const [gx, gy, gz] = [ghostPlacement.world[0], ghostPlacement.world[1], ghostPlacement.world[2]];
+        const pts = BOAT_FOOTPRINT.map(
+          ([x, y, z]) => [gx + c * x + sn * z, gy + y, gz - sn * x + c * z] as [number, number, number],
+        );
+        telemetry.ghostMeters.screenBounds = projectedBounds(frame.viewProj, pts, width, height);
+      } else {
+        telemetry.ghostMeters.screenBounds = null;
+      }
+      const key = marker ? `${Math.round(marker.x)},${Math.round(marker.y)},${marker.meters},${marker.ahead}` : '';
+      if (key !== ghostMarkerKey) {
+        ghostMarkerKey = key;
+        opts.onGhostMarker?.(marker);
+      }
     }
     frame.camPos[0] = eye[0];
     frame.camPos[1] = eye[1];
@@ -1814,9 +1888,21 @@ export const createRideScene = async (
   // #730 — the same seam for specs that switch conditions mid-row. The
   // shell goes through `RideRenderer.setConditions`; this is for tests.
   const SET_CONDITIONS_KEY = '__ROWER3D_SET_CONDITIONS' as const;
+  const HIDE_GHOST_KEY = '__ROWER3D_HIDE_GHOST' as const;
+  const GHOST_MASK_KEY = '__ROWER3D_GHOST_MASK' as const;
+  const HOLD_FRAME_KEY = '__ROWER3D_HOLD_FRAME' as const;
   if (opts.testMode) {
     try {
       (globalThis as unknown as Record<string, unknown>)[SET_CONDITIONS_KEY] = setConditions;
+      (globalThis as unknown as Record<string, unknown>)[HIDE_GHOST_KEY] = (hidden: boolean) => {
+        ghostHidden = !!hidden;
+      };
+      (globalThis as unknown as Record<string, unknown>)[GHOST_MASK_KEY] = (on: boolean) => {
+        ghostMask = !!on;
+      };
+      (globalThis as unknown as Record<string, unknown>)[HOLD_FRAME_KEY] = (on: boolean) => {
+        holdFrame = !!on;
+      };
     } catch { /* non-browser */ }
   }
   // Reference so a build-time dead-code pass doesn't drop the helper:
@@ -1848,6 +1934,9 @@ export const createRideScene = async (
       try {
         delete (globalThis as unknown as Record<string, unknown>)[SET_APPEARANCE_KEY];
         delete (globalThis as unknown as Record<string, unknown>)[SET_CONDITIONS_KEY];
+        delete (globalThis as unknown as Record<string, unknown>)[HIDE_GHOST_KEY];
+        delete (globalThis as unknown as Record<string, unknown>)[GHOST_MASK_KEY];
+        delete (globalThis as unknown as Record<string, unknown>)[HOLD_FRAME_KEY];
       } catch { /* non-browser */ }
       clearPolygonWaterTelemetry();
       session.dispose();

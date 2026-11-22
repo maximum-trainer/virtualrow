@@ -98,6 +98,50 @@ export const ghostDistanceAt = (ghost: GhostSource, elapsedSeconds: number): num
   return a.distance + ((b.distance - a.distance) * (elapsedSeconds - a.t)) / span;
 };
 
+/** #728 FR1: the rate, in spm, a boat holding 2:00/500 m rows at. */
+const CADENCE_AT_2MIN = 24;
+/** spm gained per second of pace faster than 2:00/500 m. */
+const CADENCE_PER_PACE_SECOND = 4 / 15;
+const MIN_GHOST_CADENCE = 18;
+const MAX_GHOST_CADENCE = 36;
+
+/**
+ * #728 VP-10 FR1 — a stroke rate for a pace, for a ghost with no logged
+ * cadence: 24 spm at 2:00/500 m, 4 spm more per 15 s faster, held to the
+ * 18–36 spm a sculler actually rows. Zero for no pace.
+ */
+export const cadenceForPace = (paceSPer500: number): number => {
+  if (!(paceSPer500 > 0) || !Number.isFinite(paceSPer500)) return 0;
+  const spm = CADENCE_AT_2MIN + (120 - paceSPer500) * CADENCE_PER_PACE_SECOND;
+  return Math.max(MIN_GHOST_CADENCE, Math.min(MAX_GHOST_CADENCE, spm));
+};
+
+/**
+ * #728 VP-10 FR1 — whether the ghost is rowing at `elapsedSeconds`, and at
+ * what rate. A pace boat rows once the clock runs. A recorded boat rows
+ * at the cadence its row logged (or, without one, at the rate its pace
+ * implies), and sits still where that row was paused or after it ended.
+ */
+export const ghostStroke = (
+  ghost: GhostSource,
+  elapsedSeconds: number,
+): { rowing: boolean; cadence: number } => {
+  if (elapsedSeconds <= 0) return { rowing: false, cadence: 0 };
+  if (ghost.kind === 'pace') {
+    const cadence = cadenceForPace(ghost.paceSPer500);
+    return { rowing: cadence > 0, cadence };
+  }
+  const { samples } = ghost;
+  const index = lastSampleAt(samples, elapsedSeconds);
+  const a = samples[index];
+  const b = samples[index + 1];
+  if (!a || !b || b.t <= a.t || b.distance <= a.distance) return { rowing: false, cadence: 0 };
+  const logged = a.cadence;
+  if (logged !== undefined && Number.isFinite(logged) && logged > 0) return { rowing: true, cadence: logged };
+  const cadence = cadenceForPace((500 * (b.t - a.t)) / (b.distance - a.distance));
+  return { rowing: cadence > 0, cadence };
+};
+
 /** Metres the rower is ahead of the ghost. Negative means the ghost leads. */
 export const gapMeters = (rowerMeters: number, ghostMeters: number): number =>
   rowerMeters - ghostMeters;

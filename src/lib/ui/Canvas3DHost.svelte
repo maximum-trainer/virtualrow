@@ -16,7 +16,7 @@
 -->
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
-  import type { RideAttach, RideRenderer, RideFrame, RideViewportInsets } from './rideCanvas';
+  import type { RideAttach, RideRenderer, RideFrame, RideGhostMarker, RideViewportInsets } from './rideCanvas';
   import { crashReporterService } from '../services/crashReporterService';
 
   export type CanvasBackend = 'stub' | 'live' | 'unavailable';
@@ -134,6 +134,8 @@
   // 'stub' until the engine attaches; 'live' once it does; 'unavailable' if the
   // engine declined (returned null).
   let backend = $state<CanvasBackend>('stub');
+  // #728 VP-10 FR2 — the race ghost's marker, as the engine last placed it.
+  let ghostMarker = $state<RideGhostMarker | null>(null);
 
   const setBackend = (next: CanvasBackend, reason?: string): void => {
     const changed = backend !== next;
@@ -183,6 +185,9 @@
           appearance,
           conditions,
           viewportInsets,
+          onGhostMarker: (m: RideGhostMarker | null) => {
+            if (mine === generation) ghostMarker = m;
+          },
         }),
       )
       .then((r) => {
@@ -201,6 +206,7 @@
   };
 
   const releaseCurrent = (): void => {
+    ghostMarker = null;
     currentHandle?.dispose();
     currentHandle = null;
     liveHandle = null;
@@ -239,6 +245,17 @@
   <div class="rower3d-gpu-backend" data-backend={backend} style="display: none;"></div>
 
   <canvas class="rower3d-canvas" bind:this={canvas}></canvas>
+
+  {#if ghostMarker}
+    <div
+      class="ghost-marker"
+      data-ahead={ghostMarker.ahead ? 'true' : 'false'}
+      style="left: {ghostMarker.x}px; top: {ghostMarker.y}px;"
+      aria-hidden="true"
+    >
+      Ghost {ghostMarker.meters} m
+    </div>
+  {/if}
 
   {#if backend !== 'live'}
     <!-- P1 stub: the engine track replaces this with real frames. Kept out of

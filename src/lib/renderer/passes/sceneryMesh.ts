@@ -12,8 +12,36 @@ import type { FrameContext, Pass } from '../engine/frameGraph';
 import type { Mat4 } from '../math/mat4';
 import sceneryMeshWgsl from './sceneryMesh.wgsl?raw';
 
-/** One mat4 (16 floats = 64 B) per instance. */
-const BYTES_PER_INSTANCE = 64;
+/**
+ * One instance record: a mat4 model, a tint vec4 and an effect vec4
+ * (#728 VP-10, #713 D3a), 24 floats = 96 B. Mirrors `SceneryInstance`
+ * in `sceneryMesh.wgsl` and `sceneryMeshDepth.wgsl`.
+ */
+export const SCENERY_INSTANCE_BYTES = 96;
+const FLOATS_PER_INSTANCE = SCENERY_INSTANCE_BYTES / 4;
+
+/**
+ * How one instance of a mesh is drawn, beyond its transform (#728 FR2,
+ * #713 D3a). Every field defaults to "as authored": no tint, opaque, no
+ * rim, sun-shaded.
+ */
+export interface SceneryInstanceStyle {
+  readonly model: Mat4;
+  /** rgb, and how far (0..1) the authored colour moves towards it. */
+  readonly tint?: readonly [number, number, number, number];
+  /** Below 1 the instance is drawn in the translucent pass, after every opaque one. */
+  readonly alpha?: number;
+  /** Strength of a fresnel rim highlight. */
+  readonly rim?: number;
+  /** 0 sun-shaded, 1 flat: the tint holds its brightness in any light. */
+  readonly flat?: number;
+  /** Share (0..1) of the distance haze it takes; 1, the default, is all of it. */
+  readonly haze?: number;
+}
+
+export type SceneryInstance = Mat4 | SceneryInstanceStyle;
+
+const isStyled = (i: SceneryInstance): i is SceneryInstanceStyle => !ArrayBuffer.isView(i);
 
 export interface SceneryMeshInput {
   /** Stable id so the registry can be queried + instance buffers updated by id. */
@@ -56,7 +84,11 @@ interface RegisteredMesh {
   instanceBuffer: GPUBuffer;
   maxInstances: number;
   instanceCount: number;
+  /** #728 — per instance, whether it draws in the translucent pass. */
+  translucent: Uint8Array;
+  translucentCount: number;
   bindGroup: GPUBindGroup;
+  translucentBindGroup: GPUBindGroup;
   /** #688 — included in the shadow-depth iteration; defaults to true. */
   castsShadow: boolean;
 }
@@ -81,8 +113,12 @@ export interface SceneryMeshSnapshot {
 
 export interface SceneryMeshPass extends Pass {
   register(input: SceneryMeshInput): void;
-  /** Write `instances.length` mat4s for `id`; clamps to the registered maxInstances. */
-  setInstances(id: string, instances: readonly Mat4[]): void;
+  /**
+   * Write `instances.length` instance records for `id`; clamps to the
+   * registered maxInstances. A bare mat4 draws as authored; a styled
+   * instance carries its own tint, opacity and rim (#728, #713 D3a).
+   */
+  setInstances(id: string, instances: readonly SceneryInstance[]): void;
   /**
    * Overwrite the per-vertex colour buffer for an already-registered mesh
    * (#578 FR2). The length must match the mesh's vertex count × 4; a
@@ -122,21 +158,41 @@ export const createSceneryMeshPass = ({
   frameUniforms,
 }: CreateSceneryMeshPassOptions): SceneryMeshPass => {
   const module = device.createShaderModule({ label: 'sceneryMesh', code: sceneryMeshWgsl });
+  const vertexBuffers: GPUVertexBufferLayout[] = [
+    { arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }] },
+    { arrayStride: 12, attributes: [{ shaderLocation: 1, offset: 0, format: 'float32x3' }] },
+    { arrayStride: 16, attributes: [{ shaderLocation: 2, offset: 0, format: 'float32x4' }] },
+  ];
   const pipeline = device.createRenderPipeline({
     label: 'sceneryMesh',
     layout: 'auto',
-    vertex: {
-      module,
-      entryPoint: 'vs_main',
-      buffers: [
-        { arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }] },
-        { arrayStride: 12, attributes: [{ shaderLocation: 1, offset: 0, format: 'float32x3' }] },
-        { arrayStride: 16, attributes: [{ shaderLocation: 2, offset: 0, format: 'float32x4' }] },
-      ],
-    },
+    vertex: { module, entryPoint: 'vs_main', buffers: vertexBuffers },
     fragment: { module, entryPoint: 'fs_main', targets: [{ format }] },
     primitive: { topology: 'triangle-list', cullMode: 'back' },
     depthStencil: { format: 'depth32float', depthWriteEnabled: true, depthCompare: 'less' },
+  });
+  // #728 FR2 — the race ghost: the same mesh, blended over what is behind
+  // it. It tests against the scene's depth but does not write it, so the
+  // water and the player's boat stay visible through it.
+  const translucentPipeline = device.createRenderPipeline({
+    label: 'sceneryMesh-translucent',
+    layout: 'auto',
+    vertex: { module, entryPoint: 'vs_main', buffers: vertexBuffers },
+    fragment: {
+      module,
+      entryPoint: 'fs_main',
+      targets: [
+        {
+          format,
+          blend: {
+            color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+            alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+          },
+        },
+      ],
+    },
+    primitive: { topology: 'triangle-list', cullMode: 'back' },
+    depthStencil: { format: 'depth32float', depthWriteEnabled: false, depthCompare: 'less' },
   });
 
   const frameLayout = pipeline.getBindGroupLayout(0);
@@ -146,9 +202,17 @@ export const createSceneryMeshPass = ({
     layout: frameLayout,
     entries: [{ binding: 0, resource: { buffer: frameUniforms } }],
   });
+  // `layout: 'auto'` gives each pipeline its own (equal) layouts, so the
+  // translucent draws need bind groups made against its layouts.
+  const translucentFrameBind = device.createBindGroup({
+    label: 'sceneryMesh-translucent-frame',
+    layout: translucentPipeline.getBindGroupLayout(0),
+    entries: [{ binding: 0, resource: { buffer: frameUniforms } }],
+  });
+  const translucentMeshLayout = translucentPipeline.getBindGroupLayout(1);
 
   const registry = new Map<string, RegisteredMesh>();
-  const scratchInstance = new Float32Array(16);
+  const scratchInstance = new Float32Array(FLOATS_PER_INSTANCE);
 
   const register = (input: SceneryMeshInput): void => {
     if (registry.has(input.id)) return;
@@ -205,7 +269,7 @@ export const createSceneryMeshPass = ({
     device.queue.writeBuffer(indexBuffer, 0, indexData as BufferSource);
     const instanceBuffer = device.createBuffer({
       label: `sceneryMesh:${input.id}-inst`,
-      size: Math.max(1, input.maxInstances) * BYTES_PER_INSTANCE,
+      size: Math.max(1, input.maxInstances) * SCENERY_INSTANCE_BYTES,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
     const bindGroup = device.createBindGroup({
@@ -214,6 +278,11 @@ export const createSceneryMeshPass = ({
       entries: [
         { binding: 1, resource: { buffer: instanceBuffer } },
       ],
+    });
+    const translucentBindGroup = device.createBindGroup({
+      label: `sceneryMesh:${input.id}-translucent-bg`,
+      layout: translucentMeshLayout,
+      entries: [{ binding: 1, resource: { buffer: instanceBuffer } }],
     });
     registry.set(input.id, {
       id: input.id,
@@ -227,7 +296,10 @@ export const createSceneryMeshPass = ({
       instanceBuffer,
       maxInstances: Math.max(1, input.maxInstances),
       instanceCount: 0,
+      translucent: new Uint8Array(Math.max(1, input.maxInstances)),
+      translucentCount: 0,
       bindGroup,
+      translucentBindGroup,
       castsShadow: input.castsShadow ?? true,
     });
   };
@@ -239,14 +311,43 @@ export const createSceneryMeshPass = ({
     device.queue.writeBuffer(mesh.colorBuffer, 0, colors as BufferSource);
   };
 
-  const setInstances = (id: string, instances: readonly Mat4[]): void => {
+  const setInstances = (id: string, instances: readonly SceneryInstance[]): void => {
     const mesh = registry.get(id);
     if (!mesh) return;
     const count = Math.min(instances.length, mesh.maxInstances);
     mesh.instanceCount = count;
+    mesh.translucentCount = 0;
     for (let i = 0; i < count; i += 1) {
-      scratchInstance.set(instances[i], 0);
-      device.queue.writeBuffer(mesh.instanceBuffer, i * BYTES_PER_INSTANCE, scratchInstance as BufferSource);
+      const inst = instances[i];
+      scratchInstance.fill(0);
+      if (isStyled(inst)) {
+        scratchInstance.set(inst.model, 0);
+        if (inst.tint) scratchInstance.set(inst.tint, 16);
+        const alpha = inst.alpha ?? 1;
+        scratchInstance[20] = alpha;
+        scratchInstance[21] = inst.rim ?? 0;
+        scratchInstance[22] = inst.flat ?? 0;
+        scratchInstance[23] = inst.haze ?? 1;
+        mesh.translucent[i] = alpha < 1 ? 1 : 0;
+      } else {
+        scratchInstance.set(inst, 0);
+        scratchInstance[20] = 1;
+        scratchInstance[23] = 1;
+        mesh.translucent[i] = 0;
+      }
+      mesh.translucentCount += mesh.translucent[i];
+      device.queue.writeBuffer(mesh.instanceBuffer, i * SCENERY_INSTANCE_BYTES, scratchInstance as BufferSource);
+    }
+  };
+
+  /** Draw each run of instances whose translucent flag equals `want`. */
+  const drawRuns = (pass: GPURenderPassEncoder, mesh: RegisteredMesh, want: 0 | 1): void => {
+    let i = 0;
+    while (i < mesh.instanceCount) {
+      if (mesh.translucent[i] !== want) { i += 1; continue; }
+      const first = i;
+      while (i < mesh.instanceCount && mesh.translucent[i] === want) i += 1;
+      pass.drawIndexed(mesh.indexCount, i - first, 0, 0, first);
     }
   };
 
@@ -306,14 +407,32 @@ export const createSceneryMeshPass = ({
       });
       pass.setPipeline(pipeline);
       pass.setBindGroup(0, frameBind);
-      for (const mesh of registry.values()) {
-        if (mesh.instanceCount === 0) continue;
-        pass.setBindGroup(1, mesh.bindGroup);
+      let translucentMeshes = 0;
+      const bindMesh = (mesh: RegisteredMesh, bindGroup: GPUBindGroup): void => {
+        pass.setBindGroup(1, bindGroup);
         pass.setVertexBuffer(0, mesh.positionBuffer);
         pass.setVertexBuffer(1, mesh.normalBuffer);
         pass.setVertexBuffer(2, mesh.colorBuffer);
         pass.setIndexBuffer(mesh.indexBuffer, mesh.indexFormat);
-        pass.drawIndexed(mesh.indexCount, mesh.instanceCount);
+      };
+      for (const mesh of registry.values()) {
+        if (mesh.instanceCount === 0) continue;
+        if (mesh.translucentCount > 0) translucentMeshes += 1;
+        if (mesh.translucentCount === mesh.instanceCount) continue;
+        bindMesh(mesh, mesh.bindGroup);
+        if (mesh.translucentCount === 0) pass.drawIndexed(mesh.indexCount, mesh.instanceCount);
+        else drawRuns(pass, mesh, 0);
+      }
+      // #728 FR2 — translucent instances last, over everything opaque
+      // this pass drew.
+      if (translucentMeshes > 0) {
+        pass.setPipeline(translucentPipeline);
+        pass.setBindGroup(0, translucentFrameBind);
+        for (const mesh of registry.values()) {
+          if (mesh.instanceCount === 0 || mesh.translucentCount === 0) continue;
+          bindMesh(mesh, mesh.translucentBindGroup);
+          drawRuns(pass, mesh, 1);
+        }
       }
       pass.end();
     },

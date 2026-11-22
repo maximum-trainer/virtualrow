@@ -316,3 +316,109 @@ describe('the boat is never behind the HUD (#733 FR3)', () => {
     }
   }
 });
+
+// #728 VP-10 FR1/FR3 — with the scull GLB loaded, the race ghost is drawn
+// from it (not the placeholder), a full 7 m lane to port, rowing at its
+// own pace-derived rate.
+describe('the race ghost rows the scull GLB (#728)', () => {
+  it('draws the ghost from the scull at its own cadence, 7 m to port', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { resolve } = await import('node:path');
+    const bytes = readFileSync(resolve(process.cwd(), 'public/assets/boat/scull-male.glb'));
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url;
+      if (url.endsWith('/scull-male.glb')) return new Response(bytes);
+      return new Response(null, { status: 404 });
+    }) as typeof fetch;
+    try {
+      const canvas = makeMockCanvas();
+      const renderer = (await attach(canvas, {
+        testMode: true,
+        getFrame: () => ({
+          paceSPer500: 120,
+          distanceMeters: 40,
+          cadence: 20,
+          isPlaying: true,
+          holdBoat: false,
+          finished: false,
+          intensityFactor: 1,
+          elapsedSeconds: 10,
+          ghost: { kind: 'pace', paceSPer500: 105 },
+        }),
+      })) as unknown as WithTest;
+      for (let i = 0; i < 10; i++) renderer._frameOnce();
+      const g = (globalThis as unknown as { window: Record<string, unknown> }).window['__ROWER3D_GHOST_METERS'] as {
+        active: boolean;
+        model: string;
+        cadenceSpm: number;
+        lane: number;
+      };
+      expect(g.active).toBe(true);
+      expect(g.model).toBe('scull');
+      expect(g.cadenceSpm).toBeCloseTo(28, 6);
+      expect(g.lane).toBe(-7);
+      // FR2 spec seam: in test mode the ghost can be left out of a frame,
+      // so a spec can diff it against the water behind it.
+      const hide = (globalThis as unknown as Record<string, unknown>)['__ROWER3D_HIDE_GHOST'] as (h: boolean) => void;
+      expect(hide).toBeTypeOf('function');
+      hide(true);
+      renderer._frameOnce();
+      expect(g.active, 'still raced, only not drawn').toBe(true);
+      hide(false);
+      const mask = (globalThis as unknown as Record<string, unknown>)['__ROWER3D_GHOST_MASK'] as (on: boolean) => void;
+      expect(mask).toBeTypeOf('function');
+      mask(true);
+      renderer._frameOnce();
+      mask(false);
+      renderer.dispose();
+      expect((globalThis as unknown as Record<string, unknown>)['__ROWER3D_HIDE_GHOST']).toBeUndefined();
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+  // FR2 spec seam: the contrast check compares three frames (normal, mask,
+  // ghost hidden) of the same pixels, so the ride must stand still between
+  // them, or the oars and the hull's edge sample the water.
+  it('holds the ride still across frames while __ROWER3D_HOLD_FRAME is on', async () => {
+    const canvas = makeMockCanvas();
+    let calls = 0;
+    const renderer = (await attach(canvas, {
+      testMode: true,
+      getFrame: () => {
+        calls += 1;
+        return {
+          paceSPer500: 120,
+          distanceMeters: 40 + calls,
+          cadence: 20,
+          isPlaying: true,
+          holdBoat: false,
+          finished: false,
+          intensityFactor: 1,
+          elapsedSeconds: 10 + calls * 0.5,
+          ghost: { kind: 'pace', paceSPer500: 105 },
+        };
+      },
+    })) as unknown as WithTest;
+    for (let i = 0; i < 5; i++) renderer._frameOnce();
+    const read = () => {
+      const g = (globalThis as unknown as { window: Record<string, unknown> }).window['__ROWER3D_GHOST_METERS'] as {
+        value: number;
+        strokePhase: number;
+      };
+      return { meters: g.value, phase: g.strokePhase };
+    };
+    const hold = (globalThis as unknown as Record<string, unknown>)['__ROWER3D_HOLD_FRAME'] as (on: boolean) => void;
+    expect(hold).toBeTypeOf('function');
+    hold(true);
+    renderer._frameOnce();
+    const held = read();
+    for (let i = 0; i < 3; i++) renderer._frameOnce();
+    expect(read()).toEqual(held);
+    hold(false);
+    renderer._frameOnce();
+    expect(read().meters).not.toBe(held.meters);
+    renderer.dispose();
+    expect((globalThis as unknown as Record<string, unknown>)['__ROWER3D_HOLD_FRAME']).toBeUndefined();
+  });
+});

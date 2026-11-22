@@ -108,6 +108,20 @@ export interface RideRendererOptions {
    * engine default, which is today's Midday frame.
    */
   readonly conditions?: string;
+  /**
+   * #728 VP-10 FR2 — the engine reports where the race ghost's marker goes
+   * (CSS px over the canvas, and the gap in metres) whenever it moves, and
+   * null when it hides (ghost within 30 m, off screen, or none).
+   */
+  readonly onGhostMarker?: (marker: RideGhostMarker | null) => void;
+}
+
+/** The marker over a race ghost more than 30 m away (#728 VP-10 FR2). */
+export interface RideGhostMarker {
+  readonly x: number;
+  readonly y: number;
+  readonly meters: number;
+  readonly ahead: boolean;
 }
 
 /** A running renderer. The host calls {@link dispose} when the ride unmounts. */

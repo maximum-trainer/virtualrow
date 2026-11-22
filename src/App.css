@@ -1295,6 +1295,29 @@ body {
   display: block;
 }
 
+/* #728 VP-10 FR2 — over a race ghost more than 30 m away. The engine
+   places it (canvas CSS px, a point above the boat); it sits centred over
+   that point. The lime matches the ghost's own tint. */
+.rower3d-canvas-container {
+  position: relative;
+}
+
+.rower3d-canvas-container .ghost-marker {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 2px solid #b8ff4d;
+  background: rgb(10 20 10 / 70%);
+  color: #e9ffd0;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 5;
+}
+
 .activity-route-summary {
   position: absolute;
   top: var(--space-lg);
