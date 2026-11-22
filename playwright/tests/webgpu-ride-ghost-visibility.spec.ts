@@ -95,7 +95,7 @@ const grab = (page: Page, box: Rect) =>
     const w = Math.min(c.width, Math.ceil(b.right * sx)) - x0;
     const h = Math.min(c.height, Math.ceil(b.bottom * sy)) - y0;
     if (w < 4 || h < 4) return null;
-    return Array.from(ctx.getImageData(x0, y0, w, h).data);
+    return { w, h, data: Array.from(ctx.getImageData(x0, y0, w, h).data) };
   }, box);
 
 /**
@@ -118,24 +118,42 @@ const sampleGhost = async (page: Page, box: Rect) => {
   await page.evaluate(() => (window as W).__ROWER3D_HIDE_GHOST?.(false));
   await forceRender(page);
   if (!withGhost || !mask || !without) return null;
-  if (withGhost.length !== without.length || mask.length !== without.length) return null;
-  const ghost = [0, 0, 0];
-  const water = [0, 0, 0];
-  let n = 0;
-  for (let i = 0; i < mask.length; i += 4) {
-    // Magenta: red and blue high, green low. A reflection of it in the
-    // water is tinted by the water and fails this.
-    if (!(mask[i] > 180 && mask[i + 2] > 180 && mask[i + 1] < 90)) continue;
-    for (let k = 0; k < 3; k++) {
-      ghost[k] += withGhost[i + k];
-      water[k] += without[i + k];
+  if (withGhost.data.length !== without.data.length || mask.data.length !== without.data.length) return null;
+  // Magenta: red and blue high, green low. A reflection of it in the
+  // water is tinted by the water and fails this.
+  const { w, h } = mask;
+  const isMask = (x: number, y: number): boolean => {
+    if (x < 0 || y < 0 || x >= w || y >= h) return false;
+    const i = (y * w + x) * 4;
+    return mask.data[i] > 150 && mask.data[i + 2] > 150 && mask.data[i + 1] < 100;
+  };
+  // The ride keeps going between the three frames, so the oars and the
+  // hull's outline move a few pixels. Keep only the mask's interior: a
+  // pixel whose neighbours ERODE_PX away are magenta too. That drops the
+  // thin oar shafts and the edges, which would otherwise sample water in
+  // the normal frame and pull the ghost's colour towards it.
+  const ERODE_PX = 2;
+  const ghostPx: number[][] = [];
+  const waterPx: number[][] = [];
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (!isMask(x, y)) continue;
+      if (!(isMask(x - ERODE_PX, y) && isMask(x + ERODE_PX, y) && isMask(x, y - ERODE_PX) && isMask(x, y + ERODE_PX))) continue;
+      const i = (y * w + x) * 4;
+      ghostPx.push([withGhost.data[i], withGhost.data[i + 1], withGhost.data[i + 2]]);
+      waterPx.push([without.data[i], without.data[i + 1], without.data[i + 2]]);
     }
-    n += 1;
   }
+  // Medians by luminance, so a few stray pixels don't move the result.
+  const medianByLuminance = (px: number[][]): number[] => {
+    if (px.length === 0) return [0, 0, 0];
+    const sorted = [...px].sort((a, b) => luminance(a) - luminance(b));
+    return sorted[Math.floor(sorted.length / 2)];
+  };
   return {
-    ghostPixels: n,
-    ghost: ghost.map((v) => v / Math.max(1, n)),
-    water: water.map((v) => v / Math.max(1, n)),
+    ghostPixels: ghostPx.length,
+    ghost: medianByLuminance(ghostPx),
+    water: medianByLuminance(waterPx),
   };
 };
 
