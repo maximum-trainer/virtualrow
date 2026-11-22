@@ -26,6 +26,13 @@ import {
   type SceneryProfile,
 } from '../services/routeEnrichmentService';
 import { seededRandom } from './seededRandom';
+import { waterHalfWidthAt } from './waterHalfWidth';
+import { keepClearHalfWidth } from './laneClearance';
+import {
+  BUILT_IN_FOOTPRINT_LOOKUP,
+  footprintRadiusFor,
+  type FootprintLookup,
+} from './sceneryFootprints';
 
 export const ASSET_SCALE = 0.001;
 
@@ -49,31 +56,16 @@ export const LAND_BANDS: readonly Category[] = [
 
 const MIN_BAND_STEP_METRES = 1;
 const SCENERY_WATER_MARGIN_METRES = 2;
-const DEFAULT_WATER_WIDTH_METERS = 20;
+/** FR3: every bank footing stands this far clear of the waterline after
+ *  accounting for its own footprint radius. */
+const BANK_FOOTING_MARGIN_METRES = 1;
+/** FR2: surface / in-water items hug the bank at most this far in. */
+const WATER_PROP_BANK_INSET_METRES = 4;
+/** Minimum clearance between a water prop's near edge and the waterline. */
+const WATER_PROP_WATERLINE_MARGIN_METRES = 0.5;
 
 const nearestBankOffset = (halfWidth: number): number => halfWidth + SCENERY_WATER_MARGIN_METRES;
 const sideOfOffset = (offset: number): 'left' | 'right' => (offset < 0 ? 'left' : 'right');
-
-const waterHalfWidthAt = (
-  enrichment: RouteEnrichmentData | null | undefined,
-  progress: number,
-  side: 'left' | 'right',
-): number => {
-  const profiles = enrichment?.segmentProfiles;
-  if (!profiles || profiles.length === 0) {
-    return (enrichment?.waterWidthMeters ?? DEFAULT_WATER_WIDTH_METERS) / 2;
-  }
-  const clamped = Math.max(0, Math.min(1, progress));
-  const lastIndex = profiles.length - 1;
-  const scaled = clamped * lastIndex;
-  const lower = profiles[Math.floor(scaled)];
-  const upper = profiles[Math.min(lastIndex, Math.floor(scaled) + 1)];
-  const blend = scaled - Math.floor(scaled);
-  const lo = (side === 'left' ? lower.leftShoreMeters : lower.rightShoreMeters) ?? 0;
-  const hi = (side === 'left' ? upper.leftShoreMeters : upper.rightShoreMeters) ?? 0;
-  const meters = lo + (hi - lo) * blend;
-  return Number.isFinite(meters) && meters > 0 ? meters : DEFAULT_WATER_WIDTH_METERS / 2;
-};
 
 export const bandsClearOf = (halfWidth: number): Record<Category, [number, number]> => {
   const bands = { ...CATEGORY_OFFSET };
@@ -162,10 +154,52 @@ export interface PlacementInput {
   side: 'left' | 'right';
   track?: SceneryTrack | null;
   kitTrees?: boolean;
+  /** #723 FR3 — footprint radius lookup from the manifest. When null, a
+   *  per-tier fallback keeps the keep-clear maths safe. */
+  footprintLookup?: FootprintLookup | null;
 }
 
+/**
+ * Compute the |offset| range along a side's perpendicular where a model
+ * of radius `radius` (scene m) may be placed without breaking FR1 (the
+ * racing-line keep-clear corridor), FR2 (surface/in-water items hug the
+ * bank) or FR3 (bank footings sit wholly on land). Returns `null` when
+ * the river is too narrow for the category at this progress.
+ */
+export const placementOffsetRange = (
+  cat: Category,
+  halfWidth: number,
+  radius: number,
+  bandOuter: number,
+): { inner: number; outer: number } | null => {
+  const corridor = keepClearHalfWidth();
+  if (cat === 'surface' || cat === 'inWater') {
+    // FR2 — place within WATER_PROP_BANK_INSET_METRES of the bank.
+    const outerBank = halfWidth - radius - WATER_PROP_WATERLINE_MARGIN_METRES;
+    const innerBank = Math.max(
+      halfWidth - WATER_PROP_BANK_INSET_METRES - radius,
+      corridor + radius + WATER_PROP_WATERLINE_MARGIN_METRES,
+    );
+    if (innerBank > outerBank) return null;
+    return { inner: innerBank, outer: outerBank };
+  }
+  // Bank footings (bankEdge, furniture, scatter, trees, buildings, landform, backdrop).
+  // FR3: nearest edge of the footprint must lie `BANK_FOOTING_MARGIN_METRES`
+  // past the waterline. FR1: it must also be clear of the racing corridor
+  // — the bank case is always the stricter test on a non-degenerate river.
+  const inner = Math.max(
+    halfWidth + BANK_FOOTING_MARGIN_METRES + radius,
+    corridor + radius,
+  );
+  const outer = Math.max(inner + MIN_BAND_STEP_METRES, bandOuter);
+  return { inner, outer };
+};
+
 export const computePlacements = (input: PlacementInput): Placement[] => {
-  const { curve, enrichment, resolvedByProfile, budget, side, track = null, kitTrees = true } = input;
+  const {
+    curve, enrichment, resolvedByProfile, budget, side, track = null,
+    kitTrees = true, footprintLookup = BUILT_IN_FOOTPRINT_LOOKUP,
+  } = input;
   const out: Placement[] = [];
   const firstResolved = resolvedByProfile.values().next().value as ResolvedScenery | undefined;
   const fallback = resolvedByProfile.get('fallback') ?? firstResolved;
@@ -179,8 +213,16 @@ export const computePlacements = (input: PlacementInput): Placement[] => {
   ) => {
     const id = pick(resolved[cat] as SceneryModelId[], seed);
     if (!id) return;
-    const [oMin, oMax] = bandsClearOf(waterHalfWidthAt(enrichment, t, sideOfOffset(sign)))[cat];
-    const offset = sign * (oMin + seededRandom(seed + 1) * (oMax - oMin));
+    const halfWidth = waterHalfWidthAt(enrichment, t, sideOfOffset(sign));
+    const radius = footprintRadiusFor(id, footprintLookup);
+    const bandOuter = bandsClearOf(halfWidth)[cat][1];
+    const range = placementOffsetRange(cat, halfWidth, radius, bandOuter);
+    // FR2: drop the item when the river is too narrow for a corridor-safe
+    // bank-side placement. For bank footings this is near-impossible
+    // (the band already pushes outward on a narrow river), so it only
+    // ever drops a surface/in-water item at a pinch point.
+    if (!range) return;
+    const offset = sign * (range.inner + seededRandom(seed + 1) * (range.outer - range.inner));
     const x = px + perpX * offset;
     const z = pz + perpZ * offset;
     const y = cat === 'surface' ? 0.15 : py;

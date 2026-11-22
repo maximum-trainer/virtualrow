@@ -138,6 +138,7 @@ import {
   FOLIAGE_VARIANT_COUNT,
 } from '../../scenery/foliageTexture';
 import { buildFoliageMips } from '../../scenery/foliageMips';
+import { mergeSceneryInstances } from '../../scenery/mergeSceneryInstances';
 import { loadFloraAtlas } from './textureLoader';
 import { mipLevelCountFor, textureBytes } from './textures';
 import { createFrameGraph, type FrameGraph, type FrameUniforms, type Pass } from './frameGraph';
@@ -1056,12 +1057,17 @@ export const createRideScene = async (
     byModel.get(place.id)?.push(trs);
   }
   // Combine course-furniture + GLB-scenery instance transforms into one map,
-  // keyed by model id. The streaming controller calls `setInstances` for a
-  // model only once its GLB has registered.
-  const sceneryInstanceMats = new Map<string, Mat4[]>();
+  // keyed by model id. #723 FR5: when a model id appears in BOTH the
+  // course-furniture output (byModel) and the route's generated groups
+  // (sceneryGlbList), their instances are CONCATENATED rather than
+  // overwritten — before, `.set` here silently wiped the finish tower,
+  // boathouse and distance posts whenever a route group for the same id
+  // came in through `composePlacementsForRoute`.
+  const courseFurnitureInstanceMats = new Map<string, Mat4[]>();
   for (const model of COURSE_FURNITURE_MODELS) {
-    sceneryInstanceMats.set(model, byModel.get(model) ?? []);
+    courseFurnitureInstanceMats.set(model, byModel.get(model) ?? []);
   }
+  const routeGlbInstanceMats = new Map<string, Mat4[]>();
   for (const group of sceneryGlbList) {
     const mats: Mat4[] = [];
     for (const inst of group.instances) {
@@ -1079,8 +1085,12 @@ export const createRideScene = async (
       mat4Multiply(trs, t, rot);
       mats.push(trs);
     }
-    sceneryInstanceMats.set(group.id, mats);
+    routeGlbInstanceMats.set(group.id, mats);
   }
+  const sceneryInstanceMats = mergeSceneryInstances([
+    courseFurnitureInstanceMats,
+    routeGlbInstanceMats,
+  ]);
 
   // Progressive loading plan: sample the route for along-route distances, work
   // out where each model first appears, and load models as the boat comes
