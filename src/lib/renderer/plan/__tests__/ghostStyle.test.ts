@@ -18,6 +18,9 @@ describe('GHOST_SCULL_STYLE', () => {
   it('is near-solid, with a rim, out of the haze, and holds its colour in any light', () => {
     expect(GHOST_SCULL_STYLE.alpha).toBeGreaterThanOrEqual(0.9);
     expect(GHOST_SCULL_STYLE.rim).toBeGreaterThan(0);
+    // A thin edge, not a glow: on Dan's laptop a 0.6 rim at fresnel^2 lit
+    // the hull's sides to sRGB ~[50,106,61], about 2:1 against the water.
+    expect(GHOST_SCULL_STYLE.rim).toBeLessThanOrEqual(0.4);
     expect(GHOST_SCULL_STYLE.flat).toBeGreaterThanOrEqual(0.8);
     expect(GHOST_SCULL_STYLE.haze).toBe(0);
     // The whole boat, crew included, takes the tint.

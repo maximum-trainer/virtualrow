@@ -29,7 +29,7 @@ export interface GhostScullStyle {
 export const GHOST_SCULL_STYLE: GhostScullStyle = {
   tint: [0.006, 0.02, 0.008, 1],
   alpha: 0.95,
-  rim: 0.6,
+  rim: 0.35,
   flat: 1,
   haze: 0,
 };

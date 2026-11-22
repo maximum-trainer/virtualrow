@@ -389,6 +389,8 @@ describe('createSceneryMeshPass', () => {
     it('applies the tint, a fresnel rim and the opacity in the lit shader', () => {
       expect(sceneryMeshWgsl).toMatch(/mix\(\s*lit\s*,[^;]*inst\.tint/);
       expect(sceneryMeshWgsl).toMatch(/fresnel/);
+      // fresnel^4: the rim stays on the silhouette, off the hull's sides.
+      expect(sceneryMeshWgsl).toMatch(/pow\([^;]*abs\(dot\(n, v\)\)[^;]*,\s*4\.0\)/);
       expect(sceneryMeshWgsl).toMatch(/inst\.fx\.x/);
     });
 

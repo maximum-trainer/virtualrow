@@ -83,7 +83,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   var col = mix(lit, tinted, inst.tint.a);
   if (inst.fx.y > 0.0) {
     let v = normalize(in.toCamera);
-    let fresnel = pow(1.0 - clamp(abs(dot(n, v)), 0.0, 1.0), 2.0);
+    let fresnel = pow(1.0 - clamp(abs(dot(n, v)), 0.0, 1.0), 4.0);
     col = col + vec3<f32>(0.55, 1.0, 0.25) * fresnel * inst.fx.y;
   }
   // Fog with the frame's exponential density, but capped at a modest
