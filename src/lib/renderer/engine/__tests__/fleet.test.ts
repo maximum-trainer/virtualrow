@@ -5,6 +5,7 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  fleetMemberOnCourse,
   fleetStrokeOffset,
   advanceFleet,
   createFleet,
@@ -447,5 +448,25 @@ describe('#713 D4a fleetStrokeOffset — the pack does not row in lockstep', () 
     const low = offsets.filter((o) => o < 0.5).length;
     expect(low).toBeGreaterThan(16);
     expect(low).toBeLessThan(48);
+  });
+});
+
+// #757 VP-33 — on a route that does not loop, a member the window places
+// behind the start (or past the finish) wraps to the far end of the route:
+// on an out-and-back course that is right behind the start line, at the
+// finish's heading. Such a member is not on the course and is not drawn.
+describe('#757 fleetMemberOnCourse', () => {
+  it('drops a member behind the start or past the finish of a route that does not loop', () => {
+    expect(fleetMemberOnCourse(-37.5, 0, 2000, false)).toBe(false);
+    expect(fleetMemberOnCourse(-37.5, 20, 2000, false)).toBe(false);
+    expect(fleetMemberOnCourse(-37.5, 40, 2000, false)).toBe(true);
+    expect(fleetMemberOnCourse(112.5, 1950, 2000, false)).toBe(false);
+    expect(fleetMemberOnCourse(37.5, 1950, 2000, false)).toBe(true);
+    expect(fleetMemberOnCourse(0, 0, 2000, false)).toBe(true);
+  });
+
+  it('keeps every member on a looping route', () => {
+    expect(fleetMemberOnCourse(-37.5, 0, 2000, true)).toBe(true);
+    expect(fleetMemberOnCourse(112.5, 1950, 2000, true)).toBe(true);
   });
 });

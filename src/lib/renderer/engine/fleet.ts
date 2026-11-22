@@ -184,6 +184,23 @@ export const fleetFadeFor = (relativeMeters: number): number => {
 };
 
 /**
+ * #757 VP-33 — whether a member `relativeMeters` from the player is on the
+ * course. On a route that does not loop, a member behind the start or past
+ * the finish has wrapped to the other end of the route (behind the start
+ * line on an out-and-back course), so it is not drawn.
+ */
+export const fleetMemberOnCourse = (
+  relativeMeters: number,
+  playerMeters: number,
+  routeMeters: number,
+  loop: boolean,
+): boolean => {
+  if (loop) return true;
+  const at = playerMeters + relativeMeters;
+  return at >= 0 && at <= routeMeters;
+};
+
+/**
  * Deterministic PRNG for a single uint32. Mirrors the `seededRandom`
  * used elsewhere (Wang hash + multiply), staying out of the scenery
  * module's import graph so the engine seam doesn't pull in the full

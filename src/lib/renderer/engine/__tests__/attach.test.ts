@@ -489,3 +489,37 @@ describe('the fleet rows the scull GLB (#713)', () => {
     }
   });
 });
+
+// #757 VP-33 — at the start of a route that does not loop, no fleet boat
+// is drawn behind the start line (wrapped round to the finish).
+describe('nothing stranded behind the start (#757)', () => {
+  it('draws no fleet member behind the player at the start', async () => {
+    const canvas = makeMockCanvas();
+    const renderer = (await attach(canvas, {
+      testMode: true,
+      tier: 'extra-high',
+      // A 4 km course that does not loop.
+      route: { pools: [], totalDistanceMeters: 4000 },
+      getFrame: () => ({
+        paceSPer500: 120,
+        distanceMeters: 0,
+        cadence: 0,
+        isPlaying: false,
+        holdBoat: true,
+        finished: false,
+        intensityFactor: 1,
+        elapsedSeconds: 0,
+        ghost: null,
+      }),
+    })) as unknown as WithTest;
+    for (let i = 0; i < 5; i++) renderer._frameOnce();
+    const fleet = (globalThis as unknown as { window: Record<string, unknown> }).window['__ROWER3D_FLEET'] as {
+      members: { distanceMeters: number }[];
+    };
+    for (const m of fleet.members) {
+      expect(m.distanceMeters, 'ahead of the start, not wrapped to the finish').toBeLessThanOrEqual(400);
+    }
+    expect(fleet.members.length).toBeGreaterThan(0);
+    renderer.dispose();
+  });
+});
