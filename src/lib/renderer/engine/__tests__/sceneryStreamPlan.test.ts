@@ -4,6 +4,8 @@ import {
   planSceneryStream,
   streamLookaheadMeters,
   sceneryModelsToLoad,
+  sceneryModelsToUnload,
+  SCENERY_KEEP_NEAR_METRES,
   type CurveDistanceSample,
   STREAM_RECHECK_METERS,
   streamNeedsRecheck,
@@ -183,5 +185,53 @@ describe('streamNeedsRecheck', () => {
     expect(streamNeedsRecheck(last, 50, 600, false, false)).toBe(true);
     expect(streamNeedsRecheck(last, 101, 605, false, false)).toBe(true);
     expect(streamNeedsRecheck(last, 100, 600, true, false)).toBe(true);
+  });
+});
+
+describe('unloading scenery the boat has left behind (#727 FR3)', () => {
+  // A straight 6 km route along -z, sampled every 50 m.
+  const long: CurveDistanceSample[] = Array.from({ length: 121 }, (_, i) => ({
+    position: [0, 0, -i * 50] as [number, number, number],
+    distanceMeters: i * 50,
+  }));
+  const plan = planSceneryStream(
+    [
+      { id: 'start-dock', instancePositions: [[20, 0, -10], [25, 0, -60]] },
+      { id: 'willow', instancePositions: [[20, 0, -100], [20, 0, -5900]] },
+      { id: 'finish-tower', instancePositions: [[30, 0, -5950]] },
+    ],
+    long,
+  );
+
+  it('keeps every instance distance, ascending', () => {
+    const willow = plan.find((e) => e.id === 'willow')!;
+    expect([...willow.instanceDistances!]).toEqual([100, 5900]);
+  });
+
+  it('unloads only what is behind along the route and far away in a straight line', () => {
+    const loaded = ['start-dock', 'willow', 'finish-tower'];
+    // At 3 km nothing is within the keep window (2.85-3.9 km) or 1 km of the
+    // boat: the dock and the near willow are behind, the far willow and the
+    // tower not needed yet.
+    expect(sceneryModelsToUnload(plan, loaded, 3000, 600, 0, -3000).sort()).toEqual(['finish-tower', 'start-dock', 'willow']);
+    // At 5.5 km the willow's far instance is inside the keep-ahead window.
+    expect(sceneryModelsToUnload(plan, loaded, 5500, 600, 0, -5500)).toEqual(['start-dock']);
+    // At 400 m the dock stays (behind, but close by) and so does the willow.
+    expect(sceneryModelsToUnload(plan, loaded, 400, 600, 0, -400)).toEqual(['finish-tower']);
+  });
+
+  it('never unloads a model with an instance close by in a straight line (a lap\'s other leg)', () => {
+    // Boat 3 km along the route, but standing beside the dock (the route doubled back).
+    expect(sceneryModelsToUnload(plan, ['start-dock'], 3000, 600, 0, -(SCENERY_KEEP_NEAR_METRES - 100))).toEqual([]);
+  });
+
+  it('does not ask again for a model it has just unloaded', () => {
+    const unloaded = sceneryModelsToUnload(plan, ['start-dock', 'willow', 'finish-tower'], 3000, 600, 0, -3000);
+    const reload = sceneryModelsToLoad(plan, new Set(['finish-tower']), 3000, 600, 10);
+    for (const id of unloaded) expect(reload).not.toContain(id);
+  });
+
+  it('still loads a model whose next instance is ahead, though its first is behind', () => {
+    expect(sceneryModelsToLoad(plan, new Set(), 5500, 600, 10)).toEqual(['willow', 'finish-tower']);
   });
 });

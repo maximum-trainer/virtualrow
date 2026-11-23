@@ -26,7 +26,40 @@ export interface SceneryStreamEntry {
   id: string;
   /** Route distance (m) at which this model's nearest instance sits. */
   triggerDistanceMeters: number;
+  /**
+   * #727 FR3 — every instance's route distance, ascending. With it a model
+   * is wanted only while one of its instances is near the boat along the
+   * route, so it can be unloaded behind the boat and not reloaded at once.
+   */
+  instanceDistances?: Float64Array;
+  /** #727 FR3 — every instance's x, z, for the "still close by" check. */
+  instanceXZ?: Float32Array;
 }
+
+/** #727 FR3 — how far behind the boat (route metres) a model stays wanted. */
+export const SCENERY_KEEP_BEHIND_METRES = 150;
+/** #727 FR3 — and how much further ahead than the load horizon it stays loaded. */
+export const SCENERY_KEEP_AHEAD_EXTRA_METRES = 300;
+/**
+ * #727 FR3 — never unload a model with an instance this close to the boat
+ * (straight-line metres): a lap's other leg, or what the bow camera sees.
+ */
+export const SCENERY_KEEP_NEAR_METRES = 1000;
+
+/** Whether an entry has an instance at a route distance in `[from, to]`. */
+const hasInstanceWithin = (entry: SceneryStreamEntry, from: number, to: number): boolean => {
+  const d = entry.instanceDistances;
+  if (!d) return entry.triggerDistanceMeters <= to;
+  // First instance at or after `from`.
+  let lo = 0;
+  let hi = d.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (d[mid] < from) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo < d.length && d[lo] <= to;
+};
 
 /** Horizontal (x,z) distance-along-route of the sample nearest `pos`. */
 const nearestDistanceMeters = (
@@ -58,11 +91,17 @@ export const planSceneryStream = (
 ): SceneryStreamEntry[] => {
   const entries = groups.map((g) => {
     let trigger = Infinity;
-    for (const p of g.instancePositions) {
+    const distances = new Float64Array(g.instancePositions.length);
+    const xz = new Float32Array(g.instancePositions.length * 2);
+    g.instancePositions.forEach((p, i) => {
       const d = nearestDistanceMeters(p, samples);
+      distances[i] = d;
+      xz[i * 2] = p[0];
+      xz[i * 2 + 1] = p[2];
       if (d < trigger) trigger = d;
-    }
-    return { id: g.id, triggerDistanceMeters: trigger };
+    });
+    distances.sort();
+    return { id: g.id, triggerDistanceMeters: trigger, instanceDistances: distances, instanceXZ: xz };
   });
   entries.sort((a, b) => a.triggerDistanceMeters - b.triggerDistanceMeters);
   return entries;
@@ -128,7 +167,49 @@ export const sceneryModelsToLoad = (
     if (out.length >= maxCount) break;
     if (loaded.has(entry.id)) continue;
     if (entry.triggerDistanceMeters > horizon) break; // ascending → nothing further qualifies
+    // #727 FR3 — skip a model whose instances are all behind the boat.
+    if (!hasInstanceWithin(entry, boatDistanceMeters - SCENERY_KEEP_BEHIND_METRES, horizon)) continue;
     out.push(entry.id);
+  }
+  return out;
+};
+
+/**
+ * #727 FR3 — the loaded models to unload: no instance from
+ * `SCENERY_KEEP_BEHIND_METRES` behind the boat to
+ * `SCENERY_KEEP_AHEAD_EXTRA_METRES` past the load horizon along the route,
+ * and none within `SCENERY_KEEP_NEAR_METRES` of the boat in a straight
+ * line. The first rule is wider than the load window, so an unloaded model
+ * is not asked for again on the next tick. Not used on a looping row.
+ */
+export const sceneryModelsToUnload = (
+  plan: readonly SceneryStreamEntry[],
+  loaded: Iterable<string>,
+  boatDistanceMeters: number,
+  lookaheadMeters: number,
+  boatX: number,
+  boatZ: number,
+): string[] => {
+  const byId = new Map(plan.map((e) => [e.id, e]));
+  const near2 = SCENERY_KEEP_NEAR_METRES * SCENERY_KEEP_NEAR_METRES;
+  const out: string[] = [];
+  for (const id of loaded) {
+    const entry = byId.get(id);
+    if (!entry?.instanceDistances || !entry.instanceXZ) continue;
+    const from = boatDistanceMeters - SCENERY_KEEP_BEHIND_METRES;
+    const to = boatDistanceMeters + lookaheadMeters + SCENERY_KEEP_AHEAD_EXTRA_METRES;
+    if (hasInstanceWithin(entry, from, to)) continue;
+    let close = false;
+    const xz = entry.instanceXZ;
+    for (let i = 0; i < xz.length; i += 2) {
+      const dx = xz[i] - boatX;
+      const dz = xz[i + 1] - boatZ;
+      if (dx * dx + dz * dz <= near2) {
+        close = true;
+        break;
+      }
+    }
+    if (!close) out.push(id);
   }
   return out;
 };
