@@ -37,9 +37,11 @@ describe('pass WGSL shaders parse', () => {
 // `textureSampleLevel` with an integer level (ends with `i`/`u` or is a
 // non-literal expression), never an abstract-float literal.
 describe('textureSampleLevel on depth textures uses an integer level (#592)', () => {
-  const depthTextureFiles = shaderFiles.filter((f) =>
-    /\btexture_depth_(2d|cube|2d_array|cube_array)\b/.test(readFileSync(join(passesDir, f), 'utf8')),
-  );
+  // A pass that only `textureLoad`s its depth (ssaoBlur, #732) has no level to get wrong.
+  const depthTextureFiles = shaderFiles.filter((f) => {
+    const src = readFileSync(join(passesDir, f), 'utf8');
+    return /\btexture_depth_(2d|cube|2d_array|cube_array)\b/.test(src) && /textureSampleLevel\s*\(/.test(src);
+  });
   it('finds at least one depth-sampling pass', () => {
     expect(depthTextureFiles.length).toBeGreaterThan(0);
   });

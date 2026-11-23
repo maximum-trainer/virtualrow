@@ -279,6 +279,18 @@
       "binding": 1,
       "name": "samp",
       "resourceType": 4
+    },
+    {
+      "group": 0,
+      "binding": 2,
+      "name": "previous",
+      "resourceType": 3
+    },
+    {
+      "group": 0,
+      "binding": 3,
+      "name": "m",
+      "resourceType": 0
     }
   ],
   "oarSplashParticles.wgsl": [
@@ -441,6 +453,26 @@
       "binding": 1,
       "name": "samp",
       "resourceType": 4
+    },
+    {
+      "group": 0,
+      "binding": 2,
+      "name": "u",
+      "resourceType": 0
+    }
+  ],
+  "ssaoBlur.wgsl": [
+    {
+      "group": 0,
+      "binding": 0,
+      "name": "aoTex",
+      "resourceType": 3
+    },
+    {
+      "group": 0,
+      "binding": 1,
+      "name": "depthTex",
+      "resourceType": 3
     },
     {
       "group": 0,

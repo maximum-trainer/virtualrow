@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { tierCapsFor } from '../tierCaps';
+import { chromaticAberrationEnabled, tierCapsFor } from '../tierCaps';
 
 // Full-shape expected caps for each tier so a new flag is caught in one
 // place rather than drifting between the implementation and the test.
@@ -86,7 +86,7 @@ const high = {
   drawSsao: true,
   drawDof: false,
   drawAutoExposure: true,
-  drawChromaticAberration: true,
+  drawChromaticAberration: false,
   drawRainOverlay: true,
   drawWakeParticles: true,
   drawOarSplash: true,
@@ -109,7 +109,7 @@ const extraHigh = {
   drawSsao: true,
   drawDof: true,
   drawAutoExposure: true,
-  drawChromaticAberration: true,
+  drawChromaticAberration: false,
   drawRainOverlay: true,
   drawWakeParticles: true,
   drawOarSplash: true,
@@ -182,12 +182,20 @@ describe('tierCaps (P6 D8 + P7 D9 + P8 D8)', () => {
     }
   });
 
-  it('chromatic aberration turns on at high and stays on above (#574)', () => {
-    for (const t of ['basic', 'low', 'medium'] as const) {
+  it('chromatic aberration is off at every tier by default (#732)', () => {
+    for (const t of ['basic', 'low', 'medium', 'high', 'extra-high'] as const) {
       expect(tierCapsFor(t).drawChromaticAberration, t).toBe(false);
+      expect(chromaticAberrationEnabled(tierCapsFor(t)), t).toBe(false);
     }
-    for (const t of ['high', 'extra-high'] as const) {
-      expect(tierCapsFor(t).drawChromaticAberration, t).toBe(true);
+  });
+
+  it('__VIRTUALROW_CHROMATIC_ABERRATION turns it on for review (#732)', () => {
+    const w = globalThis as unknown as { window: { __VIRTUALROW_CHROMATIC_ABERRATION?: boolean } };
+    w.window.__VIRTUALROW_CHROMATIC_ABERRATION = true;
+    try {
+      expect(chromaticAberrationEnabled(tierCapsFor('high'))).toBe(true);
+    } finally {
+      delete w.window.__VIRTUALROW_CHROMATIC_ABERRATION;
     }
   });
 
