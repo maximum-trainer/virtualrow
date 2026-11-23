@@ -1,7 +1,8 @@
 // Instanced static-mesh scenery pass. Draws GLB-loaded meshes (course
 // furniture, structures, …) at per-instance mat4 transforms. Each vertex
 // carries its glTF primitive's base colour (so a multi-material model keeps
-// trunk/leaves, walls/roof/windows distinct); sun shade from the frame uniform.
+// trunk/leaves, walls/roof/windows distinct); sun shade from the frame uniform,
+// masked by the shadow atlas at medium and up (#734 FR4).
 
 struct Frame {
   view: mat4x4<f32>,
@@ -46,6 +47,8 @@ struct VsOut {
   @location(2) color: vec4<f32>,
   @location(3) toCamera: vec3<f32>,
   @location(4) @interpolate(flat) instance: u32,
+  @location(5) worldPos: vec3<f32>,
+  @location(6) viewZ: f32,
 };
 
 @vertex
@@ -62,6 +65,8 @@ fn vs_main(in: VsIn, @builtin(instance_index) ii: u32) -> VsOut {
   out.color = in.color;
   out.toCamera = frame.camPos - world.xyz;
   out.instance = ii;
+  out.worldPos = world.xyz;
+  out.viewZ = -(frame.view * world).z;
   return out;
 }
 
@@ -89,7 +94,11 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   let halfLambert = clamp(dot(n, sun) * 0.5 + 0.5, 0.0, 1.0);
   let sky = clamp(n.y * 0.5 + 0.5, 0.0, 1.0);
   let ambient = mix(vec3<f32>(0.22, 0.20, 0.18), vec3<f32>(0.42, 0.46, 0.52), sky);
-  let shade = ambient + halfLambert * halfLambert * 0.75;
+  // #734 FR4 — the sun term is masked by the cascaded shadow atlas at
+  // medium and up (`sceneryShadow`, prepended by `sceneryMesh.ts`; it is
+  // 1 everywhere on basic/low, which draw exactly as before).
+  let sunLit = sceneryShadow(in.worldPos, in.viewZ, n);
+  let shade = ambient + halfLambert * halfLambert * 0.75 * sunLit;
   let inst = instances[in.instance];
   let lit = in.color.rgb * shade;
   // #728 FR2 / #713 D3a — per-instance tint. `flat` holds the tint's

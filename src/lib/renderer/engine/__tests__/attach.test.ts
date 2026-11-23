@@ -657,8 +657,15 @@ describe('the race ghost rows the scull GLB (#728)', () => {
       mask(true);
       renderer._frameOnce();
       mask(false);
+      // #734 AC2: the player's scull can be masked the same way.
+      const playerMask = (globalThis as unknown as Record<string, unknown>)['__ROWER3D_PLAYER_MASK'] as (on: boolean) => void;
+      expect(playerMask).toBeTypeOf('function');
+      playerMask(true);
+      expect(() => renderer._frameOnce()).not.toThrow();
+      playerMask(false);
       renderer.dispose();
       expect((globalThis as unknown as Record<string, unknown>)['__ROWER3D_HIDE_GHOST']).toBeUndefined();
+      expect((globalThis as unknown as Record<string, unknown>)['__ROWER3D_PLAYER_MASK']).toBeUndefined();
     } finally {
       globalThis.fetch = original;
     }

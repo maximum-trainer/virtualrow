@@ -68,6 +68,7 @@
     "default:route-map-offline.spec.ts": 40,
     "default:webgpu-ride-start-jank.spec.ts": 40,
     "default:scenery-clearance.spec.ts": 180,
-    "default:webgpu-parallel-legs.spec.ts": 60
+    "default:webgpu-parallel-legs.spec.ts": 60,
+    "default:webgpu-water-shadow.spec.ts": 60
   }
 }

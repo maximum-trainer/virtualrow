@@ -15,6 +15,7 @@
  */
 
 import { GROUND_HAZE_END_M, GROUND_HAZE_START_M } from '../plan/groundPlane';
+import { WATER_F0, WATER_SPECULAR_POWER, waterSlopeWgsl } from '../plan/waterWaves';
 
 /**
  * `@group(1)` is the shadow bind group for lit passes with no other
@@ -130,6 +131,46 @@ fn horizonAlpha(dist: f32) -> f32 {
   return 1.0 - h * h;
 }
 `;
+
+/**
+ * #734 VP-16 FR2 — the sky's colours, for the sky pass and for anything
+ * that reflects it. Needs the `frame` (sunDir) and `lighting` (#730)
+ * uniforms in the including shader.
+ *
+ * - `skyHorizonColour(warmShare)`: cool horizon pulled warm toward the sun.
+ * - `skyZenithColour()`: day zenith, darkening as the sun sets.
+ * - `skyColourToward(dir)`: the gradient seen along a world direction.
+ */
+export const SKY_COLOUR_WGSL = /* wgsl */ `
+fn skyHorizonColour(warmShare: f32) -> vec3<f32> {
+  let s = normalize(frame.sunDir);
+  return mix(lighting.horizonCool.rgb, lighting.horizonWarm.rgb, warmShare * max(s.y, 0.0));
+}
+
+fn skyZenithColour() -> vec3<f32> {
+  let s = normalize(frame.sunDir);
+  return mix(vec3<f32>(0.08, 0.13, 0.26), lighting.zenith.rgb, clamp(s.y, 0.0, 1.0));
+}
+
+fn skyColourToward(dir: vec3<f32>) -> vec3<f32> {
+  let s = normalize(frame.sunDir);
+  let sunAz = normalize(vec2<f32>(s.x, s.z) + vec2<f32>(1e-5, 0.0));
+  let az = normalize(dir.xz + vec2<f32>(1e-5, 0.0));
+  let warmShare = clamp(dot(sunAz, az) * 0.5 + 0.5, 0.0, 1.0);
+  return mix(skyHorizonColour(warmShare), skyZenithColour(), sqrt(clamp(dir.y, 0.0, 1.0)));
+}
+`;
+
+/**
+ * #734 VP-16 FR1/FR5 — the water surface both water passes (the river
+ * strip and the #493 lake polygons) shade with: `waterSlope(p, t, dist)`
+ * from the wave table in `plan/waterWaves.ts`, and its Fresnel and sun-lobe
+ * constants.
+ */
+export const WATER_SURFACE_WGSL = /* wgsl */ `
+const WATER_F0: f32 = ${WATER_F0.toFixed(3)};
+const WATER_SPECULAR_POWER: f32 = ${WATER_SPECULAR_POWER.toFixed(1)};
+${waterSlopeWgsl()}`;
 
 /** The blend state every pass that outputs `horizonAlpha` must use. */
 export const HORIZON_BLEND: GPUBlendState = {

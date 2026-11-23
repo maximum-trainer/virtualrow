@@ -11,6 +11,8 @@
 import type { FrameContext, Pass } from '../engine/frameGraph';
 import type { Mat4 } from '../math/mat4';
 import sceneryMeshWgsl from './sceneryMesh.wgsl?raw';
+import type { ShadowResources } from './bank';
+import { SAMPLE_SHADOW_WGSL, SHADOW_UNIFORMS_WGSL } from '../engine/shaderSnippets';
 import { ALWAYS_REVEALED, packRevealUniform, SCENERY_REVEAL_UNIFORM_BYTES } from './sceneryReveal';
 import { renderPipelineAsync } from '../engine/pipelineAsync';
 
@@ -201,20 +203,61 @@ export interface SceneryMeshPass extends Pass {
    * shadows nobody can see.
    */
   forEachActiveShadowCaster(cb: (snapshot: SceneryMeshSnapshot) => void): void;
+  /**
+   * #734 FR4 — hand the pass the shadow atlas to receive from. A no-op on a
+   * pass created without `receiveShadows`.
+   */
+  setShadow(shadow: ShadowResources): void;
+  /** Whether this pass samples the shadow atlas. */
+  readonly receivesShadows: boolean;
 }
 
 export interface CreateSceneryMeshPassOptions {
   device: GPUDevice;
   format: GPUTextureFormat;
   frameUniforms: GPUBuffer;
+  /**
+   * #734 FR4 — sample the cascaded shadow atlas (medium and up). The atlas
+   * comes later, through `setShadow`; until then the pass draws nothing.
+   */
+  receiveShadows?: boolean;
 }
+
+/** The scenery pass's bind group for the shadow atlas; 0 and 1 are frame and mesh. */
+export const SCENERY_SHADOW_GROUP = 2 as const;
+
+/**
+ * Metres a receiving point moves along its normal before the atlas lookup,
+ * so a mesh does not shadow its own lit faces (acne).
+ */
+export const SCENERY_SHADOW_NORMAL_OFFSET_M = 0.08;
+
+/** The WGSL prepended to `sceneryMesh.wgsl`: `sceneryShadow(worldPos, viewZ, n)`. */
+export const sceneryShadowWgsl = (receive: boolean): string =>
+  receive
+    ? SHADOW_UNIFORMS_WGSL.replaceAll('@group(1)', `@group(${SCENERY_SHADOW_GROUP})`) +
+      SAMPLE_SHADOW_WGSL +
+      `
+fn sceneryShadow(worldPos: vec3<f32>, viewZ: f32, n: vec3<f32>) -> f32 {
+  return sampleShadow(worldPos + n * ${SCENERY_SHADOW_NORMAL_OFFSET_M.toFixed(3)}, viewZ);
+}
+`
+    : `
+fn sceneryShadow(worldPos: vec3<f32>, viewZ: f32, n: vec3<f32>) -> f32 {
+  return 1.0;
+}
+`;
 
 export const createSceneryMeshPass = async ({
   device,
   format,
   frameUniforms,
+  receiveShadows = false,
 }: CreateSceneryMeshPassOptions): Promise<SceneryMeshPass> => {
-  const module = device.createShaderModule({ label: 'sceneryMesh', code: sceneryMeshWgsl });
+  const module = device.createShaderModule({
+    label: 'sceneryMesh',
+    code: sceneryShadowWgsl(receiveShadows) + sceneryMeshWgsl,
+  });
   const vertexBuffers: GPUVertexBufferLayout[] = [
     { arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }] },
     { arrayStride: 12, attributes: [{ shaderLocation: 1, offset: 0, format: 'float32x3' }] },
@@ -484,10 +527,34 @@ export const createSceneryMeshPass = async ({
     }
   };
 
+  // #734 FR4 — one shadow bind group per pipeline (`layout: 'auto'`).
+  let shadowBind: GPUBindGroup | null = null;
+  let translucentShadowBind: GPUBindGroup | null = null;
+  const setShadow = (shadow: ShadowResources): void => {
+    if (!receiveShadows) return;
+    const entries: GPUBindGroupEntry[] = [
+      { binding: 0, resource: { buffer: shadow.uniforms } },
+      { binding: 1, resource: shadow.atlasView },
+      { binding: 2, resource: shadow.cmpSampler },
+    ];
+    shadowBind = device.createBindGroup({
+      label: 'sceneryMesh-shadow',
+      layout: pipeline.getBindGroupLayout(SCENERY_SHADOW_GROUP),
+      entries,
+    });
+    translucentShadowBind = device.createBindGroup({
+      label: 'sceneryMesh-translucent-shadow',
+      layout: translucentPipeline.getBindGroupLayout(SCENERY_SHADOW_GROUP),
+      entries,
+    });
+  };
+
   let disposed = false;
   return {
     name: 'sceneryMesh',
     stats,
+    setShadow,
+    receivesShadows: receiveShadows,
     register,
     setInstances,
     reserveInstanceGroup,
@@ -535,6 +602,7 @@ export const createSceneryMeshPass = async ({
       stats.triangles = 0;
       if (disposed || registry.size === 0) return;
       flushInstanceGroups();
+      if (receiveShadows && !shadowBind) return;
       let anyVisible = false;
       for (const mesh of registry.values()) {
         if (mesh.instanceCount > 0) { anyVisible = true; break; }
@@ -551,6 +619,7 @@ export const createSceneryMeshPass = async ({
       });
       pass.setPipeline(pipeline);
       pass.setBindGroup(0, frameBind);
+      if (shadowBind) pass.setBindGroup(SCENERY_SHADOW_GROUP, shadowBind);
       let translucentMeshes = 0;
       const bindMesh = (mesh: RegisteredMesh, bindGroup: GPUBindGroup): void => {
         pass.setBindGroup(1, bindGroup);
@@ -572,6 +641,7 @@ export const createSceneryMeshPass = async ({
       if (translucentMeshes > 0) {
         pass.setPipeline(translucentPipeline);
         pass.setBindGroup(0, translucentFrameBind);
+        if (translucentShadowBind) pass.setBindGroup(SCENERY_SHADOW_GROUP, translucentShadowBind);
         for (const mesh of registry.values()) {
           if (mesh.instanceCount === 0 || mesh.translucentCount === 0) continue;
           bindMesh(mesh, mesh.translucentBindGroup);

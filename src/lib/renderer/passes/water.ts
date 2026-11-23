@@ -5,6 +5,8 @@ import type { RouteCurve } from '../math/curve';
 import {
   HORIZON_BLEND,
   HORIZON_HAZE_WGSL,
+  SKY_COLOUR_WGSL,
+  WATER_SURFACE_WGSL,
   SAMPLE_SHADOW_WGSL,
   SHADOW_UNIFORMS_WGSL,
 } from '../engine/shaderSnippets';
@@ -41,7 +43,7 @@ export const createWaterPass = async ({
   curve = null,
   edgesForProgress,
 }: WaterPassOptions): Promise<Pass> => {
-  const code = SHADOW_UNIFORMS_WGSL + SAMPLE_SHADOW_WGSL + HORIZON_HAZE_WGSL + waterWgsl;
+  const code = SHADOW_UNIFORMS_WGSL + SAMPLE_SHADOW_WGSL + HORIZON_HAZE_WGSL + SKY_COLOUR_WGSL + WATER_SURFACE_WGSL + waterWgsl;
   const module = device.createShaderModule({ label: 'water', code });
   const pipeline = await renderPipelineAsync(device, {
     label: 'water',

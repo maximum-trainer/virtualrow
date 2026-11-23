@@ -73,14 +73,11 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   let azimuthDot = dot(sunAzimuth, viewAzimuth);
   let warmShare = clamp(azimuthDot * 0.5 + 0.5, 0.0, 1.0);
 
-  let coolHorizon = lighting.horizonCool.rgb;
-  let warmHorizon = lighting.horizonWarm.rgb;
-  let horizon = mix(coolHorizon, warmHorizon, warmShare * max(sunDir.y, 0.0));
-
+  // #734: the two ends of the gradient come from SKY_COLOUR_WGSL, which
+  // the water also reads for the sky it reflects.
+  let horizon = skyHorizonColour(warmShare);
   // Zenith stays blue; a touch darker when the sun is low.
-  let dayZenith = lighting.zenith.rgb;
-  let nightZenith = vec3<f32>(0.08, 0.13, 0.26);
-  let zenith = mix(nightZenith, dayZenith, clamp(sunDir.y, 0.0, 1.0));
+  let zenith = skyZenithColour();
 
   var col = mix(horizon, zenith, t);
 
