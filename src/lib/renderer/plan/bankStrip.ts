@@ -41,7 +41,7 @@ export interface BankStripGeometry {
   indexFormat: 'uint16' | 'uint32';
   /** #742 — bank vertices sunk because they lie on the route's water. */
   sunkVertices: number;
-  /** #742 — bank triangles dropped because their centre is on the route's water. */
+  /** #742 — bank triangles left out of `indices` because their centre is on the route's water. */
   droppedTriangles: number;
 }
 
@@ -125,27 +125,27 @@ export const buildBankStrips = (
     }
   };
 
-  // #742 FR1: a triangle whose centre is on the route's water is dropped
-  // (written degenerate), so no grass is drawn over another leg's water.
+  // #742 FR1/FR4: a triangle whose centre is on the route's water is
+  // dropped from the index list, so no grass is drawn (or cast into the
+  // shadow maps) over another leg's water.
   let droppedTriangles = 0;
-  const emit = (o: number, i0: number, i1: number, i2: number): void => {
+  let written = 0;
+  const emit = (i0: number, i1: number, i2: number): void => {
     if (footprint !== null) {
       const cx = (positions[i0 * 3] + positions[i1 * 3] + positions[i2 * 3]) / 3;
       const cz = (positions[i0 * 3 + 2] + positions[i1 * 3 + 2] + positions[i2 * 3 + 2]) / 3;
       if (footprint.contains(cx, cz)) {
         droppedTriangles += 1;
-        indices[o] = i0;
-        indices[o + 1] = i0;
-        indices[o + 2] = i0;
         return;
       }
     }
-    indices[o] = i0;
-    indices[o + 1] = i1;
-    indices[o + 2] = i2;
+    indices[written] = i0;
+    indices[written + 1] = i1;
+    indices[written + 2] = i2;
+    written += 3;
   };
 
-  const writeStrip = (sign: 1 | -1, vertOffset: number, indexOffset: number): void => {
+  const writeStrip = (sign: 1 | -1, vertOffset: number): void => {
     const sample = { x: 0, z: 0, perpX: 0, perpZ: 0 };
     for (let i = 0; i <= divisions; i += 1) {
       sampleCurve(i, sample);
@@ -177,22 +177,34 @@ export const buildBankStrips = (
         const b = a + 1;
         const d = a + columns;
         const e = d + 1;
-        const o = ((indexOffset + i) * (columns - 1) + c) * 6;
         // Wind so the ground faces up on either side (same convention as the
         // pre-curve straight ribbon the old #269 bug uncovered).
         if (sign > 0) {
-          emit(o, a, d, b);
-          emit(o + 3, b, d, e);
+          emit(a, d, b);
+          emit(b, d, e);
         } else {
-          emit(o, a, b, d);
-          emit(o + 3, b, e, d);
+          emit(a, b, d);
+          emit(b, e, d);
         }
       }
     }
   };
 
-  writeStrip(-1, 0, 0);
-  writeStrip(1, vertsPerStrip, divisions);
+  writeStrip(-1, 0);
+  writeStrip(1, vertsPerStrip);
 
-  return { positions, sides, indices, indexFormat, sunkVertices, droppedTriangles };
+  return { positions, sides, indices: indices.slice(0, written), indexFormat, sunkVertices, droppedTriangles };
+};
+
+/**
+ * #742 FR4 — the bytes to upload for a bank's index list. With dropped
+ * triangles a uint16 list can be an odd length, and WebGPU writes whole
+ * 4-byte words: the copy is padded with one zero, which the draw (counted
+ * from `indices.length`) never reads.
+ */
+export const indexUpload = (indices: Uint16Array | Uint32Array): Uint16Array | Uint32Array => {
+  if (indices.byteLength % 4 === 0) return indices;
+  const padded = new Uint16Array(indices.length + 1);
+  padded.set(indices);
+  return padded;
 };

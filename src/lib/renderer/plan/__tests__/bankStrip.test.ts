@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { BANK_COLUMNS, BANK_SUNK_METRES, buildBankStrips } from '../bankStrip';
+import { BANK_COLUMNS, BANK_SUNK_METRES, buildBankStrips, indexUpload } from '../bankStrip';
 import { buildWaterStrip } from '../waterStrip';
-import { routeWaterFootprint } from '../waterFootprint';
+import { routeWaterFootprint, withLakes } from '../waterFootprint';
 import { RouteCurve } from '../../math/curve';
 import { vec3 } from '../../math/vec3';
 import { WATER_SURFACE_Y } from '../waterStrip';
@@ -117,6 +117,18 @@ describe('buildBankStrips on a course that returns beside itself (#742)', () => 
     }
   });
 
+  it('leaves the dropped triangles out of the index list altogether (FR4)', () => {
+    const curve = outAndBack();
+    const bank = buildBankStrips({ curve, edgesForProgress: edges });
+    const whole = buildBankStrips({ curve, edgesForProgress: edges, footprint: null });
+    expect(bank.droppedTriangles).toBeGreaterThan(0);
+    expect(bank.indices.length).toBe(whole.indices.length - bank.droppedTriangles * 3);
+    for (let o = 0; o < bank.indices.length; o += 3) {
+      const [i0, i1, i2] = [bank.indices[o], bank.indices[o + 1], bank.indices[o + 2]];
+      expect(i0 === i1 || i1 === i2 || i0 === i2, `degenerate triangle at ${o}`).toBe(false);
+    }
+  });
+
   it('leaves a single-leg river\'s banks whole', () => {
     const curve = new RouteCurve([vec3(0, 0, 0), vec3(0, 0, -1000)], false);
     const bank = buildBankStrips({ curve, edgesForProgress: edges });
@@ -136,5 +148,54 @@ describe('buildBankStrips on a course that returns beside itself (#742)', () => 
     expect(bank.indexFormat).toBe('uint32');
     expect(bank.indices).toBeInstanceOf(Uint32Array);
     expect(Math.max(...bank.indices.subarray(bank.indices.length - 6))).toBe(bank.positions.length / 3 - 1);
+  });
+});
+
+describe('indexUpload (#742 FR4)', () => {
+  it('pads an odd-length uint16 list to whole 4-byte words', () => {
+    const padded = indexUpload(new Uint16Array([1, 2, 3]));
+    expect(padded.byteLength % 4).toBe(0);
+    expect(Array.from(padded)).toEqual([1, 2, 3, 0]);
+  });
+
+  it('passes an aligned list through as it is', () => {
+    const even = new Uint16Array([1, 2, 3, 4, 5, 6]);
+    expect(indexUpload(even)).toBe(even);
+    const wide = new Uint32Array([1, 2, 3]);
+    expect(indexUpload(wide)).toBe(wide);
+  });
+});
+
+// #742 FR5 — where a lake is drawn, the bank laid along the racing line
+// gives way to it.
+describe('buildBankStrips over a drawn lake (#742 FR5)', () => {
+  it('sinks and drops the bank inside the lake, and keeps it on the island', () => {
+    const curve = new RouteCurve([vec3(0, 0, 0), vec3(0, 0, -1000)], false);
+    const edges = () => ({ left: 10, right: 10 });
+    const ring = (x0: number, z0: number, x1: number, z1: number) => [
+      { x: x0, z: z0 }, { x: x1, z: z0 }, { x: x1, z: z1 }, { x: x0, z: z1 },
+    ];
+    const lake = { outer: ring(-200, -200, 200, -800), holes: [ring(30, -400, 90, -600)] };
+    const route = routeWaterFootprint(buildWaterStrip(curve, { edgesForProgress: edges }));
+    const water = withLakes(route, [lake]);
+    const bank = buildBankStrips({ curve, edgesForProgress: edges, footprint: water });
+    expect(bank.sunkVertices).toBeGreaterThan(0);
+    for (let v = 0; v < bank.positions.length / 3; v += 1) {
+      const x = bank.positions[v * 3];
+      const z = bank.positions[v * 3 + 2];
+      const onLake = water.contains(x, z);
+      expect(bank.positions[v * 3 + 1]).toBeCloseTo(onLake ? WATER_SURFACE_Y - BANK_SUNK_METRES : WATER_SURFACE_Y + 0.1);
+    }
+    // On the island the bank stands.
+    let islandVerts = 0;
+    for (let v = 0; v < bank.positions.length / 3; v += 1) {
+      const x = bank.positions[v * 3];
+      const z = bank.positions[v * 3 + 2];
+      if (x > 35 && x < 85 && z < -410 && z > -590) {
+        islandVerts += 1;
+        expect(bank.positions[v * 3 + 1]).toBeCloseTo(WATER_SURFACE_Y + 0.1);
+      }
+    }
+    expect(islandVerts).toBeGreaterThan(0);
   });
 });

@@ -6,7 +6,8 @@
 /// <reference types="@webgpu/types" />
 
 import type { RouteCurve } from '../math/curve';
-import { buildBankStrips } from '../plan/bankStrip';
+import { buildBankStrips, indexUpload } from '../plan/bankStrip';
+import type { WaterFootprint } from '../plan/waterFootprint';
 import type { WaterEdges } from '../plan/waterStrip';
 import bankDepthWgsl from './bankDepth.wgsl?raw';
 
@@ -27,6 +28,8 @@ export interface BankDepthOptions {
   curve?: RouteCurve | null;
   /** Same per-progress shore widths the lit bank pass uses. */
   edgesForProgress?: (progress: number) => WaterEdges;
+  /** #742 — the same water footprint the lit bank pass gives way to. */
+  footprint?: WaterFootprint | null;
 }
 
 export const createBankDepthPipeline = (
@@ -54,7 +57,11 @@ export const createBankDepthPipeline = (
     primitive: { topology: 'triangle-list', cullMode: 'none' },
     depthStencil: { depthWriteEnabled: true, depthCompare: 'less', format: 'depth32float' },
   });
-  const geom = buildBankStrips({ curve: options.curve ?? null, edgesForProgress: options.edgesForProgress });
+  const geom = buildBankStrips({
+    curve: options.curve ?? null,
+    edgesForProgress: options.edgesForProgress,
+    footprint: options.footprint,
+  });
   const positions = device.createBuffer({
     label: 'bankDepth-pos',
     size: geom.positions.byteLength,
@@ -69,10 +76,10 @@ export const createBankDepthPipeline = (
   device.queue.writeBuffer(sides, 0, geom.sides as BufferSource);
   const indices = device.createBuffer({
     label: 'bankDepth-idx',
-    size: geom.indices.byteLength,
+    size: indexUpload(geom.indices).byteLength,
     usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
   });
-  device.queue.writeBuffer(indices, 0, geom.indices as BufferSource);
+  device.queue.writeBuffer(indices, 0, indexUpload(geom.indices) as BufferSource);
 
   let disposed = false;
   return {

@@ -67,7 +67,7 @@ describe('bridgeParallelLegs (#742 FR2)', () => {
     const sample = { position: vec3(), tangent: vec3(0, 0, -1), angle: 0 };
     for (let m = 0; m <= length; m += 10) {
       curve.sample(m / length, sample);
-      expect(surfaceAt(water, [], sample.position[0], sample.position[2]), `at ${m} m`).toBe('water');
+      expect(surfaceAt(water, undefined, sample.position[0], sample.position[2]), `at ${m} m`).toBe('water');
     }
   });
 
