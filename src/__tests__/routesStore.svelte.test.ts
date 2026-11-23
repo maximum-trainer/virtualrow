@@ -328,3 +328,77 @@ describe('RoutesStore enrichment on select', () => {
     expect(services.routeEnrichmentService.enrichRoute).toHaveBeenCalled();
   });
 });
+
+// #741 VP-21 FR6 — after sign-in, enrichment for every route in My routes
+// is fetched in idle time, one at a time (Overpass asks for one request at
+// a time), skipping routes the 7-day cache already holds.
+describe('RoutesStore prefetch (#741 FR6)', () => {
+  const immediate = (cb: () => void) => {
+    queueMicrotask(cb);
+    return () => {};
+  };
+  const settle = async () => {
+    for (let i = 0; i < 20; i += 1) await Promise.resolve();
+  };
+
+  it('enriches each uncached route in turn, never two at once', async () => {
+    const services = stubServices([route('a'), route('b'), route('c')]);
+    let inFlight = 0;
+    let most = 0;
+    const order: string[] = [];
+    services.routeEnrichmentService.enrichRoute = vi.fn(async (r: WaterRoute) => {
+      inFlight += 1;
+      most = Math.max(most, inFlight);
+      order.push(r.id);
+      await Promise.resolve();
+      inFlight -= 1;
+      return { id: r.id } as never;
+    }) as never;
+    services.routeEnrichmentService.readCached = vi.fn((id: string) =>
+      id === 'b' ? { data: { id } as never, stale: false } : { data: null, stale: false },
+    ) as never;
+    const store = new RoutesStore(services);
+    store.load();
+
+    await store.prefetchEnrichments(immediate);
+
+    expect(order).toEqual(['a', 'c']);
+    expect(most).toBe(1);
+    expect(Object.keys(store.routeEnrichments).sort()).toEqual(['a', 'c']);
+  });
+
+  it('stops when cancelled', async () => {
+    const services = stubServices([route('a'), route('b')]);
+    const store = new RoutesStore(services);
+    store.load();
+
+    const run = store.prefetchEnrichments(immediate);
+    store.cancelPrefetch();
+    await run;
+
+    expect(services.routeEnrichmentService.enrichRoute).toHaveBeenCalledTimes(0);
+  });
+
+  it('waits for the selected route to finish enriching before starting', async () => {
+    const services = stubServices([route('a'), route('b')]);
+    let finishSelection: () => void = () => {};
+    const calls: string[] = [];
+    services.routeEnrichmentService.enrichRoute = vi.fn(async (r: WaterRoute) => {
+      calls.push(r.id);
+      if (calls.length === 1) await new Promise<void>((resolve) => (finishSelection = resolve));
+      return { id: r.id } as never;
+    }) as never;
+    const store = new RoutesStore(services);
+    store.load();
+    store.selectRoute(store.routes[0]);
+
+    const run = store.prefetchEnrichments(immediate);
+    await settle();
+    expect(calls).toEqual(['a']);
+    finishSelection();
+    await run;
+
+    // 'a' was the selection; the prefetch only had 'b' left.
+    expect(calls).toEqual(['a', 'b']);
+  });
+});

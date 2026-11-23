@@ -41,10 +41,27 @@ export function extractRouteStatus(tags: string[] | undefined): string | undefin
   return tags?.find((t) => t.startsWith('status:'))?.replace('status:', '');
 }
 
+/** Runs `cb` when the browser is idle; returns a cancel. Injected in tests. */
+export type IdleSchedule = (cb: () => void) => () => void;
+
+/** #741 FR6 — idle time, or a short timer where `requestIdleCallback` is missing. */
+export const scheduleIdle: IdleSchedule = (cb) => {
+  const w = typeof window !== 'undefined' ? window : undefined;
+  if (w && typeof w.requestIdleCallback === 'function') {
+    const id = w.requestIdleCallback(() => cb(), { timeout: 5_000 });
+    return () => w.cancelIdleCallback(id);
+  }
+  const id = setTimeout(cb, 500);
+  return () => clearTimeout(id);
+};
+
 export class RoutesStore {
   #routeService: Services['routeService'];
   #enrichment: Services['routeEnrichmentService'];
   #defaultPref: Services['defaultRoutePreferenceStore'];
+
+  /** #741 FR6 — bumped to stop a running prefetch. */
+  #prefetchGeneration = 0;
 
   /** Set once the opening route has been chosen, so an import or a later load
    *  does not snap the selection back (App.tsx `hasPreselectedRef`). */
@@ -199,6 +216,41 @@ export class RoutesStore {
       .finally(() => {
         this.routeEnrichmentLoading = { ...this.routeEnrichmentLoading, [route.id]: false };
       });
+  }
+
+  /**
+   * #741 VP-21 FR6 — bring in the enrichment for every route in My routes,
+   * so a route opened later starts with its real water and banks. One route
+   * at a time and only in idle time (Overpass asks clients for one request
+   * at a time), never alongside the selected route's own enrichment, and
+   * skipping routes the 7-day cache already holds. Resolves when done or
+   * cancelled; a failure on one route moves on to the next.
+   */
+  async prefetchEnrichments(schedule: IdleSchedule = scheduleIdle): Promise<void> {
+    const mine = (this.#prefetchGeneration += 1);
+    const alive = (): boolean => mine === this.#prefetchGeneration;
+    const idle = (): Promise<void> => new Promise((resolve) => schedule(resolve));
+    for (const route of [...this.routes]) {
+      do {
+        await idle();
+        if (!alive()) return;
+      } while (Object.values(this.routeEnrichmentLoading).some(Boolean));
+      if (this.routeEnrichments[route.id]) continue;
+      const cached = this.#enrichment.readCached(route.id);
+      if (cached.data && !cached.stale) continue;
+      try {
+        const enrichment = await this.#enrichment.enrichRoute(route);
+        if (!alive()) return;
+        this.routeEnrichments = { ...this.routeEnrichments, [route.id]: enrichment };
+      } catch {
+        // The selection re-tries this route if it is opened; move on.
+      }
+    }
+  }
+
+  /** Stop a running `prefetchEnrichments` (sign-out, teardown). */
+  cancelPrefetch(): void {
+    this.#prefetchGeneration += 1;
   }
 
   /**
