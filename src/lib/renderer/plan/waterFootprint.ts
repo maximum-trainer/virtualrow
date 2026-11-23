@@ -102,3 +102,36 @@ export const routeWaterFootprint = (
     },
   };
 };
+
+/**
+ * #742 FR3 — scenery pools with every instance lying on the route's water
+ * taken out: a tree placed for one leg can stand in another leg's water,
+ * or in the water joining two legs. Pools that lose nothing are returned
+ * as they were; a pool that loses everything is dropped.
+ */
+export const poolsOffWater = <P extends { positions: Float32Array; metadata?: Uint32Array }>(
+  pools: readonly P[],
+  footprint: Pick<WaterFootprint, 'contains'>,
+  margin = FOOTPRINT_EDGE_MARGIN_METRES,
+): { pools: P[]; rejected: number } => {
+  let rejected = 0;
+  const out: P[] = [];
+  for (const pool of pools) {
+    const count = Math.floor(pool.positions.length / 3);
+    const keep: number[] = [];
+    for (let i = 0; i < count; i += 1) {
+      if (!footprint.contains(pool.positions[i * 3], pool.positions[i * 3 + 2], margin)) keep.push(i);
+    }
+    rejected += count - keep.length;
+    if (keep.length === count) {
+      out.push(pool);
+      continue;
+    }
+    if (keep.length === 0) continue;
+    const positions = new Float32Array(keep.length * 3);
+    keep.forEach((i, k) => positions.set(pool.positions.subarray(i * 3, i * 3 + 3), k * 3));
+    const metadata = pool.metadata ? Uint32Array.from(keep, (i) => pool.metadata![i]) : undefined;
+    out.push({ ...pool, positions, ...(metadata ? { metadata } : {}) });
+  }
+  return { pools: out, rejected };
+};

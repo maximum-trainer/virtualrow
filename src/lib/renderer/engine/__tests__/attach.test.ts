@@ -100,6 +100,36 @@ describe('attach', () => {
     renderer.dispose();
   });
 
+  // #742 VP-22 FR2/FR3 — an out-and-back whose legs run 60 m apart: the
+  // gap between them is water, and a tree planted in it is not drawn.
+  it('flags the parallel legs and takes scenery off the water between them', async () => {
+    const curvePoints: [number, number, number][] = [];
+    for (let z = 0; z >= -1000; z -= 50) curvePoints.push([0, 0, z]);
+    for (let k = 1; k < 8; k += 1) {
+      const a = (k / 8) * Math.PI;
+      curvePoints.push([30 - 30 * Math.cos(a), 0, -1000 - 30 * Math.sin(a)]);
+    }
+    for (let z = -1000; z <= 0; z += 50) curvePoints.push([60, 0, z]);
+    const pools = [{
+      kind: 'foliage' as const,
+      speciesIndex: 0,
+      chunkIndex: 0,
+      // In the gap between the legs, then well outside both.
+      positions: new Float32Array([30, 0, -500, -100, 0, -500]),
+      bounds: { cx: 0, cy: 0, cz: -500, radius: 200 },
+    }];
+    const renderer = (await attach(makeMockCanvas(), {
+      testMode: true,
+      route: { pools, curvePoints, waterEdgesForProgress: () => ({ left: 10, right: 10 }) },
+    })) as unknown as WithTest & {
+      _telemetry: { route: { selfParallel?: [number, number][]; rejectedOnWater?: number } };
+    };
+    expect(renderer._telemetry.route.selfParallel?.length ?? 0).toBeGreaterThan(0);
+    expect(renderer._telemetry.route.rejectedOnWater).toBe(1);
+    expect(renderer._telemetry.foliage.trees).toBe(1);
+    renderer.dispose();
+  });
+
   it('isSceneryRoute recognises the shape', () => {
     expect(isSceneryRoute({ pools: [] })).toBe(true);
     expect(isSceneryRoute(null)).toBe(false);
