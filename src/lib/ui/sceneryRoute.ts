@@ -377,3 +377,53 @@ export const toEngineRoute = (
     dominantProfile,
   };
 };
+
+/**
+ * #729 FR3 — `toEngineRoute`, cached per (route, enrichment, tier).
+ *
+ * Laying a course out (foliage, reeds, rocks, landscape, kit placement) is
+ * pure but not free, and the row page re-derives it whenever the selected
+ * route object is replaced, even with the same course in it. A route is the
+ * same when its id, length and coordinate list are; an enrichment is the
+ * same object (the enrichment cache hands out one per route and version).
+ * The last few layouts are kept, so switching tier and back is free too.
+ */
+const ENGINE_ROUTE_CACHE_SIZE = 4;
+interface EngineRouteCacheEntry {
+  routeId: string;
+  distance: number;
+  coordinates: WaterRoute['coordinates'];
+  enrichment: RouteEnrichmentData | null;
+  tier: PerformanceMode;
+  result: EngineRoute | null;
+}
+const engineRouteCache: EngineRouteCacheEntry[] = [];
+
+export const toEngineRouteCached = (
+  route: WaterRoute | null | undefined,
+  enrichment?: RouteEnrichmentData | null,
+  tier: PerformanceMode = DEFAULT_SCENERY_TIER,
+): EngineRoute | null => {
+  if (!route) return null;
+  const enr = enrichment ?? null;
+  const hit = engineRouteCache.find(
+    (e) =>
+      e.routeId === route.id &&
+      e.distance === route.distance &&
+      e.coordinates === route.coordinates &&
+      e.enrichment === enr &&
+      e.tier === tier,
+  );
+  if (hit) return hit.result;
+  const result = toEngineRoute(route, enr, tier);
+  engineRouteCache.unshift({
+    routeId: route.id,
+    distance: route.distance,
+    coordinates: route.coordinates,
+    enrichment: enr,
+    tier,
+    result,
+  });
+  engineRouteCache.length = Math.min(engineRouteCache.length, ENGINE_ROUTE_CACHE_SIZE);
+  return result;
+};

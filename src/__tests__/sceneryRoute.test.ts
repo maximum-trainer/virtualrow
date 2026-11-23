@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { WaterRoute } from '../lib/types/index';
-import { toEngineRoute } from '../lib/ui/sceneryRoute';
+import { toEngineRoute, toEngineRouteCached } from '../lib/ui/sceneryRoute';
 
 /**
  * #570 AC2 — the shell route → engine SceneryRoute adapter. The engine only
@@ -198,5 +198,33 @@ describe('toEngineRoute (#570 AC2)', () => {
     const mid = enriched?.waterEdgesForProgress?.(0.5);
     expect(mid?.left).toBeCloseTo(5);
     expect(mid?.right).toBeCloseTo(35);
+  });
+});
+
+// #729 FR3 — the route layout is cached per (route, enrichment, tier), so a
+// row page that remounts or re-derives with the same inputs does not lay the
+// whole course out again on the main thread.
+describe('toEngineRouteCached (#729 FR3)', () => {
+  it('returns the same layout for the same route, enrichment and tier', () => {
+    const route = makeRoute({ id: 'cache-a' });
+    const first = toEngineRouteCached(route, null, 'medium');
+    expect(first).not.toBeNull();
+    expect(toEngineRouteCached(route, null, 'medium')).toBe(first);
+    // A copy of the same route (the store re-creating its object) hits too.
+    expect(toEngineRouteCached({ ...route }, null, 'medium')).toBe(first);
+  });
+
+  it('lays out again when the tier or the enrichment changes', () => {
+    const route = makeRoute({ id: 'cache-b' });
+    const medium = toEngineRouteCached(route, null, 'medium');
+    expect(toEngineRouteCached(route, null, 'basic')).not.toBe(medium);
+    const enrichment = { source: 'overpass', enrichedAt: 0, segmentProfiles: [] } as never;
+    const enriched = toEngineRouteCached(route, enrichment, 'medium');
+    expect(enriched).not.toBe(medium);
+    expect(toEngineRouteCached(route, enrichment, 'medium')).toBe(enriched);
+  });
+
+  it('passes no route through as null', () => {
+    expect(toEngineRouteCached(null, null, 'medium')).toBeNull();
   });
 });
