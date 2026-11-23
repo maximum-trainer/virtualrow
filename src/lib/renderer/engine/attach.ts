@@ -318,6 +318,21 @@ export const attach: RideAttach = async (canvas, opts = {}) => {
   telemetry.contextState.backend = 'webgpu';
   installForceLostSeam(initial.device);
 
+  // #737 VP-19 FR6 — a hidden tab stops the loop; coming back restarts it
+  // and tells the scene to restart its simulation clocks rather than
+  // fast-forward them over the hidden time (the "lurch" on return).
+  const doc = (globalThis as unknown as { document?: Document }).document;
+  const onVisibilityChange = (): void => {
+    if (outerDisposed || !doc) return;
+    if (doc.visibilityState === 'hidden') {
+      cancelLoop();
+      return;
+    }
+    scene?.resume();
+    if (!opts.testMode && rafId === null) startLoop();
+  };
+  doc?.addEventListener('visibilitychange', onVisibilityChange);
+
   if (opts.testMode) {
     // In test mode we draw one frame and leave scheduling to the caller
     // via `__ROWER3D_FORCE_RENDER()`.
@@ -357,6 +372,7 @@ export const attach: RideAttach = async (canvas, opts = {}) => {
     dispose() {
       if (outerDisposed) return;
       outerDisposed = true;
+      doc?.removeEventListener('visibilitychange', onVisibilityChange);
       cancelLoop();
       scene?.dispose();
       scene = null;
