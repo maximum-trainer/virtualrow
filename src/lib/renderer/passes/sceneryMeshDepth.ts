@@ -8,6 +8,7 @@
 /// <reference types="@webgpu/types" />
 
 import sceneryMeshDepthWgsl from './sceneryMeshDepth.wgsl?raw';
+import { renderPipelineAsync } from '../engine/pipelineAsync';
 
 export interface SceneryMeshDepthPipeline {
   pipeline: GPURenderPipeline;
@@ -16,9 +17,9 @@ export interface SceneryMeshDepthPipeline {
   dispose(): void;
 }
 
-export const createSceneryMeshDepthPipeline = (
+export const createSceneryMeshDepthPipeline = async (
   device: GPUDevice,
-): SceneryMeshDepthPipeline => {
+): Promise<SceneryMeshDepthPipeline> => {
   const module = device.createShaderModule({
     label: 'sceneryMeshDepth',
     code: sceneryMeshDepthWgsl,
@@ -35,7 +36,7 @@ export const createSceneryMeshDepthPipeline = (
       { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
     ],
   });
-  const pipeline = device.createRenderPipeline({
+  const pipeline = await renderPipelineAsync(device, {
     label: 'sceneryMeshDepth',
     layout: device.createPipelineLayout({ bindGroupLayouts: [cascadeLayout, meshLayout] }),
     vertex: {

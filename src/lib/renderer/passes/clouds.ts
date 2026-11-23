@@ -2,6 +2,7 @@
 
 import type { FrameContext, Pass } from '../engine/frameGraph';
 import cloudsWgsl from './clouds.wgsl?raw';
+import { renderPipelineAsync } from '../engine/pipelineAsync';
 
 export interface CloudsPassOptions {
   device: GPUDevice;
@@ -11,14 +12,14 @@ export interface CloudsPassOptions {
   lightingUniforms: GPUBuffer;
 }
 
-export const createCloudsPass = ({
+export const createCloudsPass = async ({
   device,
   format,
   frameUniforms,
   lightingUniforms,
-}: CloudsPassOptions): Pass => {
+}: CloudsPassOptions): Promise<Pass> => {
   const module = device.createShaderModule({ label: 'clouds', code: cloudsWgsl });
-  const pipeline = device.createRenderPipeline({
+  const pipeline = await renderPipelineAsync(device, {
     label: 'clouds',
     layout: 'auto',
     vertex: { module, entryPoint: 'vs_main' },

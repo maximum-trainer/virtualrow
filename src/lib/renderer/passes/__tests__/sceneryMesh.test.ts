@@ -70,16 +70,16 @@ const makeInput = (over: Partial<SceneryMeshInput> = {}): SceneryMeshInput => ({
 });
 
 describe('createSceneryMeshPass', () => {
-  it('starts with no registered meshes', () => {
+  it('starts with no registered meshes', async () => {
     const { device } = makeDevice();
     const frameBuf = makeBuffer();
-    const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: frameBuf });
+    const p = await createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: frameBuf });
     expect(p.meshCount).toBe(0);
   });
 
-  it('registers a mesh and ignores a second register with the same id', () => {
+  it('registers a mesh and ignores a second register with the same id', async () => {
     const { device } = makeDevice();
-    const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+    const p = await createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
     p.register(makeInput({ id: 'buoy' }));
     expect(p.meshCount).toBe(1);
     p.register(makeInput({ id: 'buoy' }));
@@ -88,18 +88,18 @@ describe('createSceneryMeshPass', () => {
     expect(p.meshCount).toBe(2);
   });
 
-  it('setInstances is a no-op for unknown ids', () => {
+  it('setInstances is a no-op for unknown ids', async () => {
     const { device, queue } = makeDevice();
-    const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+    const p = await createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
     const writeCountBefore = (queue.writeBuffer as unknown as { mock: { calls: unknown[] } }).mock.calls.length;
     p.setInstances('does-not-exist', [mat4Identity(mat4())]);
     const writeCountAfter = (queue.writeBuffer as unknown as { mock: { calls: unknown[] } }).mock.calls.length;
     expect(writeCountAfter).toBe(writeCountBefore);
   });
 
-  it('clamps setInstances to the registered maxInstances', () => {
+  it('clamps setInstances to the registered maxInstances', async () => {
     const { device, queue } = makeDevice();
-    const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+    const p = await createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
     p.register(makeInput({ id: 'buoy', maxInstances: 2 }));
     const writesBefore = (queue.writeBuffer as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
     p.setInstances('buoy', [mat4Identity(mat4()), mat4Identity(mat4()), mat4Identity(mat4()), mat4Identity(mat4())]);
@@ -111,9 +111,9 @@ describe('createSceneryMeshPass', () => {
   });
 
   // #726 VP-08 FR4 — one model's instances go up in one write, not one per instance.
-  it('uploads 400 instances in exactly one writeBuffer', () => {
+  it('uploads 400 instances in exactly one writeBuffer', async () => {
     const { device, queue } = makeDevice();
-    const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+    const p = await createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
     p.register(makeInput({ id: 'tree', maxInstances: 1024 }));
     const calls = (queue.writeBuffer as unknown as { mock: { calls: unknown[][] } }).mock.calls;
     const before = calls.length;
@@ -130,26 +130,26 @@ describe('createSceneryMeshPass', () => {
     expect(data[399 * (SCENERY_INSTANCE_BYTES / 4) + 12]).toBe(399);
   });
 
-  it('encode skips when nothing is registered', () => {
+  it('encode skips when nothing is registered', async () => {
     const { device } = makeDevice();
-    const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+    const p = await createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
     const encoderBeginRenderPass = vi.fn();
     p.encode({ encoder: { beginRenderPass: encoderBeginRenderPass } } as unknown as Parameters<typeof p.encode>[0]);
     expect(encoderBeginRenderPass).not.toHaveBeenCalled();
   });
 
-  it('encode skips when every registered mesh has 0 instances', () => {
+  it('encode skips when every registered mesh has 0 instances', async () => {
     const { device } = makeDevice();
-    const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+    const p = await createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
     p.register(makeInput({ id: 'buoy' }));
     const beginRenderPass = vi.fn();
     p.encode({ encoder: { beginRenderPass } } as unknown as Parameters<typeof p.encode>[0]);
     expect(beginRenderPass).not.toHaveBeenCalled();
   });
 
-  it('encode draws per-mesh when instances are set', () => {
+  it('encode draws per-mesh when instances are set', async () => {
     const { device } = makeDevice();
-    const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+    const p = await createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
     p.register(makeInput({ id: 'buoy', maxInstances: 4 }));
     p.register(makeInput({ id: 'post', maxInstances: 4, indices: new Uint32Array([0, 1, 2]) }));
     p.setInstances('buoy', [mat4Identity(mat4()), mat4Identity(mat4())]);
@@ -170,9 +170,9 @@ describe('createSceneryMeshPass', () => {
     expect(end).toHaveBeenCalled();
   });
 
-  it('publishes this frame\'s draws, instances and triangles, reset every frame (#737 FR2)', () => {
+  it('publishes this frame\'s draws, instances and triangles, reset every frame (#737 FR2)', async () => {
     const { device } = makeDevice();
-    const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+    const p = await createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
     p.register(makeInput({ id: 'buoy', maxInstances: 4, indices: new Uint16Array([0, 1, 2, 0, 2, 1]) }));
     p.register(makeInput({ id: 'post', maxInstances: 4 }));
     p.setInstances('buoy', [mat4Identity(mat4()), { model: mat4Identity(mat4()), alpha: 0.5 }]);
@@ -193,14 +193,14 @@ describe('createSceneryMeshPass', () => {
     expect(p.stats).toEqual({ draws: 0, instances: 0, triangles: 0 });
   });
 
-  it('pads an odd-length uint16 index upload to 4 bytes but still draws the real count (#672)', () => {
+  it('pads an odd-length uint16 index upload to 4 bytes but still draws the real count (#672)', async () => {
     // WebGPU rejects a writeBuffer whose size is not a multiple of 4, and the
     // index buffer then stays zero-filled: every triangle collapses onto
     // vertex 0 and the primitive is invisible. The HD rower's meshopt output
     // has many primitives with an odd triangle count (3 × u16 = 6 B each), so
     // its head, neck, shoulders and arms vanished while the torso drew.
     const { device, queue } = makeDevice();
-    const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+    const p = await createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
     const indices = new Uint16Array([0, 1, 2]);
     p.register(makeInput({ id: 'odd', indices }));
 
@@ -228,9 +228,9 @@ describe('createSceneryMeshPass', () => {
     expect(drawIndexed.mock.calls[0][0]).toBe(3);
   });
 
-  it('uploads a supplied per-vertex colour buffer verbatim', () => {
+  it('uploads a supplied per-vertex colour buffer verbatim', async () => {
     const { device, queue } = makeDevice();
-    const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+    const p = await createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
     // 3 vertices → 12 colour floats: part A brown, parts B/C green.
     const colors = new Float32Array([0.4, 0.26, 0.13, 1, 0.1, 0.6, 0.15, 1, 0.1, 0.6, 0.15, 1]);
     p.register(makeInput({ id: 'tree', colors }));
@@ -239,9 +239,9 @@ describe('createSceneryMeshPass', () => {
     expect(calls.some((c) => c[2] === colors)).toBe(true);
   });
 
-  it('synthesizes a per-vertex colour buffer from baseColor when colors omitted', () => {
+  it('synthesizes a per-vertex colour buffer from baseColor when colors omitted', async () => {
     const { device, queue } = makeDevice();
-    const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+    const p = await createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
     // Default input has 3 vertices (9 position floats) and no colors.
     p.register(makeInput({ id: 'block', baseColor: [0.5, 0.25, 0.75, 1] }));
     const calls = (queue.writeBuffer as unknown as { mock: { calls: unknown[][] } }).mock.calls;
@@ -253,9 +253,9 @@ describe('createSceneryMeshPass', () => {
     expect(Array.from(arr.slice(8, 12))).toEqual([0.5, 0.25, 0.75, 1]);
   });
 
-  it('encode binds the colour vertex buffer at slot 2', () => {
+  it('encode binds the colour vertex buffer at slot 2', async () => {
     const { device } = makeDevice();
-    const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+    const p = await createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
     p.register(makeInput({ id: 'buoy' }));
     p.setInstances('buoy', [mat4Identity(mat4())]);
     const { pass, setVertexBuffer } = makePass();
@@ -268,9 +268,9 @@ describe('createSceneryMeshPass', () => {
     expect(setVertexBuffer.mock.calls.some((c) => c[0] === 2)).toBe(true);
   });
 
-  it('dispose destroys every registered mesh buffer and clears the registry', () => {
+  it('dispose destroys every registered mesh buffer and clears the registry', async () => {
     const { device } = makeDevice();
-    const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+    const p = await createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
     p.register(makeInput({ id: 'buoy' }));
     expect(p.meshCount).toBe(1);
     p.dispose();
@@ -280,9 +280,9 @@ describe('createSceneryMeshPass', () => {
     expect(p.meshCount).toBe(0);
   });
 
-  it('writeColors updates the colour buffer when the byte length matches (#578 FR2)', () => {
+  it('writeColors updates the colour buffer when the byte length matches (#578 FR2)', async () => {
     const { device, queue } = makeDevice();
-    const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+    const p = await createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
     p.register(makeInput({ id: 'crew-top', positions: new Float32Array(9), normals: new Float32Array(9), indices: new Uint16Array([0, 1, 2]), baseColor: [0.1, 0.2, 0.3, 1] }));
     // Three vertices × 4 floats × 4 bytes = 48 bytes.
     const writesBefore = (queue.writeBuffer as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
@@ -293,9 +293,9 @@ describe('createSceneryMeshPass', () => {
     expect(writesAfter - writesBefore).toBe(1);
   });
 
-  it('writeColors is a no-op on byte-length mismatch (#578 safety)', () => {
+  it('writeColors is a no-op on byte-length mismatch (#578 safety)', async () => {
     const { device, queue } = makeDevice();
-    const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+    const p = await createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
     p.register(makeInput({ id: 'crew-top', positions: new Float32Array(9), normals: new Float32Array(9), indices: new Uint16Array([0, 1, 2]), baseColor: [0.1, 0.2, 0.3, 1] }));
     const writesBefore = (queue.writeBuffer as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
     // Wrong vertex count — 8 floats instead of 12.
@@ -304,9 +304,9 @@ describe('createSceneryMeshPass', () => {
     expect(writesAfter).toBe(writesBefore);
   });
 
-  it('writeColors on unknown ids is a no-op', () => {
+  it('writeColors on unknown ids is a no-op', async () => {
     const { device, queue } = makeDevice();
-    const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+    const p = await createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
     const writesBefore = (queue.writeBuffer as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
     p.writeColors('nope', new Float32Array(4));
     const writesAfter = (queue.writeBuffer as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
@@ -340,9 +340,9 @@ describe('createSceneryMeshPass', () => {
         ([, , data]) => data instanceof Float32Array && data.length === 4 && data[1] === SCENERY_REVEAL_SECONDS,
       );
 
-    it('binds one reveal uniform at binding 2 in both bind groups', () => {
+    it('binds one reveal uniform at binding 2 in both bind groups', async () => {
       const { device, bindGroups } = makeDevice();
-      const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+      const p = await createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
       p.register(makeInput({ id: 'boathouse' }));
       const meshGroups = (bindGroups as Desc[]).filter((d) => d.entries.some((e) => e.binding === 1));
       expect(meshGroups).toHaveLength(2);
@@ -351,23 +351,23 @@ describe('createSceneryMeshPass', () => {
       expect(reveal[1]).toBe(reveal[0]);
     });
 
-    it('writes the registration time when the model is revealed mid-ride', () => {
+    it('writes the registration time when the model is revealed mid-ride', async () => {
       const { device, queue } = makeDevice();
-      const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+      const p = await createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
       p.register(makeInput({ id: 'boathouse', revealAt: 42.5 }));
       const w = revealWrites(queue);
       expect(w).toHaveLength(1);
       expect(Array.from(w[0][2])).toEqual([42.5, SCENERY_REVEAL_SECONDS, SCENERY_VISIBILITY_METRES, 0]);
     });
 
-    it('draws a mesh registered without revealAt at full opacity from the first frame', () => {
+    it('draws a mesh registered without revealAt at full opacity from the first frame', async () => {
       const { device, queue } = makeDevice();
-      const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+      const p = await createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
       p.register(makeInput({ id: 'boat' }));
       expect(revealWrites(queue)[0][2][0]).toBe(ALWAYS_REVEALED);
     });
 
-    it('destroys the reveal buffer on dispose', () => {
+    it('destroys the reveal buffer on dispose', async () => {
       const created: GPUBuffer[] = [];
       const { device } = makeDevice();
       (device.createBuffer as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => {
@@ -375,7 +375,7 @@ describe('createSceneryMeshPass', () => {
         created.push(b);
         return b;
       });
-      const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+      const p = await createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
       p.register(makeInput({ id: 'boathouse', revealAt: 1 }));
       p.dispose();
       for (const b of created) expect(b.destroy).toHaveBeenCalled();
@@ -389,9 +389,9 @@ describe('createSceneryMeshPass', () => {
     });
   });
 
-  it('encode is a no-op after dispose', () => {
+  it('encode is a no-op after dispose', async () => {
     const { device } = makeDevice();
-    const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+    const p = await createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
     p.register(makeInput({ id: 'buoy' }));
     p.setInstances('buoy', [mat4Identity(mat4())]);
     p.dispose();
@@ -406,7 +406,7 @@ describe('createSceneryMeshPass', () => {
   describe('per-instance style (#728, #713 D3a)', () => {
     const writes = (queue: GPUQueue) =>
       (queue.writeBuffer as unknown as { mock: { calls: [GPUBuffer, number, Float32Array][] } }).mock.calls;
-    const encode = (p: ReturnType<typeof createSceneryMeshPass>) => {
+    const encode = (p: Awaited<ReturnType<typeof createSceneryMeshPass>>) => {
       const m = makePass();
       p.encode({
         encoder: { beginRenderPass: vi.fn(() => m.pass) },
@@ -416,10 +416,10 @@ describe('createSceneryMeshPass', () => {
       return m;
     };
 
-    it('packs a model, a tint and an effect vec4 per instance (96 B)', () => {
+    it('packs a model, a tint and an effect vec4 per instance (96 B)', async () => {
       expect(SCENERY_INSTANCE_BYTES).toBe(96);
       const { device, queue } = makeDevice();
-      const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+      const p = await createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
       p.register(makeInput({ id: 'hull', maxInstances: 2 }));
       // The pass reuses one scratch array, so keep a copy of each write.
       const copies: Float32Array[] = [];
@@ -444,9 +444,9 @@ describe('createSceneryMeshPass', () => {
       expect(copies[copies.length - 1][23]).toBe(0);
     });
 
-    it('draws opaque instances first and translucent ones after, with their own pipeline', () => {
+    it('draws opaque instances first and translucent ones after, with their own pipeline', async () => {
       const { device } = makeDevice();
-      const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+      const p = await createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
       p.register(makeInput({ id: 'hull', maxInstances: 4 }));
       p.register(makeInput({ id: 'oar', maxInstances: 4 }));
       const ghost = { model: mat4Identity(mat4()), tint: [0.6, 1, 0.3, 1] as const, alpha: 0.6 };
@@ -465,9 +465,9 @@ describe('createSceneryMeshPass', () => {
       expect(setPipeline.mock.calls[0][0]).not.toBe(setPipeline.mock.calls[1][0]);
     });
 
-    it('builds the translucent pipeline with alpha blending and no depth write', () => {
+    it('builds the translucent pipeline with alpha blending and no depth write', async () => {
       const { device } = makeDevice();
-      createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+      await createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
       const descs = (device.createRenderPipeline as unknown as { mock: { calls: [GPURenderPipelineDescriptor][] } }).mock.calls.map((c) => c[0]);
       const translucent = descs.find((d) => d.label === 'sceneryMesh-translucent');
       expect(translucent).toBeDefined();
@@ -475,9 +475,9 @@ describe('createSceneryMeshPass', () => {
       expect((translucent!.fragment!.targets as GPUColorTargetState[])[0].blend?.color.dstFactor).toBe('one-minus-src-alpha');
     });
 
-    it('skips the translucent pipeline when nothing is translucent', () => {
+    it('skips the translucent pipeline when nothing is translucent', async () => {
       const { device } = makeDevice();
-      const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+      const p = await createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
       p.register(makeInput({ id: 'hull', maxInstances: 2 }));
       p.setInstances('hull', [mat4Identity(mat4()), { model: mat4Identity(mat4()), tint: [1, 0, 0, 1] }]);
       const { drawIndexed, setPipeline } = encode(p);

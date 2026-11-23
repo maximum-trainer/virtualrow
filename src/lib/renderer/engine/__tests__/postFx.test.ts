@@ -14,9 +14,9 @@ const makeViewRef = () => ({} as GPUTextureView);
 const makeTextureRef = () => ({ destroy: () => undefined } as unknown as GPUTexture);
 
 describe('createPostFx', () => {
-  it('builds the bloom pipelines once per caps', () => {
+  it('builds the bloom pipelines once per caps', async () => {
     const device = makeMockDevice();
-    const handle = createPostFx({
+    const handle = await createPostFx({
       device,
       sceneFormat: 'rgba16float',
       outputFormat: 'bgra8unorm',
@@ -39,9 +39,9 @@ describe('createPostFx', () => {
     handle.dispose();
   });
 
-  it('skips SSAO + DOF pipelines when caps say off', () => {
+  it('skips SSAO + DOF pipelines when caps say off', async () => {
     const device = makeMockDevice();
-    const handle = createPostFx({
+    const handle = await createPostFx({
       device,
       sceneFormat: 'rgba16float',
       outputFormat: 'bgra8unorm',
@@ -65,7 +65,7 @@ describe('createPostFx', () => {
   // (8 bytes/px); the post additions are the bloom pyramid + LUT + SSAO +
   // DOF intermediates. For 1920×1080 those additions come to ~0.46× scene,
   // comfortably inside the 1.3× bound.
-  it('post memory budget stays within NFR7 (<= 1.3x scene colour on tier high)', () => {
+  it('post memory budget stays within NFR7 (<= 1.3x scene colour on tier high)', async () => {
     const w = 1920;
     const h = 1080;
     const sceneBytes = w * h * 8;
@@ -75,10 +75,12 @@ describe('createPostFx', () => {
     expect(addedOverScene).toBeLessThanOrEqual(1.3);
   });
 
-  it('creates the luminance pipeline when autoExposure is on, skips it when off (#574)', () => {
-    const makeHandle = (autoExposure: boolean): ReturnType<typeof createPostFx> => {
-      const device = makeMockDevice();
-      const handle = createPostFx({
+  it('creates the luminance pipeline when autoExposure is on, skips it when off (#574)', async () => {
+    const makeHandle = async (
+      device: ReturnType<typeof makeMockDevice>,
+      autoExposure: boolean,
+    ): ReturnType<typeof createPostFx> => {
+      const handle = await createPostFx({
         device,
         sceneFormat: 'rgba16float',
         outputFormat: 'bgra8unorm',
@@ -94,7 +96,7 @@ describe('createPostFx', () => {
       return handle;
     };
     const device1 = makeMockDevice();
-    const h1 = createPostFx({
+    const h1 = await createPostFx({
       device: device1,
       sceneFormat: 'rgba16float',
       outputFormat: 'bgra8unorm',
@@ -111,7 +113,7 @@ describe('createPostFx', () => {
     h1.dispose();
 
     const device2 = makeMockDevice();
-    const h2 = makeHandle(false);
+    const h2 = await makeHandle(device2, false);
     expect(device2.__log.createdPipelines).not.toContain('luminance');
     h2.dispose();
   });
@@ -127,9 +129,9 @@ describe('createPostFx', () => {
     );
   });
 
-  it('still creates the composite pipeline when chromaticAberration is on (#574)', () => {
+  it('still creates the composite pipeline when chromaticAberration is on (#574)', async () => {
     const device = makeMockDevice();
-    const handle = createPostFx({
+    const handle = await createPostFx({
       device,
       sceneFormat: 'rgba16float',
       outputFormat: 'bgra8unorm',
@@ -153,7 +155,7 @@ describe('createPostFx', () => {
 });
 
 describe('exposure bias (#730 VP-12)', () => {
-  it('writes the conditions exposure bias into the composite uniform slot 6', () => {
+  it('writes the conditions exposure bias into the composite uniform slot 6', async () => {
     const device = makeMockDevice();
     const writes: Float32Array[] = [];
     (device.queue as unknown as { writeBuffer: (b: unknown, o: number, d: Float32Array) => void }).writeBuffer = (
@@ -163,7 +165,7 @@ describe('exposure bias (#730 VP-12)', () => {
     ) => {
       writes.push(new Float32Array(d));
     };
-    const handle = createPostFx({
+    const handle = await createPostFx({
       device,
       sceneFormat: 'rgba16float',
       outputFormat: 'bgra8unorm',

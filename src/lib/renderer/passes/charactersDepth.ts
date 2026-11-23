@@ -9,6 +9,7 @@
 import type { BoatMeshBuffers } from '../plan/boatMesh';
 import { BOAT_FLOATS_PER_VERTEX } from '../plan/boatMesh';
 import charactersDepthWgsl from './charactersDepth.wgsl?raw';
+import { renderPipelineAsync } from '../engine/pipelineAsync';
 
 const VERTEX_STRIDE_BYTES = BOAT_FLOATS_PER_VERTEX * 4;
 
@@ -22,15 +23,15 @@ export interface CharactersDepthPipeline {
   dispose(): void;
 }
 
-export const createCharactersDepthPipeline = (
+export const createCharactersDepthPipeline = async (
   device: GPUDevice,
   mesh: BoatMeshBuffers,
-): CharactersDepthPipeline => {
+): Promise<CharactersDepthPipeline> => {
   const module = device.createShaderModule({
     label: 'charactersDepth',
     code: charactersDepthWgsl,
   });
-  const pipeline = device.createRenderPipeline({
+  const pipeline = await renderPipelineAsync(device, {
     label: 'charactersDepth',
     layout: 'auto',
     vertex: {

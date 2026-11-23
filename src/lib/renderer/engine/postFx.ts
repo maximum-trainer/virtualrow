@@ -24,6 +24,7 @@ import ssaoWgsl from '../passes/ssao.wgsl?raw';
 import dofWgsl from '../passes/dofBlur.wgsl?raw';
 import luminanceWgsl from '../passes/luminance.wgsl?raw';
 import { buildNeutralLutPixels } from './postFxMath';
+import { renderPipelineAsync } from './pipelineAsync';
 
 export interface PostFxCaps {
   bloom: boolean;
@@ -87,7 +88,7 @@ export interface PostFxHandle {
 
 const BLOOM_MIPS_DEFAULT = 6;
 
-export const createPostFx = (opts: PostFxOptions): PostFxHandle => {
+export const createPostFx = async (opts: PostFxOptions): Promise<PostFxHandle> => {
   const { device, sceneFormat, outputFormat, caps } = opts;
   const bloomMipLevels = Math.max(2, opts.bloomMipLevels ?? BLOOM_MIPS_DEFAULT);
   const bloomStrength = opts.bloomStrength ?? 0.08;
@@ -105,7 +106,7 @@ export const createPostFx = (opts: PostFxOptions): PostFxHandle => {
 
   // --- Bloom pipelines (reused across mips) ---
   const bloomDownModule = device.createShaderModule({ label: 'bloom-down', code: bloomDownWgsl });
-  const bloomDownPipeline = device.createRenderPipeline({
+  const bloomDownPipeline = await renderPipelineAsync(device, {
     label: 'bloom-down',
     layout: 'auto',
     vertex: { module: bloomDownModule, entryPoint: 'vs_main' },
@@ -113,7 +114,7 @@ export const createPostFx = (opts: PostFxOptions): PostFxHandle => {
     primitive: { topology: 'triangle-list' },
   });
   const bloomUpModule = device.createShaderModule({ label: 'bloom-up', code: bloomUpWgsl });
-  const bloomUpPipeline = device.createRenderPipeline({
+  const bloomUpPipeline = await renderPipelineAsync(device, {
     label: 'bloom-up',
     layout: 'auto',
     vertex: { module: bloomUpModule, entryPoint: 'vs_main' },
@@ -147,7 +148,7 @@ export const createPostFx = (opts: PostFxOptions): PostFxHandle => {
 
   // --- Composite pipeline ---
   const compositeModule = device.createShaderModule({ label: 'composite', code: compositeWgsl });
-  const compositePipeline = device.createRenderPipeline({
+  const compositePipeline = await renderPipelineAsync(device, {
     label: 'composite',
     layout: 'auto',
     vertex: { module: compositeModule, entryPoint: 'vs_main' },
@@ -202,7 +203,7 @@ export const createPostFx = (opts: PostFxOptions): PostFxHandle => {
     : null;
   const luminancePipeline =
     luminanceModule
-      ? device.createRenderPipeline({
+      ? await renderPipelineAsync(device, {
           label: 'luminance',
           layout: 'auto',
           vertex: { module: luminanceModule, entryPoint: 'vs_main' },
@@ -215,7 +216,7 @@ export const createPostFx = (opts: PostFxOptions): PostFxHandle => {
   const ssaoModule = caps.ssao ? device.createShaderModule({ label: 'ssao', code: ssaoWgsl }) : null;
   const ssaoPipeline =
     ssaoModule
-      ? device.createRenderPipeline({
+      ? await renderPipelineAsync(device, {
           label: 'ssao',
           layout: 'auto',
           vertex: { module: ssaoModule, entryPoint: 'vs_main' },
@@ -237,7 +238,7 @@ export const createPostFx = (opts: PostFxOptions): PostFxHandle => {
   const dofModule = caps.dof ? device.createShaderModule({ label: 'dof', code: dofWgsl }) : null;
   const dofPipeline =
     dofModule
-      ? device.createRenderPipeline({
+      ? await renderPipelineAsync(device, {
           label: 'dof',
           layout: 'auto',
           vertex: { module: dofModule, entryPoint: 'vs_main' },

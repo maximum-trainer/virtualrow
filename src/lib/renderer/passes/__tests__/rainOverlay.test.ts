@@ -44,10 +44,10 @@ const makeDevice = () => {
 };
 
 describe('createRainOverlayPass (#574)', () => {
-  it('builds a single named pass and runs it once per encode', () => {
+  it('builds a single named pass and runs it once per encode', async () => {
     const { device, encoder, log } = makeDevice();
     const frameUniforms = {} as unknown as GPUBuffer;
-    const p = createRainOverlayPass({ device, format: 'bgra8unorm', frameUniforms });
+    const p = await createRainOverlayPass({ device, format: 'bgra8unorm', frameUniforms });
     expect(p.name).toBe('rain-overlay');
     expect(log.createdPipelines).toContain('rain-overlay');
     p.encode({
@@ -67,9 +67,9 @@ describe('createRainOverlayPass (#574)', () => {
     p.dispose();
   });
 
-  it('becomes a no-op after dispose', () => {
+  it('becomes a no-op after dispose', async () => {
     const { device, encoder, log } = makeDevice();
-    const p = createRainOverlayPass({ device, format: 'bgra8unorm', frameUniforms: {} as unknown as GPUBuffer });
+    const p = await createRainOverlayPass({ device, format: 'bgra8unorm', frameUniforms: {} as unknown as GPUBuffer });
     p.dispose();
     p.encode({
       device,

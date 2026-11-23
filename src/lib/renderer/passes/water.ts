@@ -12,6 +12,7 @@ import { buildWaterStrip, type WaterEdges } from '../plan/waterStrip';
 import waterWgsl from './water.wgsl?raw';
 
 import type { ShadowResources } from './bank';
+import { renderPipelineAsync } from '../engine/pipelineAsync';
 
 export interface WaterPassOptions {
   device: GPUDevice;
@@ -31,7 +32,7 @@ export interface WaterPassOptions {
   edgesForProgress?: (progress: number) => WaterEdges;
 }
 
-export const createWaterPass = ({
+export const createWaterPass = async ({
   device,
   format,
   frameUniforms,
@@ -39,10 +40,10 @@ export const createWaterPass = ({
   shadow,
   curve = null,
   edgesForProgress,
-}: WaterPassOptions): Pass => {
+}: WaterPassOptions): Promise<Pass> => {
   const code = SHADOW_UNIFORMS_WGSL + SAMPLE_SHADOW_WGSL + HORIZON_HAZE_WGSL + waterWgsl;
   const module = device.createShaderModule({ label: 'water', code });
-  const pipeline = device.createRenderPipeline({
+  const pipeline = await renderPipelineAsync(device, {
     label: 'water',
     layout: 'auto',
     vertex: {

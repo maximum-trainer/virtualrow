@@ -6,7 +6,7 @@ import { createSceneryCuller } from '../sceneryCull';
 import { createInstancePool } from '../../plan/instancePools';
 
 describe('sceneryCull indirect args (#737 FR4)', () => {
-  it('creates each pool\'s indirect buffer as a copy source', () => {
+  it('creates each pool\'s indirect buffer as a copy source', async () => {
     const device = makeMockDevice();
     const usages: Record<string, number> = {};
     const realCreate = device.createBuffer.bind(device);
@@ -21,7 +21,7 @@ describe('sceneryCull indirect args (#737 FR4)', () => {
       positions: new Float32Array([0, 0, 0]),
       bounds: { cx: 0, cy: 0, cz: 0, radius: 1 },
     });
-    const culler = createSceneryCuller(device);
+    const culler = await createSceneryCuller(device);
     culler.attach(pool, { indexCount: 6, baseVertex: 0, firstIndex: 0 });
     const usage = usages['cull-indirect:foliage:2'];
     expect(usage & GPUBufferUsage.INDIRECT).toBeTruthy();

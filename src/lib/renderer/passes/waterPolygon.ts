@@ -16,6 +16,7 @@ import {
 import waterWgsl from './water.wgsl?raw';
 
 import type { ShadowResources } from './bank';
+import { renderPipelineAsync } from '../engine/pipelineAsync';
 
 /**
  * Polygon-water pass (#493 Phase 3b / FR4). Draws the OSM polygon water
@@ -101,7 +102,7 @@ function tessellateAll(
   return { positions, indices, triangleCount };
 }
 
-export const createWaterPolygonPass = ({
+export const createWaterPolygonPass = async ({
   device,
   format,
   frameUniforms,
@@ -110,13 +111,13 @@ export const createWaterPolygonPass = ({
   polygons,
   discCentre,
   discRadius,
-}: WaterPolygonPassOptions): Pass | null => {
+}: WaterPolygonPassOptions): Promise<Pass | null> => {
   const mesh = tessellateAll(polygons, discCentre, discRadius);
   if (mesh.indices.length === 0) return null;
 
   const code = SHADOW_UNIFORMS_WGSL + SAMPLE_SHADOW_WGSL + HORIZON_HAZE_WGSL + waterWgsl;
   const module = device.createShaderModule({ label: 'water-polygon', code });
-  const pipeline = device.createRenderPipeline({
+  const pipeline = await renderPipelineAsync(device, {
     label: 'water-polygon',
     layout: 'auto',
     vertex: {

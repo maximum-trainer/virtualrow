@@ -2,6 +2,7 @@
 
 import type { FrameContext, Pass } from '../engine/frameGraph';
 import skyWgsl from './sky.wgsl?raw';
+import { renderPipelineAsync } from '../engine/pipelineAsync';
 
 export interface SkyPassOptions {
   device: GPUDevice;
@@ -11,9 +12,9 @@ export interface SkyPassOptions {
   lightingUniforms: GPUBuffer;
 }
 
-export const createSkyPass = ({ device, format, frameUniforms, lightingUniforms }: SkyPassOptions): Pass => {
+export const createSkyPass = async ({ device, format, frameUniforms, lightingUniforms }: SkyPassOptions): Promise<Pass> => {
   const module = device.createShaderModule({ label: 'sky', code: skyWgsl });
-  const pipeline = device.createRenderPipeline({
+  const pipeline = await renderPipelineAsync(device, {
     label: 'sky',
     layout: 'auto',
     vertex: { module, entryPoint: 'vs_main' },

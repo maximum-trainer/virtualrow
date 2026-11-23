@@ -121,26 +121,27 @@ export interface ShadowStageOptions {
 
 const CASCADE_UNIFORM_BYTES = 64;
 
-export const createShadowStage = (
+export const createShadowStage = async (
   opts: ShadowStageOptions,
-): ShadowStage => {
+): Promise<ShadowStage> => {
   const { device, atlas, scenePools, buildingsPool, charactersMesh, boatPass, telemetry } = opts;
   const castFleetShadows = opts.castFleetShadows === true;
-  const bank = createBankDepthPipeline(device, {
-    curve: opts.bankCurve ?? null,
-    edgesForProgress: opts.bankEdgesForProgress,
-    footprint: opts.bankFootprint,
-  });
-  const scenery = createSceneryDepthPipeline(device);
-  const buildings = createBuildingsDepthPipeline(device);
-  const characters = charactersMesh ? createCharactersDepthPipeline(device, charactersMesh) : null;
+  // #803 — the depth pipelines compile in parallel.
+  const sceneryMeshPass = opts.sceneryMeshPass ?? null;
+  const [bank, scenery, buildings, characters, sceneryMesh] = await Promise.all([
+    createBankDepthPipeline(device, {
+      curve: opts.bankCurve ?? null,
+      edgesForProgress: opts.bankEdgesForProgress,
+      footprint: opts.bankFootprint,
+    }),
+    createSceneryDepthPipeline(device),
+    createBuildingsDepthPipeline(device),
+    charactersMesh ? createCharactersDepthPipeline(device, charactersMesh) : null,
+    sceneryMeshPass ? createSceneryMeshDepthPipeline(device) : null,
+  ]);
   // #591-fu P1c (updated for #623 Phase 1): the procedural flora depth
   // pass is retired. Scenery depth comes exclusively from registered
   // GLB meshes, iterated per-cascade via `forEachActiveMesh`.
-  const sceneryMeshPass = opts.sceneryMeshPass ?? null;
-  const sceneryMesh = sceneryMeshPass
-    ? createSceneryMeshDepthPipeline(device)
-    : null;
 
   const bankCascadeBuffers: GPUBuffer[] = [];
   const bankCascadeBindGroups: GPUBindGroup[] = [];

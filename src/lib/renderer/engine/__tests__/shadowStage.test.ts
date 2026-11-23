@@ -22,10 +22,10 @@ const emptyTelemetry = () => ({
 });
 
 describe('shadowStage (#566 P6 — buildings cast through the same atlas)', () => {
-  it('builds all three depth pipelines regardless of pool content', () => {
+  it('builds all three depth pipelines regardless of pool content', async () => {
     const device = makeMockDevice();
     const atlas = makeAtlasOnMock(device);
-    const stage = createShadowStage({
+    const stage = await createShadowStage({
       device,
       atlas,
       scenePools: [],
@@ -38,10 +38,10 @@ describe('shadowStage (#566 P6 — buildings cast through the same atlas)', () =
     stage.dispose();
   });
 
-  it('is a no-op encode when the atlas has zero cascades armed', () => {
+  it('is a no-op encode when the atlas has zero cascades armed', async () => {
     const device = makeMockDevice();
     const atlas = makeAtlasOnMock(device);
-    const stage = createShadowStage({
+    const stage = await createShadowStage({
       device,
       atlas,
       scenePools: [],
@@ -84,8 +84,8 @@ describe('shadowStage (#566 P6 — buildings cast through the same atlas)', () =
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     const mesh = buildBoatMesh();
-    const boatPass = createBoatPass({ device, format: 'bgra8unorm', frameUniforms, mesh });
-    const stage = createShadowStage({
+    const boatPass = await createBoatPass({ device, format: 'bgra8unorm', frameUniforms, mesh });
+    const stage = await createShadowStage({
       device,
       atlas,
       scenePools: [],
@@ -99,10 +99,10 @@ describe('shadowStage (#566 P6 — buildings cast through the same atlas)', () =
     boatPass.dispose();
   });
 
-  it('skips the characters path when no mesh is passed (#570 D7-c basic/low)', () => {
+  it('skips the characters path when no mesh is passed (#570 D7-c basic/low)', async () => {
     const device = makeMockDevice();
     const atlas = makeAtlasOnMock(device);
-    const stage = createShadowStage({
+    const stage = await createShadowStage({
       device,
       atlas,
       scenePools: [],
@@ -115,14 +115,14 @@ describe('shadowStage (#566 P6 — buildings cast through the same atlas)', () =
     stage.dispose();
   });
 
-  it('passes the bank curve + edges through to the bank depth pipeline (#549)', () => {
+  it('passes the bank curve + edges through to the bank depth pipeline (#549)', async () => {
     const device = makeMockDevice();
     const atlas = makeAtlasOnMock(device);
     const curve = new RouteCurve(
       [vec3(0, 0, 0), vec3(0, 0, -500), vec3(0, 0, -1000)],
       false,
     );
-    const stage = createShadowStage({
+    const stage = await createShadowStage({
       device,
       atlas,
       scenePools: [],
@@ -137,7 +137,7 @@ describe('shadowStage (#566 P6 — buildings cast through the same atlas)', () =
     stage.dispose();
   });
 
-  it('accepts a buildings pool and includes it in the cast when armed', () => {
+  it('accepts a buildings pool and includes it in the cast when armed', async () => {
     const device = makeMockDevice();
     const atlas = makeAtlasOnMock(device);
     const pool = createInstancePool(device, {
@@ -148,7 +148,7 @@ describe('shadowStage (#566 P6 — buildings cast through the same atlas)', () =
       bounds: { cx: 0, cy: 0, cz: 0, radius: 1 },
     });
     const buildings = createBuildingPool(device, buildSmokeBuildings({ count: 3 }));
-    const stage = createShadowStage({
+    const stage = await createShadowStage({
       device,
       atlas,
       scenePools: [pool],
@@ -161,7 +161,7 @@ describe('shadowStage (#566 P6 — buildings cast through the same atlas)', () =
     buildings.dispose();
   });
 
-  it('counts this frame\'s shadow draws, triangles and instances, and zeroes them when unarmed (#737 FR2)', () => {
+  it('counts this frame\'s shadow draws, triangles and instances, and zeroes them when unarmed (#737 FR2)', async () => {
     const device = makeMockDevice();
     const atlas = makeAtlasOnMock(device);
     const pool = createInstancePool(device, {
@@ -172,7 +172,7 @@ describe('shadowStage (#566 P6 — buildings cast through the same atlas)', () =
       bounds: { cx: 0, cy: 0, cz: 0, radius: 1 },
     });
     const buildings = createBuildingPool(device, buildSmokeBuildings({ count: 3 }));
-    const stage = createShadowStage({
+    const stage = await createShadowStage({
       device,
       atlas,
       scenePools: [pool],

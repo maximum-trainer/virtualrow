@@ -672,17 +672,6 @@ export const createRideScene = async (
     addressModeV: 'clamp-to-edge',
   });
 
-  const sceneryPass = createSceneryPass({
-    device,
-    format,
-    frameUniforms,
-    sproutUniforms,
-    pools: scenePools,
-    telemetry: telemetry.scenery,
-    foliageAtlasView,
-    foliageSampler,
-  });
-
   // #623 Phase 1 — the solid-flora stage (procedural low-poly tree pool)
   // is retired. Near-camera trees now draw from the tier-E GLB kit via
   // `sceneryMeshPass`, enabled on every tier that renders trees (basic
@@ -723,7 +712,6 @@ export const createRideScene = async (
   telemetry.boat.meshSource = boatMeshHandle.source;
   publishBoatSource(boatMeshHandle.source === 'baked' ? 'baked' : 'failed');
   opts.onLoadPhase?.('boat', 'done');
-  const boatPass = createBoatPass({ device, format, frameUniforms, mesh: boatMesh });
   const charactersMesh = tierCaps.castCharacterShadows ? boatMesh : null;
 
   // Scenery-mesh pass. Loads the course-furniture GLBs and keeps a registry
@@ -732,7 +720,24 @@ export const createRideScene = async (
   // same pass also hosts the per-frame boat GLB — scull.glb has 19 primitives
   // with distinct materials (hull vs rower vs oars), each registered as its
   // own mesh id so the per-primitive base colours survive.
-  const sceneryMeshPass = createSceneryMeshPass({ device, format, frameUniforms });
+  // #803 — every pass builds its pipelines with create*PipelineAsync so
+  // Chrome compiles them off the GPU process's main thread, in parallel,
+  // and the ride only reports ready once they are all compiled. The
+  // passes are therefore created together and awaited as one batch.
+  const [sceneryPass, boatPass, sceneryMeshPass] = await Promise.all([
+    createSceneryPass({
+      device,
+      format,
+      frameUniforms,
+      sproutUniforms,
+      pools: scenePools,
+      telemetry: telemetry.scenery,
+      foliageAtlasView,
+      foliageSampler,
+    }),
+    createBoatPass({ device, format, frameUniforms, mesh: boatMesh }),
+    createSceneryMeshPass({ device, format, frameUniforms }),
+  ]);
   const BOAT_SCULL_PREFIX = 'boat-scull';
   /**
    * #728 FR1 / #713 D1a — instances of each scull primitive: the player,
@@ -948,7 +953,7 @@ export const createRideScene = async (
 
 
   const shadowTelemetry: ShadowTelemetry = telemetry.shadows as ShadowTelemetry;
-  const shadowStage = createShadowStage({
+  const shadowStagePending = createShadowStage({
     device,
     atlas,
     scenePools,
@@ -992,7 +997,7 @@ export const createRideScene = async (
     : undefined;
   const bankGrassProfile: SceneryProfile = explicitProfile ?? dominantGrassProfile(null);
   const bankGrassStrength = shaderGrassStrengthFor((opts.tier ?? 'medium') as PerformanceMode);
-  const bankPass = createBankPass({
+  const bankPassPending = createBankPass({
     device,
     format,
     frameUniforms,
@@ -1007,7 +1012,7 @@ export const createRideScene = async (
   // switch isn't disabled, draw polygon water in place of the strip. The
   // strip stays wired so a route whose enrichment lacks polygons (rivers,
   // offline fallbacks) renders exactly as before.
-  const polygonWaterPass = useLakePolygonWater
+  const polygonWaterPassPending = useLakePolygonWater
     ? createWaterPolygonPass({
         device,
         format,
@@ -1016,7 +1021,7 @@ export const createRideScene = async (
         shadow: shadowResources,
         polygons: polygonLakes,
       })
-    : null;
+    : Promise.resolve(null);
   // #493 AC6 follow-up — publish the polygon-water render telemetry so a
   // Playwright smoke can tell the polygon path from the ribbon fallback
   // without reaching into the engine. `fallback` is true when the kill
@@ -1032,7 +1037,7 @@ export const createRideScene = async (
   const onLandSamples = isSceneryRoute(opts.route) && opts.route.onLandSamples
     ? opts.route.onLandSamples
     : [];
-  const waterDebugPass = isWaterDebugEnabled() && (polygonLakes.length > 0 || onLandSamples.length > 0)
+  const waterDebugPassPending = isWaterDebugEnabled() && (polygonLakes.length > 0 || onLandSamples.length > 0)
     ? createWaterDebugPass({
         device,
         format,
@@ -1043,7 +1048,7 @@ export const createRideScene = async (
           onLandSamples,
         },
       })
-    : null;
+    : Promise.resolve(null);
   // Publish the summary so the DebugPanel can render it (AC23). We use
   // the enrichment-fed summary when the adapter provided one; otherwise
   // publish zeros so the overlay still has a shape to read.
@@ -1054,18 +1059,20 @@ export const createRideScene = async (
   );
   // Polygon tessellation can be empty (all rings clipped away or
   // malformed); fall back to the strip rather than drop water entirely.
-  const waterPass =
-    polygonWaterPass ??
-    createWaterPass({
-      device,
-      format,
-      frameUniforms,
-      lightingUniforms,
-      shadow: shadowResources,
-      curve: waterCurve,
-      edgesForProgress: stripEdgesForProgress,
-    });
-  const buildingsPass = createBuildingsPass({
+  const waterPassPending = polygonWaterPassPending.then(
+    (polygonWater) =>
+      polygonWater ??
+      createWaterPass({
+        device,
+        format,
+        frameUniforms,
+        lightingUniforms,
+        shadow: shadowResources,
+        curve: waterCurve,
+        edgesForProgress: stripEdgesForProgress,
+      }),
+  );
+  const buildingsPassPending = createBuildingsPass({
     device,
     format,
     frameUniforms,
@@ -1073,9 +1080,9 @@ export const createRideScene = async (
     pool: buildingsPool,
     telemetry: telemetry.buildings,
   });
-  const cloudsPass = tierCaps.drawClouds
+  const cloudsPassPending = tierCaps.drawClouds
     ? createCloudsPass({ device, format, frameUniforms, lightingUniforms })
-    : null;
+    : Promise.resolve(null);
   // #574 rain overlay: on only when the tier allows it AND the dev has
   // flipped `window.__VIRTUALROW_RAIN=true` (so a mobile ride isn't
   // soaked by default). Follow-up: wire to real weather data.
@@ -1083,23 +1090,23 @@ export const createRideScene = async (
     tierCaps.drawRainOverlay &&
     !!(globalThis as unknown as { window?: { __VIRTUALROW_RAIN?: boolean } }).window
       ?.__VIRTUALROW_RAIN;
-  const rainPass = rainEnabled
+  const rainPassPending = rainEnabled
     ? createRainOverlayPass({ device, format, frameUniforms })
-    : null;
+    : Promise.resolve(null);
   // #571 — hull wake foam. Shared state lives here; the ride loop below
   // calls `updateWake` each frame, and the pass uploads the pool to its
   // storage buffer before drawing.
   const wakeState = createWakeState();
-  const wakePass = tierCaps.drawWakeParticles
+  const wakePassPending = tierCaps.drawWakeParticles
     ? createWakeParticlesPass({ device, format, frameUniforms, wakeState })
-    : null;
+    : Promise.resolve(null);
   // #571 oar-blade splash: shared CPU state + a billboard pass. The
   // update loop below detects the catch (phase 0) and finish (phase 0.5)
   // crossings and bursts particles at both blade tips.
   const oarSplashState = createOarSplashState();
-  const oarSplashPass = tierCaps.drawOarSplash
+  const oarSplashPassPending = tierCaps.drawOarSplash
     ? createOarSplashPass({ device, format, frameUniforms, state: oarSplashState })
-    : null;
+    : Promise.resolve(null);
 
   const postCaps: PostFxCaps = {
     bloom: tierCaps.drawBloom,
@@ -1114,7 +1121,31 @@ export const createRideScene = async (
     autoExposure: tierCaps.drawAutoExposure,
     chromaticAberration: tierCaps.drawChromaticAberration,
   };
-  const postFx = createPostFx({ device, sceneFormat: format, outputFormat, caps: postCaps });
+  const [
+    shadowStage,
+    skyPass,
+    bankPass,
+    waterDebugPass,
+    waterPass,
+    buildingsPass,
+    cloudsPass,
+    rainPass,
+    wakePass,
+    oarSplashPass,
+    postFx,
+  ] = await Promise.all([
+    shadowStagePending,
+    createSkyPass({ device, format, frameUniforms, lightingUniforms }),
+    bankPassPending,
+    waterDebugPassPending,
+    waterPassPending,
+    buildingsPassPending,
+    cloudsPassPending,
+    rainPassPending,
+    wakePassPending,
+    oarSplashPassPending,
+    createPostFx({ device, sceneFormat: format, outputFormat, caps: postCaps }),
+  ]);
   postFx.setInputs({
     sceneView: sceneTexture.createView(),
     sceneTexture,
@@ -1125,7 +1156,7 @@ export const createRideScene = async (
 
   const passes: Pass[] = [
     shadowStage,
-    createSkyPass({ device, format, frameUniforms, lightingUniforms }),
+    skyPass,
     ...(cloudsPass ? [cloudsPass] : []),
     bankPass,
     buildingsPass,

@@ -3,6 +3,7 @@
 import type { FrameContext, Pass } from '../engine/frameGraph';
 import { buildWaterDebugMesh, type WaterDebugInput } from '../plan/waterDebugLines';
 import waterDebugWgsl from './waterDebug.wgsl?raw';
+import { renderPipelineAsync } from '../engine/pipelineAsync';
 
 /**
  * Water-detection diagnostics pass (#493 Phase 3d / FR22 / AC23).
@@ -25,17 +26,17 @@ export interface WaterDebugPassOptions {
   input: WaterDebugInput;
 }
 
-export const createWaterDebugPass = ({
+export const createWaterDebugPass = async ({
   device,
   format,
   frameUniforms,
   input,
-}: WaterDebugPassOptions): Pass | null => {
+}: WaterDebugPassOptions): Promise<Pass | null> => {
   const mesh = buildWaterDebugMesh(input);
   if (mesh.vertexCount === 0) return null;
 
   const module = device.createShaderModule({ label: 'water-debug', code: waterDebugWgsl });
-  const pipeline = device.createRenderPipeline({
+  const pipeline = await renderPipelineAsync(device, {
     label: 'water-debug',
     layout: 'auto',
     vertex: {
