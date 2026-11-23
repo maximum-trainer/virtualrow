@@ -119,6 +119,14 @@ export interface RideRendererOptions {
    * loading bar.
    */
   readonly onLoadPhase?: (phase: string, status: 'done' | 'failed') => void;
+  /**
+   * #803 — true while the host's loading screen still covers the canvas.
+   * The engine keeps drawing behind it, and reports ready only once it has
+   * gone and a few frames have been presented uncovered, so the one-off
+   * cost of the first uncovered present (a 120-400 ms Windows swap-chain
+   * Present) lands on the loading screen, not in the first strokes.
+   */
+  readonly loadingOverlayShown?: () => boolean;
 }
 
 /** The marker over a race ghost more than 30 m away (#728 VP-10 FR2). */

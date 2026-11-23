@@ -49,6 +49,15 @@ describe('Canvas3DHost', () => {
     expect(onLoadPhase).toHaveBeenCalledWith('crew', 'done');
   });
 
+  it('passes the loading-screen check through to the engine (#803)', async () => {
+    const attach = vi.fn<RideAttach>(() => ({ dispose: vi.fn() }));
+    const loadingOverlayShown = vi.fn(() => true);
+    render(Canvas3DHost, { attach, loadingOverlayShown });
+    await Promise.resolve();
+    expect(attach.mock.calls[0][1]!.loadingOverlayShown!()).toBe(true);
+    expect(loadingOverlayShown).toHaveBeenCalledOnce();
+  });
+
   it('passes the crew prop through to the engine attach', async () => {
     const dispose = vi.fn();
     const attach = vi.fn<RideAttach>(() => ({ dispose }));

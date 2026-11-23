@@ -77,6 +77,24 @@ describe('attach', () => {
     renderer.dispose();
   });
 
+  it('keeps drawing behind the loading screen and reports ready only after it has gone (#803)', async () => {
+    const canvas = makeMockCanvas();
+    let shownChecks = 0;
+    const renderer = (await attach(canvas, {
+      testMode: true,
+      // Covered for the first three checks, gone from the fourth.
+      loadingOverlayShown: () => {
+        shownChecks += 1;
+        return shownChecks <= 3;
+      },
+    })) as unknown as WithTest & { _liveDevice: { __log: { submits: number } } };
+    expect(renderer._telemetry.contextState.kind).toBe('ready');
+    expect(shownChecks).toBe(4);
+    // Two drain frames, one per covered check, then three settle frames.
+    expect(renderer._liveDevice.__log.submits).toBeGreaterThanOrEqual(2 + 3 + 3);
+    renderer.dispose();
+  });
+
   it('surfaces renderer-unavailable when getContext returns null', async () => {
     const canvas = makeMockCanvas();
     (canvas as unknown as { getContext(): null }).getContext = () => null;

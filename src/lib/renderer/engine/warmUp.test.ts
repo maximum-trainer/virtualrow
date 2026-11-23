@@ -76,4 +76,61 @@ describe('warmUpScene (#803)', () => {
     await expect(warmUpScene(s.h, { timeoutMs: 1000, now: s.now })).resolves.toBe('skipped');
     expect(s.order).toEqual(['frame', 'wait', 'resume']);
   });
+
+  // #803 D-a: Windows sets up the canvas's swap chain / overlay on the first
+  // present after the loading bar stops covering it (a 120-400 ms DXGI
+  // Present on the GPU process). The warm-up keeps drawing, one frame per
+  // animation frame, until the bar has gone and a few frames have been
+  // presented uncovered, so that cost lands on the loading screen.
+  describe('while the loading screen covers the canvas', () => {
+    it('keeps drawing until the overlay has gone, then a few more frames, before resuming', async () => {
+      const s = scene(() => 1);
+      let shownFor = 3;
+      const overlayShown = vi.fn(() => {
+        if (shownFor <= 0) return false;
+        shownFor -= 1;
+        s.order.push('overlay');
+        return true;
+      });
+      const nextFrame = vi.fn(() => {
+        s.order.push('raf');
+        return Promise.resolve();
+      });
+      await expect(
+        warmUpScene(s.h, { timeoutMs: 3000, now: s.now, overlayShown, nextFrame, settleFrames: 2 }),
+      ).resolves.toBe('drained');
+      expect(s.order).toEqual([
+        'frame', 'wait', 'frame', 'wait',
+        'overlay', 'raf', 'frame',
+        'overlay', 'raf', 'frame',
+        'overlay', 'raf', 'frame',
+        'raf', 'frame', 'raf', 'frame',
+        'resume',
+      ]);
+    });
+
+    it('adds no frames when no loading screen is shown', async () => {
+      const s = scene(() => 1);
+      const nextFrame = vi.fn(() => Promise.resolve());
+      await warmUpScene(s.h, { timeoutMs: 3000, now: s.now, overlayShown: () => false, nextFrame });
+      expect(nextFrame).not.toHaveBeenCalled();
+      expect(s.frames()).toBe(2);
+    });
+
+    it('stops waiting for an overlay that never goes once the cap is reached', async () => {
+      const s = scene(() => 1);
+      let t = 0;
+      const now = () => s.now() + t;
+      const nextFrame = vi.fn(() => {
+        t += 100;
+        return Promise.resolve();
+      });
+      await expect(
+        warmUpScene(s.h, { timeoutMs: 1000, now, overlayShown: () => true, nextFrame, settleFrames: 2 }),
+      ).resolves.toBe('timeout');
+      expect(nextFrame.mock.calls.length).toBeLessThanOrEqual(11);
+      expect(s.h.resume).toHaveBeenCalledOnce();
+    });
+  });
 });
+

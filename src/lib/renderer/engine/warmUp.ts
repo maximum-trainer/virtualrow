@@ -12,6 +12,12 @@
  * the GPU finishes a frame quickly twice in a row: that is when no
  * deferred work is left in front of the row.
  *
+ * Then, while the loading screen still covers the canvas, it keeps drawing
+ * one frame per animation frame until the screen has gone, and a few more
+ * after that. Windows sets up the canvas's swap chain and overlay on the
+ * first presents after nothing covers it, and that Present can block the
+ * GPU process for 120-400 ms; this puts it on the loading screen too.
+ *
  * The whole warm-up is capped so a slow or wedged driver cannot hold the
  * ride back, and the simulation clocks restart afterwards so the warm-up
  * time is not fast-forwarded into the first stroke.
@@ -33,7 +39,19 @@ export interface WarmUpOptions {
   quickFrames?: number;
   /** Clock, injectable for tests. */
   now?: () => number;
+  /** True while the loading screen covers the canvas. Omitted = never. */
+  overlayShown?: () => boolean;
+  /** Frames presented uncovered after the overlay goes. Default 3. */
+  settleFrames?: number;
+  /** Waits for the next animation frame. Default requestAnimationFrame. */
+  nextFrame?: () => Promise<void>;
 }
+
+const animationFrame = (): Promise<void> =>
+  new Promise((resolve) => {
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => resolve());
+    else setTimeout(resolve, 16);
+  });
 
 export async function warmUpScene(scene: WarmUpTarget, opts: WarmUpOptions): Promise<WarmUpResult> {
   const now = opts.now ?? (() => performance.now());
@@ -65,6 +83,20 @@ export async function warmUpScene(scene: WarmUpTarget, opts: WarmUpOptions): Pro
       if (now() - start >= opts.timeoutMs) {
         result = 'timeout';
         break;
+      }
+    }
+    if (result !== 'timeout' && opts.overlayShown?.()) {
+      const nextFrame = opts.nextFrame ?? animationFrame;
+      const timedOut = () => now() - start >= opts.timeoutMs;
+      do {
+        await nextFrame();
+        scene.frameOnce();
+        if (timedOut()) result = 'timeout';
+      } while (result !== 'timeout' && opts.overlayShown());
+      for (let i = 0; result !== 'timeout' && i < (opts.settleFrames ?? 3); i += 1) {
+        await nextFrame();
+        scene.frameOnce();
+        if (timedOut()) result = 'timeout';
       }
     }
   } catch {
