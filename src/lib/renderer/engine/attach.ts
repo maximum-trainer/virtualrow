@@ -141,6 +141,14 @@ export type RideAttachOpts = {
    * `scenery-near`, `frame`) as it settles, for the host's loading bar.
    */
   onLoadPhase?: (phase: string, status: 'done' | 'failed') => void;
+  /**
+   * #803 — true while the host's loading screen still covers the canvas.
+   * The engine keeps drawing behind it, and reports ready only once it has
+   * gone and a few frames have been presented uncovered, so the one-off
+   * cost of the first uncovered present (a 120-400 ms Windows swap-chain
+   * Present) lands on the loading screen, not in the first strokes.
+   */
+  loadingOverlayShown?: () => boolean;
 };
 
 export type RideAttach = (
@@ -312,7 +320,15 @@ export const attach: RideAttach = async (canvas, opts = {}) => {
     const handle = await createRideScene(canvas, session.state.device, telemetry, sceneOpts, session);
     // #803 — let the GPU process finish compiling and uploading before the
     // ride shows as ready, so the first strokes do not freeze behind it.
-    if (handle) await warmUpScene(handle, { timeoutMs: WARM_UP_TIMEOUT_MS });
+    // The host's loading screen hides the canvas until then too: the warm-up
+    // draws on until it has gone, so the first uncovered presents happen
+    // before ready (#803 D-a).
+    if (handle) {
+      await warmUpScene(handle, {
+        timeoutMs: WARM_UP_TIMEOUT_MS,
+        ...(opts.loadingOverlayShown ? { overlayShown: opts.loadingOverlayShown } : {}),
+      });
+    }
     return handle;
   };
 

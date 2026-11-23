@@ -226,6 +226,7 @@
             rebuildOnRouteChange={!testMode}
             onBackend={(b) => (canvasBackend = b)}
             onLoadPhase={(phase, status) => (loadReports = new Map(loadReports).set(phase, status))}
+            loadingOverlayShown={() => stageEl?.querySelector('.route-loading-bar') != null}
           />
 
           {#if workout.current && workout.progress}

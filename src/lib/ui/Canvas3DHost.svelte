@@ -77,6 +77,8 @@
     onBackend?: (backend: CanvasBackend) => void;
     /** #726 VP-08 FR1 — the current scene's load phases, as they settle. */
     onLoadPhase?: (phase: string, status: 'done' | 'failed') => void;
+    /** #803 — true while the page's loading screen covers the canvas. */
+    loadingOverlayShown?: () => boolean;
     /**
      * Rebuild the scene when `route` becomes a different object after the
      * first attach. The React scene took enrichment as a prop, so OSM water
@@ -105,6 +107,7 @@
     conditions,
     onBackend,
     onLoadPhase,
+    loadingOverlayShown,
     rebuildOnRouteChange = false,
   }: Props = $props();
 
@@ -194,6 +197,7 @@
           onLoadPhase: (phase: string, status: 'done' | 'failed') => {
             if (mine === generation) onLoadPhase?.(phase, status);
           },
+          ...(loadingOverlayShown ? { loadingOverlayShown } : {}),
         }),
       )
       .then((r) => {
