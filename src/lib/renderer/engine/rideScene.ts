@@ -1206,6 +1206,8 @@ export const createRideScene = async (
         ?.__VIRTUALROW_POSTFX_DOF,
     autoExposure: tierCaps.drawAutoExposure,
     chromaticAberration: chromaticAberrationEnabled(tierCaps),
+    // #731 FR3 — every tier anti-aliases with FXAA for now (MSAA is phase 2).
+    fxaa: tierCaps.antialias === 'fxaa',
   };
   const [
     shadowStage,

@@ -267,6 +267,20 @@
       "resourceType": 0
     }
   ],
+  "fxaa.wgsl": [
+    {
+      "group": 0,
+      "binding": 0,
+      "name": "src",
+      "resourceType": 3
+    },
+    {
+      "group": 0,
+      "binding": 1,
+      "name": "samp",
+      "resourceType": 4
+    }
+  ],
   "luminance.wgsl": [
     {
       "group": 0,
