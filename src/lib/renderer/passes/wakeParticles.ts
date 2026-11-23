@@ -20,6 +20,7 @@ import {
 } from '../engine/wakeParticles';
 import wakeWgsl from './wakeParticles.wgsl?raw';
 import { renderPipelineAsync } from '../engine/pipelineAsync';
+import { sceneMultisample } from '../engine/msaa';
 
 export interface WakeParticlesPassOptions {
   device: GPUDevice;
@@ -38,6 +39,7 @@ export const createWakeParticlesPass = async ({
 }: WakeParticlesPassOptions): Promise<Pass> => {
   const module = device.createShaderModule({ label: 'wake', code: wakeWgsl });
   const pipeline = await renderPipelineAsync(device, {
+    multisample: sceneMultisample(device),
     label: 'wake',
     layout: 'auto',
     vertex: { module, entryPoint: 'vs_main' },

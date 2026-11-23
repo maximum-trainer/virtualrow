@@ -69,6 +69,7 @@
     "default:webgpu-ride-start-jank.spec.ts": 40,
     "default:scenery-clearance.spec.ts": 180,
     "default:webgpu-parallel-legs.spec.ts": 60,
+    "default:webgpu-antialias.spec.ts": 60,
     "default:webgpu-water-shadow.spec.ts": 60
   }
 }

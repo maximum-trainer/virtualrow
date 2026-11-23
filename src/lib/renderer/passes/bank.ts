@@ -17,6 +17,7 @@ import { BANK_ATLAS_SIZE, paintBankAtlas } from '../../scenery/bankAtlas';
 import type { SceneryProfile } from '../../services/routeEnrichmentService';
 import bankWgsl from './bank.wgsl?raw';
 import { renderPipelineAsync } from '../engine/pipelineAsync';
+import { sceneMultisample } from '../engine/msaa';
 
 export interface ShadowResources {
   uniforms: GPUBuffer;
@@ -90,6 +91,7 @@ export const createBankPass = async ({
   const code = SHADOW_UNIFORMS_WGSL + SAMPLE_SHADOW_WGSL + HORIZON_HAZE_WGSL + bankWgsl;
   const module = device.createShaderModule({ label: 'bank', code });
   const pipeline = await renderPipelineAsync(device, {
+    multisample: sceneMultisample(device),
     label: 'bank',
     layout: 'auto',
     vertex: {
@@ -123,6 +125,7 @@ export const createBankPass = async ({
   // over the sky, and everything else draws over it. That rules out
   // z-fighting with the water 0.1 m below it at any distance.
   const groundPipeline = await renderPipelineAsync(device, {
+    multisample: sceneMultisample(device),
     label: 'bank-ground',
     layout: 'auto',
     vertex: {

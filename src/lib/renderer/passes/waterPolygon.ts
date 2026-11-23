@@ -19,6 +19,7 @@ import waterWgsl from './water.wgsl?raw';
 
 import type { ShadowResources } from './bank';
 import { renderPipelineAsync } from '../engine/pipelineAsync';
+import { sceneMultisample } from '../engine/msaa';
 
 /**
  * Polygon-water pass (#493 Phase 3b / FR4). Draws the OSM polygon water
@@ -120,6 +121,7 @@ export const createWaterPolygonPass = async ({
   const code = SHADOW_UNIFORMS_WGSL + SAMPLE_SHADOW_WGSL + HORIZON_HAZE_WGSL + SKY_COLOUR_WGSL + WATER_SURFACE_WGSL + waterWgsl;
   const module = device.createShaderModule({ label: 'water-polygon', code });
   const pipeline = await renderPipelineAsync(device, {
+    multisample: sceneMultisample(device),
     label: 'water-polygon',
     layout: 'auto',
     vertex: {

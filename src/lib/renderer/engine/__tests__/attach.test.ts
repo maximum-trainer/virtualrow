@@ -126,7 +126,8 @@ describe('attach', () => {
     // splash, both at low+; #623 Phase 1 retired the procedural
     // floraSolid pass — near trees now draw through sceneryMesh). Rain
     // overlay is opt-in (default off) so it is not counted here.
-    expect(renderer._telemetry.renderStats.draws).toBe(10);
+    // #731 FR3 — plus the MSAA depth resolve at medium (the test tier).
+    expect(renderer._telemetry.renderStats.draws).toBe(11);
     renderer.dispose();
   });
 

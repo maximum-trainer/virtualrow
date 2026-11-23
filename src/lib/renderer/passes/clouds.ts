@@ -3,6 +3,7 @@
 import type { FrameContext, Pass } from '../engine/frameGraph';
 import cloudsWgsl from './clouds.wgsl?raw';
 import { renderPipelineAsync } from '../engine/pipelineAsync';
+import { sceneMultisample } from '../engine/msaa';
 
 export interface CloudsPassOptions {
   device: GPUDevice;
@@ -20,6 +21,7 @@ export const createCloudsPass = async ({
 }: CloudsPassOptions): Promise<Pass> => {
   const module = device.createShaderModule({ label: 'clouds', code: cloudsWgsl });
   const pipeline = await renderPipelineAsync(device, {
+    multisample: sceneMultisample(device),
     label: 'clouds',
     layout: 'auto',
     vertex: { module, entryPoint: 'vs_main' },

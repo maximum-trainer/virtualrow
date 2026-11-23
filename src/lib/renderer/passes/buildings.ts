@@ -15,6 +15,7 @@ import type { BuildingPool } from '../plan/buildings';
 import { BUILDING_ATLAS_SIZE, paintBuildingAtlas } from '../../scenery/buildingAtlas';
 import buildingsWgsl from './buildings.wgsl?raw';
 import { renderPipelineAsync } from '../engine/pipelineAsync';
+import { sceneMultisample } from '../engine/msaa';
 
 /**
  * 48 vertices per instance: 36 for the box prism (six faces × two tris ×
@@ -45,6 +46,7 @@ export const createBuildingsPass = async (opts: BuildingsPassOptions): Promise<B
   const code = SHADOW_UNIFORMS_WGSL + SAMPLE_SHADOW_WGSL + buildingsWgsl;
   const module = device.createShaderModule({ label: 'buildings', code });
   const pipeline = await renderPipelineAsync(device, {
+    multisample: sceneMultisample(device),
     label: 'buildings',
     layout: 'auto',
     vertex: { module, entryPoint: 'vs_main' },
