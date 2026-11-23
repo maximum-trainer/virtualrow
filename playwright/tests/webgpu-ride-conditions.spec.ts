@@ -50,18 +50,40 @@ type W = Window & {
   __ROWER3D_SET_CONDITIONS?: (c: string) => void;
 };
 
-/** Mean RGB of the top fifth of the canvas: the sky above the far bank. */
-const meanSky = (page: Page): Promise<[number, number, number]> =>
-  page.locator('.rower3d-canvas-container canvas').first().evaluate((el) => {
+/**
+ * Mean RGB of the top fifth of the canvas: the sky above the far bank.
+ *
+ * #807: on Windows, `drawImage` of a WebGPU canvas comes back black, so
+ * every condition read as [0,0,0] and no row could differ from Midday.
+ * There the sky is read from a screenshot of the canvas element instead
+ * (the same path `readCanvasSamples` falls back to). Elsewhere the 2-D copy
+ * stays as it was.
+ */
+const meanSky = async (page: Page): Promise<[number, number, number]> => {
+  const canvas = page.locator('.rower3d-canvas-container canvas').first();
+  await forceRender(page);
+  const png = process.platform === 'win32' ? (await canvas.screenshot()).toString('base64') : null;
+  return canvas.evaluate(async (el, data) => {
     const c = el as HTMLCanvasElement;
+    let src: CanvasImageSource = c;
+    let w = c.width;
+    let h = c.height;
+    if (data) {
+      const img = new Image();
+      img.src = `data:image/png;base64,${data}`;
+      await img.decode();
+      src = img;
+      w = img.naturalWidth;
+      h = img.naturalHeight;
+    }
     const tmp = document.createElement('canvas');
-    tmp.width = c.width;
-    tmp.height = c.height;
+    tmp.width = w;
+    tmp.height = h;
     const ctx = tmp.getContext('2d');
     if (!ctx) return [0, 0, 0] as [number, number, number];
-    ctx.drawImage(c, 0, 0);
-    const rows = Math.max(1, Math.floor(c.height / 5));
-    const d = ctx.getImageData(0, 0, c.width, rows).data;
+    ctx.drawImage(src, 0, 0);
+    const rows = Math.max(1, Math.floor(h / 5));
+    const d = ctx.getImageData(0, 0, w, rows).data;
     const sum = [0, 0, 0];
     for (let i = 0; i < d.length; i += 4) {
       sum[0] += d[i];
@@ -70,7 +92,8 @@ const meanSky = (page: Page): Promise<[number, number, number]> =>
     }
     const n = d.length / 4;
     return [sum[0] / n, sum[1] / n, sum[2] / n] as [number, number, number];
-  });
+  }, png);
+};
 
 const rideWith = async (page: Page, conditions: string): Promise<'ready' | 'fallback'> => {
   await page.setViewportSize({ width: 1280, height: 720 });
