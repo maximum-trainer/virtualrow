@@ -135,3 +135,165 @@ describe('islandLand (#742 FR2)', () => {
     expect(islandLand([{ holes: [] }])).toBeUndefined();
   });
 });
+
+// A brute-force oracle: every station's ray against every shoreline of the
+// strip more than `window` metres of route away, no grid. The fast search
+// must agree with it on a course that is rotated, uneven and lopsided.
+describe('bridgeParallelLegs against a brute-force search', () => {
+  const rotate = (deg: number) => {
+    const a = (deg * Math.PI) / 180;
+    return (x: number, z: number) => vec3(x * Math.cos(a) - z * Math.sin(a), 0, x * Math.sin(a) + z * Math.cos(a));
+  };
+  /** Out-and-back with the return leg drifting from 50 m to 90 m away. */
+  const skewed = (deg: number, mirror = 1): RouteCurve => {
+    const at = rotate(deg);
+    const pts = [];
+    for (let z = 0; z >= -1000; z -= 50) pts.push(at(0, z));
+    for (let k = 1; k < 8; k += 1) {
+      const a = (k / 8) * Math.PI;
+      pts.push(at(mirror * (45 - 45 * Math.cos(a)), -1000 - 45 * Math.sin(a)));
+    }
+    for (let z = -1000; z <= 0; z += 50) pts.push(at(mirror * (90 + (z / 1000) * 40), z));
+    return new RouteCurve(pts, false);
+  };
+  const lopsided = (t: number) => ({ left: 6 + 4 * t, right: 14 - 6 * t });
+
+  const oracle = (curve: RouteCurve, divisions: number, gap = 60) => {
+    const p = buildWaterStrip(curve, { edgesForProgress: lopsided, divisions }).positions;
+    const n = divisions + 1;
+    const c: Array<[number, number]> = [];
+    const u: Array<[number, number]> = [];
+    const along: number[] = [];
+    let widest = 0;
+    for (let i = 0; i < n; i += 1) {
+      const e = lopsided(i / divisions);
+      const [lx, lz, rx, rz] = [p[i * 6], p[i * 6 + 2], p[i * 6 + 3], p[i * 6 + 5]];
+      const len = Math.hypot(rx - lx, rz - lz);
+      u.push([(rx - lx) / len, (rz - lz) / len]);
+      const f = e.left / (e.left + e.right);
+      c.push([lx + (rx - lx) * f, lz + (rz - lz) * f]);
+      along.push(i === 0 ? 0 : along[i - 1] + Math.hypot(c[i][0] - c[i - 1][0], c[i][1] - c[i - 1][1]));
+      widest = Math.max(widest, e.left, e.right);
+    }
+    const window = gap + 2 * widest;
+    const out: Array<{ left: number; right: number }> = [];
+    for (let i = 0; i < n; i += 1) {
+      const e = lopsided(i / divisions);
+      const res = { left: e.left, right: e.right };
+      for (const side of [-1, 1]) {
+        const edge = side < 0 ? e.left : e.right;
+        const [dx, dz] = [u[i][0] * side, u[i][1] * side];
+        let best = Infinity;
+        for (let j = 0; j < divisions; j += 1) {
+          if (Math.min(Math.abs(along[j] - along[i]), Math.abs(along[j + 1] - along[i])) < window) continue;
+          for (const o of [0, 3]) {
+            const [ax, az, bx, bz] = [p[j * 6 + o], p[j * 6 + o + 2], p[(j + 1) * 6 + o], p[(j + 1) * 6 + o + 2]];
+            const [ex, ez] = [bx - ax, bz - az];
+            const den = dx * ez - dz * ex;
+            if (Math.abs(den) < 1e-12) continue;
+            const [wx, wz] = [ax - c[i][0], az - c[i][1]];
+            const t = (wx * ez - wz * ex) / den;
+            const s = (wx * dz - wz * dx) / den;
+            if (s >= 0 && s <= 1 && t > 0 && t <= edge + gap) best = Math.min(best, t);
+          }
+        }
+        if (Number.isFinite(best) && best > edge) res[side < 0 ? 'left' : 'right'] = best + PARALLEL_LEG_OVERLAP_METRES;
+      }
+      out.push(res);
+    }
+    return out;
+  };
+
+  for (const [deg, mirror] of [[33, 1], [-120, 1], [71, -1]] as const) {
+    it(`agrees at every station on a course turned ${deg}°${mirror < 0 ? ', mirrored' : ''}`, () => {
+      const curve = skewed(deg, mirror);
+      const divisions = 220;
+      const { edgesForProgress, bridged } = bridgeParallelLegs(curve, lopsided, { divisions });
+      const want = oracle(curve, divisions);
+      let widened = 0;
+      want.forEach((w, i) => {
+        const got = edgesForProgress(i / divisions);
+        expect(got.left, `left at station ${i}`).toBeCloseTo(w.left, 4);
+        expect(got.right, `right at station ${i}`).toBeCloseTo(w.right, 4);
+        const base = lopsided(i / divisions);
+        widened += Number(w.left !== base.left) + Number(w.right !== base.right);
+      });
+      expect(bridged).toBe(widened);
+      expect(widened).toBeGreaterThan(50);
+    });
+  }
+
+  it('interpolates between stations', () => {
+    const curve = skewed(33);
+    const divisions = 220;
+    const { edgesForProgress } = bridgeParallelLegs(curve, lopsided, { divisions });
+    const i = 40;
+    const a = edgesForProgress(i / divisions);
+    const b = edgesForProgress((i + 1) / divisions);
+    const mid = edgesForProgress((i + 0.25) / divisions);
+    expect(mid.right).toBeCloseTo(a.right + (b.right - a.right) * 0.25, 6);
+    expect(mid.left).toBeCloseTo(a.left + (b.left - a.left) * 0.25, 6);
+    expect(edgesForProgress(-1)).toEqual(edgesForProgress(0));
+    expect(edgesForProgress(2)).toEqual(edgesForProgress(1));
+  });
+
+  it('honours a narrower gap', () => {
+    const curve = skewed(0);
+    const { edgesForProgress } = bridgeParallelLegs(curve, lopsided, { gap: 20, divisions: 220 });
+    // Along the straights the shores are 30-70 m apart: nothing within 20 m.
+    for (let i = 0; i <= 220; i += 11) {
+      if (i > 80 && i < 140) continue; // the turn
+      expect(edgesForProgress(i / 220)).toEqual(lopsided(i / 220));
+    }
+  });
+});
+
+describe('bridgeParallelLegs land checks', () => {
+  it('keeps a gap with land only where the far shore begins', () => {
+    // Land in a 2 m strip at x 48..50, right against the return leg's shore.
+    const land = (x: number) => x >= 48.5 && x <= 50.5;
+    const { edgesForProgress } = bridgeParallelLegs(outAndBack(60), narrow, { isLand: land });
+    expect(edgesForProgress(0.25).right).toBeCloseTo(10, 5);
+  });
+
+  it('keeps a gap with land only beside the near shore', () => {
+    const land = (x: number) => x >= 10 && x <= 11;
+    const { edgesForProgress } = bridgeParallelLegs(outAndBack(60), narrow, { isLand: land });
+    expect(edgesForProgress(0.25).right).toBeCloseTo(10, 5);
+  });
+
+  it('does not look for land beyond the far shore', () => {
+    const land = (x: number) => x > 52;
+    const { edgesForProgress } = bridgeParallelLegs(outAndBack(60), narrow, { isLand: land });
+    expect(edgesForProgress(0.25).right).toBeCloseTo(50 + PARALLEL_LEG_OVERLAP_METRES, 1);
+  });
+
+  it('returns the input for a curve of one point', () => {
+    const { edgesForProgress, bridged, selfParallel } = bridgeParallelLegs(new RouteCurve([vec3(0, 0, 0)], false), narrow);
+    expect(bridged).toBe(0);
+    expect(selfParallel).toEqual([]);
+    expect(edgesForProgress(0.5)).toEqual({ left: 10, right: 10 });
+  });
+});
+
+describe('islandLand edge cases', () => {
+  const tri = [{ x: 0, z: 0 }, { x: 10, z: 0 }, { x: 0, z: 10 }];
+  it('tests every island ring, and ignores rings of fewer than three points', () => {
+    const land = islandLand([
+      { holes: [[{ x: 100, z: 100 }, { x: 101, z: 101 }]] },
+      { holes: [tri, [{ x: 50, z: 50 }, { x: 60, z: 50 }, { x: 60, z: 60 }, { x: 50, z: 60 }]] },
+    ])!;
+    expect(land(2, 2)).toBe(true);
+    expect(land(8, 8)).toBe(false); // across the triangle's hypotenuse
+    expect(land(55, 55)).toBe(true);
+    expect(land(100.5, 100.2)).toBe(false);
+    expect(land(-1, 5)).toBe(false);
+    expect(land(5, -1)).toBe(false);
+    expect(land(4, 6.1)).toBe(false);
+    expect(land(4, 5.9)).toBe(true);
+  });
+
+  it('is undefined when every ring is too short to enclose anything', () => {
+    expect(islandLand([{ holes: [[{ x: 0, z: 0 }, { x: 1, z: 1 }]] }])).toBeUndefined();
+  });
+});
