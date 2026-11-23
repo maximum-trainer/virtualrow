@@ -64,8 +64,20 @@ test('a demo row advances the boat on the WebGPU engine', async ({ page }) => {
     )
     .toBeGreaterThan(startDistance);
 
+  // The published speed is one frame's distance over its interval, so it
+  // rises and falls within each stroke and can read 0 between strokes on a
+  // fast GPU. Draw frames until one reads positive rather than trusting a
+  // single sample (#804).
+  await expect
+    .poll(
+      async () => {
+        await forceRender(page);
+        return (await readRideTelemetry(page)).speedMps ?? 0;
+      },
+      { message: 'boat speed is positive while rowing', timeout: 5_000, intervals: [100, 200, 300] },
+    )
+    .toBeGreaterThan(0);
   const moving = await readRideTelemetry(page);
-  expect(moving.speedMps ?? 0, 'boat speed is positive while rowing').toBeGreaterThan(0);
   expect(moving.pos?.progress ?? 0).toBeGreaterThanOrEqual(first.pos?.progress ?? 0);
 
   // Guards the #549 black-canvas regression: every seam above can read
