@@ -59,6 +59,8 @@ export interface ShadowTelemetry {
   lastSplits: number[];
   draws: number;
   triangles: number;
+  /** #737 FR2 — instances drawn into the cascades this frame. */
+  instances: number;
   atlasBytes: number;
 }
 
@@ -302,6 +304,10 @@ export const createShadowStage = (
     encode(ctx: FrameContext) {
       if (disposed) return;
       const count = Math.min(payload.cascadeCount, atlas.cascades);
+      // #737 FR2 — this frame's counts, so an unarmed frame reads zero.
+      telemetry.draws = 0;
+      telemetry.triangles = 0;
+      telemetry.instances = 0;
       if (count === 0) return;
 
       for (let i = 0; i < count; i++) {
@@ -343,6 +349,7 @@ export const createShadowStage = (
 
       let drawCount = 0;
       let triangleCount = 0;
+      let instanceCount = 0;
       for (let i = 0; i < count; i++) {
         const [vx, vy, vw, vh] = cascadeViewport(atlas, i);
         const pass = ctx.encoder.beginRenderPass({
@@ -366,6 +373,7 @@ export const createShadowStage = (
         pass.drawIndexed(bank.indexCount);
         drawCount += 1;
         triangleCount += bank.indexCount / 3;
+        instanceCount += 1;
 
         pass.setPipeline(scenery.pipeline);
         pass.setBindGroup(0, sceneryCascadeBindGroups[i]);
@@ -375,6 +383,7 @@ export const createShadowStage = (
           pass.draw(12, pool.instanceCount);
           drawCount += 1;
           triangleCount += (12 / 3) * pool.instanceCount;
+          instanceCount += pool.instanceCount;
         }
 
         if (buildingsPoolBindGroup && buildingsPool && buildingsPool.instanceCount > 0) {
@@ -384,6 +393,7 @@ export const createShadowStage = (
           pass.draw(BUILDINGS_VERTEX_COUNT, buildingsPool.instanceCount);
           drawCount += 1;
           triangleCount += (BUILDINGS_VERTEX_COUNT / 3) * buildingsPool.instanceCount;
+          instanceCount += buildingsPool.instanceCount;
         }
 
         // #591-fu P1c (updated for #623 Phase 1): GLB-kit scenery depth.
@@ -415,6 +425,7 @@ export const createShadowStage = (
             pass.drawIndexed(m.indexCount, m.instanceCount);
             drawCount += 1;
             triangleCount += (m.indexCount / 3) * m.instanceCount;
+            instanceCount += m.instanceCount;
           });
         }
 
@@ -428,12 +439,14 @@ export const createShadowStage = (
             pass.drawIndexed(characters.indexCount);
             drawCount += 1;
             triangleCount += characters.indexCount / 3;
+            instanceCount += 1;
           }
           if (boatPass.ghostVisible.value && charactersGhostBindGroup) {
             pass.setBindGroup(1, charactersGhostBindGroup);
             pass.drawIndexed(characters.indexCount);
             drawCount += 1;
             triangleCount += characters.indexCount / 3;
+            instanceCount += 1;
           }
           // #577 D10a — fleet shadow casters. Draws the same character
           // mesh for each visible fleet member; the per-member uniforms
@@ -448,6 +461,7 @@ export const createShadowStage = (
               pass.drawIndexed(characters.indexCount);
               drawCount += 1;
               triangleCount += characters.indexCount / 3;
+              instanceCount += 1;
             }
           }
         }
@@ -459,6 +473,7 @@ export const createShadowStage = (
       telemetry.atlasSize = atlas.tileSize;
       telemetry.draws = drawCount;
       telemetry.triangles = triangleCount;
+      telemetry.instances = instanceCount;
       telemetry.drawsPerCascade = Math.floor(drawCount / Math.max(1, count));
       telemetry.atlasBytes = atlas.bytes;
     },
