@@ -35,6 +35,26 @@ permissions:
   contents: read
 
 jobs:
+  worker-tests:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: 'workers/api/package-lock.json'
+      - name: Install Worker deps
+        working-directory: workers/api
+        run: npm ci
+      - name: Typecheck Worker
+        working-directory: workers/api
+        run: npm run typecheck
+      - name: Worker + migration tests
+        working-directory: workers/api
+        run: npm test
+
   check-secrets:
     runs-on: ubuntu-24.04
     outputs:
@@ -60,7 +80,7 @@ jobs:
           fi
 
   migrate-and-deploy:
-    needs: check-secrets
+    needs: [check-secrets, worker-tests]
     if: ${{ needs.check-secrets.outputs.configured == 'true' && github.event_name != 'schedule' }}
     runs-on: ubuntu-24.04
     env:
