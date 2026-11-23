@@ -393,6 +393,12 @@
       "binding": 1,
       "name": "instances",
       "resourceType": 1
+    },
+    {
+      "group": 1,
+      "binding": 2,
+      "name": "reveal",
+      "resourceType": 0
     }
   ],
   "sceneryMeshDepth.wgsl": [
