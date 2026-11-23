@@ -17,20 +17,27 @@ test.use({ launchOptions: GPU_RIDE_LAUNCH_OPTIONS });
  *   Given the home screen on a hardware GPU with a longtask observer installed
  *   When the demo row is started and the ride reports ready (its first frames
  *     have been presented behind the loading screen, #803)
- *   Then no long task exceeds 50 ms in that window
+ *   Then no long task exceeds 150 ms in that window
  *   And the measures vr:attach:pipelines, vr:attach:atlas, vr:attach:route exist
  *
  * Needs a hardware GPU (declines elsewhere). Every long task in the window
  * is logged with its start and length, so a failure says where to look.
  */
 
-const LONG_TASK_BUDGET_MS = 50;
+/**
+ * The issue asked for 50 ms. After #818 and #820 the one task left (77-110 ms
+ * on a Windows laptop) is the Row page mounting and laying out during the
+ * navigation, not the engine. Dan accepted that on 2026-11-23 and set the
+ * budget to 150 ms, so the spec guards against a return of the old 300-700 ms
+ * freezes.
+ */
+const LONG_TASK_BUDGET_MS = 150;
 
 type JankWindow = Window & {
   __JANK?: { tasks: { start: number; duration: number }[]; clickAt: number | null };
 };
 
-test('starting a demo row has no main-thread task over 50 ms (#729 FR6)', async ({ page }) => {
+test('starting a demo row has no main-thread task over 150 ms (#729 FR6)', async ({ page }) => {
   test.setTimeout(120_000);
   await page.setViewportSize({ width: 1280, height: 720 });
   await installRideHarness(page);
