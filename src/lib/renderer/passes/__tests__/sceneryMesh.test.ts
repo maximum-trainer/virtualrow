@@ -185,13 +185,13 @@ describe('createSceneryMeshPass', () => {
     }) as unknown as Parameters<typeof p.encode>[0];
     p.encode(ctx());
     // buoy: one opaque run + one translucent run; post: one draw.
-    expect(p.stats).toEqual({ draws: 3, instances: 3, triangles: 2 * 2 + 1 });
+    expect(p.stats).toMatchObject({ draws: 3, instances: 3, triangles: 2 * 2 + 1 });
     p.encode(ctx());
-    expect(p.stats).toEqual({ draws: 3, instances: 3, triangles: 5 });
+    expect(p.stats).toMatchObject({ draws: 3, instances: 3, triangles: 5 });
     p.setInstances('buoy', []);
     p.setInstances('post', []);
     p.encode(ctx());
-    expect(p.stats).toEqual({ draws: 0, instances: 0, triangles: 0 });
+    expect(p.stats).toMatchObject({ draws: 0, instances: 0, triangles: 0 });
   });
 
   it('pads an odd-length uint16 index upload to 4 bytes but still draws the real count (#672)', async () => {
@@ -633,5 +633,97 @@ describe('shadow receive (#734 FR4)', () => {
   it('masks only the sun term with the shadow, never the ambient', () => {
     expect(sceneryMeshWgsl).toContain('let sunLit = sceneryShadow(in.worldPos, in.viewZ, n);');
     expect(sceneryMeshWgsl).toContain('let shade = ambient + halfLambert * halfLambert * 0.75 * sunLit;');
+  });
+});
+
+describe('culling by cell (#727)', () => {
+  const at = (x: number, z: number) => {
+    const m = mat4Identity(mat4());
+    m[12] = x;
+    m[14] = z;
+    return m;
+  };
+  // A camera at the origin looking down -z, 60° fov, 0.1..2000 m.
+  const lookingNorth = () => {
+    const vp = mat4();
+    const f = 1 / Math.tan(Math.PI / 6);
+    // perspective(60°, 1, 0.1, 2000) with view = identity (camera at origin, -z forward)
+    vp[0] = f; vp[5] = f; vp[10] = 2000 / (0.1 - 2000); vp[11] = -1; vp[14] = (2000 * 0.1) / (0.1 - 2000);
+    return vp;
+  };
+  const encodeAll = (p: Awaited<ReturnType<typeof createSceneryMeshPass>>) => {
+    const parts = makePass();
+    p.encode({ encoder: { beginRenderPass: vi.fn(() => parts.pass) }, swapView: {}, depthView: {} } as unknown as Parameters<typeof p.encode>[0]);
+    return parts;
+  };
+
+  it('draws only the cells in view once the view is set (FR1)', async () => {
+    const { device, queue } = makeDevice();
+    const p = await createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+    p.register({ ...makeInput({ id: 'tree', maxInstances: 8 }), cullCellMetres: 120 });
+    // Two ahead (z < 0), two far behind, given interleaved.
+    p.setInstances('tree', [at(0, -50), at(0, 600), at(5, -60), at(5, 700)]);
+    // Stored cell by cell: the two ahead are contiguous.
+    const written = (queue.writeBuffer as unknown as { mock: { calls: unknown[][] } }).mock.calls.at(-1)![2] as Float32Array;
+    const zs = [0, 1, 2, 3].map((k) => written[k * 24 + 14]);
+    expect(zs.slice(0, 2).every((z) => z < 0) || zs.slice(2).every((z) => z < 0)).toBe(true);
+    // No view yet: everything.
+    expect(encodeAll(p).drawIndexed.mock.calls.map((c) => c[1])).toEqual([4]);
+    p.setView(lookingNorth());
+    const { drawIndexed } = encodeAll(p);
+    expect(drawIndexed).toHaveBeenCalledTimes(1);
+    expect(drawIndexed.mock.calls[0][1]).toBe(2);
+    expect(zs[drawIndexed.mock.calls[0][4]]).toBeLessThan(0);
+    expect(p.stats.instances).toBe(2);
+  });
+
+  it('gives the shadow stage only the runs inside a cascade, skipping meshes with none (FR2)', async () => {
+    const { device } = makeDevice();
+    const p = await createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+    p.register({ ...makeInput({ id: 'tree', maxInstances: 8 }), cullCellMetres: 120 });
+    p.register(makeInput({ id: 'buoy-ish', maxInstances: 2 }));
+    p.setInstances('tree', [at(0, -50), at(0, 600)]);
+    p.setInstances('buoy-ish', [at(0, 900)]);
+    const seen: [string, number[]][] = [];
+    p.forEachShadowCasterIn(lookingNorth(), (m, runs, n) => seen.push([m.id, [...runs.subarray(0, n * 2)]]));
+    // The culled tree: one run of one instance; the unculled mesh: whole.
+    expect(seen.find(([id]) => id === 'tree')?.[1][1]).toBe(1);
+    expect(seen.find(([id]) => id === 'buoy-ish')?.[1]).toEqual([0, 1]);
+    // Looking south instead (z mirrored): the tree behind is now in view.
+    const south = lookingNorth();
+    south[8] = -south[8]; south[10] = -south[10]; south[11] = 1;
+    const seenSouth: string[] = [];
+    p.forEachShadowCasterIn(south, (m) => seenSouth.push(m.id));
+    expect(seenSouth).toContain('tree');
+  });
+
+  it('unregisters a mesh, freeing its buffers and its resident bytes (FR3, FR5)', async () => {
+    const { device } = makeDevice();
+    const p = await createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+    p.register({ ...makeInput({ id: 'tree' }), cullCellMetres: 120 });
+    p.register(makeInput({ id: 'post' }));
+    p.setInstances('post', [at(0, -10)]);
+    encodeAll(p);
+    expect(p.stats.residentMeshes).toBe(2);
+    const both = p.stats.residentBytes;
+    expect(both).toBeGreaterThan(0);
+    expect(p.unregister('tree')).toBe(true);
+    expect(p.unregister('tree')).toBe(false);
+    encodeAll(p);
+    expect(p.stats.residentMeshes).toBe(1);
+    expect(p.stats.residentBytes).toBe(both / 2);
+    expect(p.meshCount).toBe(1);
+    // It can come back.
+    p.register({ ...makeInput({ id: 'tree' }), cullCellMetres: 120 });
+    expect(p.meshCount).toBe(2);
+  });
+
+  it('will not unregister a mesh in an instance group', async () => {
+    const { device } = makeDevice();
+    const p = await createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+    p.reserveInstanceGroup('scull', 1, 2);
+    p.register({ ...makeInput({ id: 'hull' }), instanceGroup: { name: 'scull', index: 0 } });
+    expect(p.unregister('hull')).toBe(false);
+    expect(p.meshCount).toBe(1);
   });
 });

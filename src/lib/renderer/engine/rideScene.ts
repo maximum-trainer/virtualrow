@@ -159,11 +159,13 @@ import {
   createRegistrationQueue,
   planSceneryStream,
   sceneryModelsToLoad,
+  sceneryModelsToUnload,
   streamLookaheadMeters,
   streamNeedsRecheck,
   type StreamLook,
   type CurveDistanceSample,
 } from './sceneryStreamPlan';
+import { INSTANCE_CELL_METRES } from '../plan/instanceCells';
 import { FOLIAGE_SHAPES, FOLIAGE_VARIANT_COUNT } from '../../scenery/foliageTexture';
 import { createFoliageAtlasPainter } from '../../scenery/foliageAtlasPaint';
 import FoliageAtlasWorker from '../../scenery/foliageAtlasWorker?worker';
@@ -1033,6 +1035,8 @@ export const createRideScene = async (
       baseColor: decoded.baseColor,
       maxInstances: COURSE_FURNITURE_MAX_INSTANCES,
       castsShadow: !SHADOW_NEUTRAL_MODEL_IDS.has(id),
+      // #727 FR1/FR2 — drawn only where in view, and per shadow cascade.
+      cullCellMetres: INSTANCE_CELL_METRES,
       ...(revealAt !== undefined ? { revealAt } : {}),
     });
   };
@@ -1547,6 +1551,24 @@ export const createRideScene = async (
       // tiles of the route are already loaded when the boat crosses the seam.
       loop ? { loopRouteMeters: totalDistanceMeters } : undefined,
     );
+    // #727 FR3 — free the models the boat has left behind. A looping row
+    // comes back to them, so it keeps everything.
+    if (!loop) {
+      const gone = sceneryModelsToUnload(
+        sceneryPlan,
+        sceneryLoaded,
+        boatDistanceMeters,
+        lookahead,
+        boatPlacement.world[0],
+        boatPlacement.world[2],
+      );
+      for (const id of gone) {
+        if (sceneryFailed(id) || !sceneryMeshPass.unregister(id)) continue;
+        sceneryLoaded.delete(id);
+        telemetry.scenery.unloaded += 1;
+      }
+      if (gone.length > 0) telemetry.scenery.registered = sceneryLoaded.size - telemetry.scenery.failed;
+    }
     for (const id of pending) {
       sceneryLoading.add(id);
       void loadSceneryModel(id)
@@ -2213,6 +2235,8 @@ export const createRideScene = async (
     const fovY = (cameraRig.applied.fov * Math.PI) / 180;
     projectionWithInsets(frame.proj, fovY, width, height, viewportInsets, CAMERA_NEAR_M, CAMERA_FAR_M);
     mat4Multiply(frame.viewProj, frame.proj, frame.view);
+    // #727 FR1 — kit scenery draws only the cells inside this view.
+    sceneryMeshPass.setView(frame.viewProj);
     // #733 VP-15 FR3 telemetry: where the player boat lands on screen, and
     // the area the HUD leaves clear, so a spec can check one is inside the
     // other in every camera view.

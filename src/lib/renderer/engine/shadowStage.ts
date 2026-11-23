@@ -410,7 +410,8 @@ export const createShadowStage = async (
           // #688 — skip shadow-neutral props (buoys, flagpoles,
           // distance markers, bank railings). The lit pass still draws
           // them via `forEachActiveMesh` below the shadow stage.
-          sceneryMeshPass.forEachActiveShadowCaster((m) => {
+          // #727 FR2 — only the cells of each mesh inside this cascade.
+          sceneryMeshPass.forEachShadowCasterIn(payload.cascades[i].viewProj, (m, runs, runCount) => {
             let cached = sceneryMeshBindGroupCache.get(m.id);
             if (!cached || cached.buffer !== m.instanceBuffer) {
               cached = {
@@ -429,10 +430,14 @@ export const createShadowStage = async (
             pass.setBindGroup(1, bg);
             pass.setVertexBuffer(0, m.positionBuffer);
             pass.setIndexBuffer(m.indexBuffer, m.indexFormat);
-            pass.drawIndexed(m.indexCount, m.instanceCount);
-            drawCount += 1;
-            triangleCount += (m.indexCount / 3) * m.instanceCount;
-            instanceCount += m.instanceCount;
+            for (let r = 0; r < runCount; r += 1) {
+              const first = runs[r * 2];
+              const n = runs[r * 2 + 1];
+              pass.drawIndexed(m.indexCount, n, 0, 0, first);
+              drawCount += 1;
+              triangleCount += (m.indexCount / 3) * n;
+              instanceCount += n;
+            }
           });
         }
 

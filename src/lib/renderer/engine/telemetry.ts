@@ -56,6 +56,9 @@ export interface Rower3DRenderStats {
   shadowDraws: number;
   shadowTriangles: number;
   shadowAtlasBytes: number;
+  /** #727 FR5 — kit meshes resident (registered) this frame, and their GPU bytes. */
+  residentMeshes: number;
+  residentMeshBytes: number;
 }
 
 export interface Rower3DFrameStats {
@@ -204,8 +207,10 @@ export interface Rower3DScenery {
   spriteDraws: number;
   solidDraws: number;
   solidTriangles: number;
-  /** #726 FR5 — kit models registered with the mesh pass so far. */
+  /** #726 FR5 — kit models registered with the mesh pass now. */
   registered: number;
+  /** #727 FR3 — kit models unloaded behind the boat so far. */
+  unloaded: number;
   /** #726 FR6 — kit models whose fetch or decode failed, and which. */
   failed: number;
   failedIds: string[];
@@ -429,6 +434,8 @@ export const createTelemetry = (forceRender: () => void): TelemetryHandles => {
     shadowDraws: 0,
     shadowTriangles: 0,
     shadowAtlasBytes: 0,
+    residentMeshes: 0,
+    residentMeshBytes: 0,
   } as Omit<Rower3DRenderStats, 'drawCalls'>;
   Object.defineProperty(renderStats, 'drawCalls', {
     enumerable: true,
@@ -455,6 +462,7 @@ export const createTelemetry = (forceRender: () => void): TelemetryHandles => {
       solidDraws: 0,
       solidTriangles: 0,
       registered: 0,
+      unloaded: 0,
       failed: 0,
       failedIds: [],
       frame: 0,
