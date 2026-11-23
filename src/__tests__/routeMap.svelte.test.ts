@@ -48,6 +48,7 @@ function stubContext() {
     fill: vi.fn(),
     stroke: vi.fn(),
     fillText: vi.fn(),
+    strokeText: vi.fn(),
     createRadialGradient: vi.fn(() => gradient),
     fillStyle: '',
     strokeStyle: '',
@@ -117,7 +118,10 @@ describe('RouteMap.svelte', () => {
 
     it('omits the distance scale label in highlight mode', () => {
       render(RouteMap, { route: route(LINE), highlightMode: true });
-      expect(ctx.fillText).not.toHaveBeenCalled();
+      // #738: only the start/finish labels; no scale label.
+      const texts = (ctx.fillText as unknown as { mock: { calls: unknown[][] } }).mock.calls.map((c) => c[0]);
+      expect(texts).toEqual(['Start', 'Finish']);
+      expect(document.querySelector('.route-map')?.getAttribute('data-labels')).toBe('Start|Finish');
     });
 
     it('draws the completed/remaining split when progressPercent is set', () => {

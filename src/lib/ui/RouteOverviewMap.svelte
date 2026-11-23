@@ -11,6 +11,7 @@
   import type { WaterRoute, Coordinate } from '../types/index';
   import { routeCentroid } from '../utils/routeCentroid';
   import { clusterRoutePins, type ClusteredEntry } from '../utils/routePinClusters';
+  import { overviewFit } from './routeOverviewFit';
   import './RouteOverviewMap.css';
 
   const FALLBACK_ZOOM = 2;
@@ -144,35 +145,10 @@
         mapInstance = map;
         mapInstanceRef = map;
 
-        const defaultPin = currentPins.find((p) => p.route.id === currentDefault);
-        if (defaultPin) {
-          map.fitBounds(
-            [
-              [defaultPin.centroid.lng - 0.2, defaultPin.centroid.lat - 0.2],
-              [defaultPin.centroid.lng + 0.2, defaultPin.centroid.lat + 0.2],
-            ],
-            { padding: 32, animate: false },
-          );
-        } else {
-          let minLng = Infinity;
-          let maxLng = -Infinity;
-          let minLat = Infinity;
-          let maxLat = -Infinity;
-          for (const p of currentPins) {
-            if (p.centroid.lng < minLng) minLng = p.centroid.lng;
-            if (p.centroid.lng > maxLng) maxLng = p.centroid.lng;
-            if (p.centroid.lat < minLat) minLat = p.centroid.lat;
-            if (p.centroid.lat > maxLat) maxLat = p.centroid.lat;
-          }
-          if (Number.isFinite(minLng)) {
-            map.fitBounds(
-              [
-                [minLng, minLat],
-                [maxLng, maxLat],
-              ],
-              { padding: 48, animate: false },
-            );
-          }
+        // #738: a lone route fits to its own course; every fit is capped.
+        const fit = overviewFit(currentPins, currentDefault);
+        if (fit) {
+          map.fitBounds(fit.bounds, { padding: fit.padding, maxZoom: fit.maxZoom, animate: false });
         }
 
         mapReady = true;

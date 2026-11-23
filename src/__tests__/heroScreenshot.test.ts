@@ -8,7 +8,7 @@ import { isBlankImage, describeImageContent, type RgbImage } from '../lib/utils/
  * The hero screenshot on the public site must show a rowing scene.
  *
  * docs/screenshot-rower-3d.png is served at
- * maximumtrainer.github.io/virtualrow/screenshot-rower-3d.png and is the first
+ * maximum-trainer.github.io/virtualrow/screenshot-rower-3d.png and is the first
  * thing a visitor sees. It is the baseline of the hero shot in
  * playwright/tests/visual/docs-screenshots.spec.ts (#362), recorded on CI's
  * SwiftShader job when a pull request carries the `visual-baseline` label.

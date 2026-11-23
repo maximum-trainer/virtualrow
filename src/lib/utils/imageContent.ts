@@ -2,7 +2,7 @@
 // IS THERE ANYTHING IN THIS IMAGE?
 //
 // The published hero screenshot — docs/screenshot-rower-3d.png, served at
-// maximumtrainer.github.io/virtualrow/screenshot-rower-3d.png — was a dark
+// maximum-trainer.github.io/virtualrow/screenshot-rower-3d.png — was a dark
 // navy gradient and nothing else. No boat, no water, no banks: the skydome
 // rendered and the scene did not. It is produced by an E2E capture that writes
 // whatever the canvas happens to contain, and nothing checked the result, so a
