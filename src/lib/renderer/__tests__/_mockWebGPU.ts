@@ -58,6 +58,8 @@ export interface MockGPULog {
   destroyedBuffers: number;
   computeDispatches: number;
   indirectDraws: number;
+  /** #803 — `log.submits` at each `queue.onSubmittedWorkDone()` call. */
+  drainedAfterSubmits: number[];
 }
 
 export interface MockDevice extends GPUDevice {
@@ -73,6 +75,7 @@ export const makeMockDevice = (): MockDevice => {
     createdPipelines: [],
     createdComputePipelines: [],
     destroyedBuffers: 0,
+    drainedAfterSubmits: [],
     computeDispatches: 0,
     indirectDraws: 0,
   };
@@ -190,6 +193,10 @@ export const makeMockDevice = (): MockDevice => {
       writeTexture: () => undefined,
       submit: () => {
         log.submits += 1;
+      },
+      onSubmittedWorkDone: () => {
+        log.drainedAfterSubmits.push(log.submits);
+        return Promise.resolve(undefined);
       },
     } as unknown as GPUQueue,
     label: 'mock-device',
