@@ -75,6 +75,8 @@
     /** #542 AC11: notify the ride view when the backend state changes so it
      *  can swap in the "needs WebGPU" screen on 'unavailable'. */
     onBackend?: (backend: CanvasBackend) => void;
+    /** #726 VP-08 FR1 — the current scene's load phases, as they settle. */
+    onLoadPhase?: (phase: string, status: 'done' | 'failed') => void;
     /**
      * Rebuild the scene when `route` becomes a different object after the
      * first attach. The React scene took enrichment as a prop, so OSM water
@@ -102,6 +104,7 @@
     viewportInsets,
     conditions,
     onBackend,
+    onLoadPhase,
     rebuildOnRouteChange = false,
   }: Props = $props();
 
@@ -187,6 +190,9 @@
           viewportInsets,
           onGhostMarker: (m: RideGhostMarker | null) => {
             if (mine === generation) ghostMarker = m;
+          },
+          onLoadPhase: (phase: string, status: 'done' | 'failed') => {
+            if (mine === generation) onLoadPhase?.(phase, status);
           },
         }),
       )

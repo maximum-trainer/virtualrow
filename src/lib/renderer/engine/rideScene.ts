@@ -318,6 +318,12 @@ export interface RideSceneOpts {
    */
   onGhostMarker?: (marker: GhostMarker | null) => void;
   /**
+   * #726 VP-08 FR1 — called once per load phase as it settles, so the
+   * host's loading bar shows real progress. `frame` comes last: the first
+   * frame is drawn only after the scenery near the start is in.
+   */
+  onLoadPhase?: (phase: EngineLoadPhase, status: 'done' | 'failed') => void;
+  /**
    * #623 Phase 1 — the attach test harness (`attach({testMode: true})`)
    * sets this so the SSR/test boat fallback keeps working: a mocked
    * canvas cannot fetch `shell.bin`, so without this flag the user-
@@ -401,6 +407,16 @@ const now = (): number =>
  * `canvas` is reused across device swaps (D1-a of #584); the engine
  * reconfigures its `GPUCanvasContext` for the new device each time.
  */
+/** #726 FR1 — what the engine waits on before the ride is drawn. */
+export type EngineLoadPhase = 'scene' | 'boat' | 'crew' | 'atlas' | 'scenery-near' | 'frame';
+
+/**
+ * #726 FR1 — how long the start waits for the scenery near it. A model that
+ * is still loading after this streams in later with the FR3 fade, so a slow
+ * network costs a fade, not a stuck loading bar.
+ */
+export const START_SCENERY_TIMEOUT_MS = 20_000;
+
 export const createRideScene = async (
   canvas: HTMLCanvasElement,
   device: GPUDevice,
@@ -497,6 +513,8 @@ export const createRideScene = async (
   telemetry.scenery.failedIds = [];
   telemetry.scenery.frame = 0;
   telemetry.scenery.reveals = [];
+  telemetry.scenery.nearStartIds = [];
+  telemetry.scenery.registeredAtFirstFrame = null;
   const scenePools: InstancePool[] = sceneryPoolInputs.map((input) => createInstancePool(device, input));
 
   // #566 P6 — buildings pool. Per D5-b we skip the pool entirely when the
@@ -633,6 +651,7 @@ export const createRideScene = async (
   const boatMesh = boatMeshHandle.mesh;
   telemetry.boat.meshSource = boatMeshHandle.source;
   publishBoatSource(boatMeshHandle.source === 'baked' ? 'baked' : 'failed');
+  opts.onLoadPhase?.('boat', 'done');
   const boatPass = createBoatPass({ device, format, frameUniforms, mesh: boatMesh });
   const charactersMesh = tierCaps.castCharacterShadows ? boatMesh : null;
 
@@ -799,6 +818,7 @@ export const createRideScene = async (
   if (tierCaps.fleetCount > 0 && boatScullPrimitives.length > 0) {
     await loadScull(playerCrew === 'male' ? 'female' : 'male', BOAT_SCULL_ALT_PREFIX, boatScullAltPrimitives, false);
   }
+  opts.onLoadPhase?.('crew', boatScullPrimitives.length > 0 ? 'done' : 'failed');
 
   // Scenery GLBs load lazily as the route progresses (see sceneryStreamPlan):
   // this fetches + registers one model on demand, returning whether it
@@ -1479,7 +1499,7 @@ export const createRideScene = async (
   // #724 — test mode: pin the boat at a distance along the route (null rows).
   let seekMeters: number | null = null;
 
-  const frameOnce = (): void => {
+  const drawFrame = (): void => {
     if (disposed) return;
     // #584 FR3 — cpuMs is the CPU-side encode time. Measured end-to-end so
     // the frame-graph internal work (pass encodes + submit) plus the engine's
@@ -2023,6 +2043,7 @@ export const createRideScene = async (
         return;
       }
       atlasHandle = handle;
+      opts.onLoadPhase?.('atlas', 'done');
       telemetry.textures.atlasKind = handle.kind;
       telemetry.textures.transcodedMs = handle.transcodedMs;
       telemetry.textures.mipsGenerated = handle.texture.mipLevelCount;
@@ -2036,6 +2057,7 @@ export const createRideScene = async (
     })
     .catch(() => {
       telemetry.textures.atlasKind = 'placeholder';
+      if (!disposed) opts.onLoadPhase?.('atlas', 'failed');
     });
 
   const setAppearance = (palette: CrewPalette): void => {
@@ -2093,6 +2115,56 @@ export const createRideScene = async (
   }
   // Reference so a build-time dead-code pass doesn't drop the helper:
   void flatPrimitiveColors;
+
+  // #726 FR1 — the first frame the player sees already holds every model
+  // with an instance within the start window, so nothing arrives on screen
+  // in the opening seconds. They register here, all at once and without a
+  // fade: the loading bar is still up. One still loading after
+  // START_SCENERY_TIMEOUT_MS joins the stream queue and fades in (FR3).
+  let firstFrameDrawn = false;
+  const frameOnce = (): void => {
+    drawFrame();
+    if (firstFrameDrawn || disposed) return;
+    firstFrameDrawn = true;
+    const failed = new Set(telemetry.scenery.failedIds);
+    telemetry.scenery.registeredAtFirstFrame = [...sceneryLoaded].filter((id) => !failed.has(id));
+    opts.onLoadPhase?.('frame', 'done');
+  };
+  opts.onLoadPhase?.('scene', 'done');
+  const nearStartIds = sceneryModelsToLoad(sceneryPlan, new Set(), 0, streamLookaheadMeters(0), Infinity);
+  telemetry.scenery.nearStartIds = nearStartIds;
+  const nearStart = Promise.all(
+    nearStartIds.map(async (id) => {
+      sceneryLoading.add(id);
+      try {
+        const decoded = await loadSceneryModel(id);
+        if (disposed) return;
+        if (firstFrameDrawn) {
+          sceneryRegistrations.push({ id, decoded });
+          return;
+        }
+        registerSceneryModel(id, decoded);
+        sceneryMeshPass.setInstances(id, sceneryInstanceMats.get(id) ?? []);
+        sceneryLoading.delete(id);
+        sceneryLoaded.add(id);
+        telemetry.scenery.registered = sceneryLoaded.size - telemetry.scenery.failed;
+      } catch {
+        sceneryLoading.delete(id);
+        sceneryLoaded.add(id);
+        if (!telemetry.scenery.failedIds.includes(id)) telemetry.scenery.failedIds.push(id);
+        telemetry.scenery.failed = telemetry.scenery.failedIds.length;
+      }
+    }),
+  ).then(() => 'done' as const);
+  let startTimer: ReturnType<typeof setTimeout> | undefined;
+  const nearStatus = await Promise.race([
+    nearStart,
+    new Promise<'failed'>((resolve) => {
+      startTimer = setTimeout(() => resolve('failed'), START_SCENERY_TIMEOUT_MS);
+    }),
+  ]);
+  clearTimeout(startTimer);
+  opts.onLoadPhase?.('scenery-near', nearStatus);
 
   return {
     device,

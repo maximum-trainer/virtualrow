@@ -132,6 +132,11 @@ export type RideAttachOpts = {
    * canvas, and the gap) whenever it moves, and null when it hides.
    */
   onGhostMarker?: (marker: { x: number; y: number; meters: number; ahead: boolean } | null) => void;
+  /**
+   * #726 VP-08 FR1 — each load phase (`scene`, `boat`, `crew`, `atlas`,
+   * `scenery-near`, `frame`) as it settles, for the host's loading bar.
+   */
+  onLoadPhase?: (phase: string, status: 'done' | 'failed') => void;
 };
 
 export type RideAttach = (
