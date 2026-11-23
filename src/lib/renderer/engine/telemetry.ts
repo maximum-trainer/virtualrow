@@ -6,6 +6,7 @@
  * The UI thread's host leaves these to the engine (no sink callback).
  */
 
+import type { Rower3DSurface } from './surface';
 import type { FramePacingSummary } from './framePacing';
 import { OAR_REACH_METRES } from './clearance';
 import { emptyRenderGroups } from './frameRenderStats';
@@ -393,6 +394,8 @@ export interface TelemetryHandles {
   speed: Rower3DSpeedHandle;
   banner: Rower3DBanner;
   conditions: Rower3DConditions;
+  /** #731 VP-13 FR4 — `__ROWER3D_SURFACE`: CSS and backing size, scale, AA. */
+  surface: Rower3DSurface;
 }
 
 // Keep this a mutable record view of `window`: on `main` these globals carry
@@ -439,6 +442,7 @@ export const createTelemetry = (forceRender: () => void): TelemetryHandles => {
     framePacing: { samples: 0, p50: 0, p95: 0, p99: 0, max: 0, over25ms: 0, over50ms: 0, longestStallMs: 0 },
     camera: { x: 0, y: 0, z: 0, lookX: 0, lookY: 0, lookZ: 0, fov: 58 },
     contextState: { kind: 'pending', backend: 'none' },
+    surface: { cssWidth: 0, cssHeight: 0, devicePixelRatio: 1, scale: 1, width: 0, height: 0, antialias: 'none' },
     pos: { x: 0, y: 0, z: 0, progress: 0 },
     route: { hasCurve: false, totalDistance: 0, curveLength: 0 },
     clearance: { min: 0, samples: 0, current: null, oarReachM: OAR_REACH_METRES },
@@ -519,6 +523,7 @@ export const createTelemetry = (forceRender: () => void): TelemetryHandles => {
     w['__ROWER3D_FRAME_PACING'] = handles.framePacing;
     w['__ROWER3D_CAMERA'] = handles.camera;
     w['__ROWER3D_CONTEXT_STATE'] = handles.contextState;
+    w['__ROWER3D_SURFACE'] = handles.surface;
     w['__ROWER3D_POS'] = handles.pos;
     w['__ROWER3D_ROUTE'] = handles.route;
     w['__ROWER3D_CLEARANCE'] = handles.clearance;
@@ -576,6 +581,7 @@ export const releaseTelemetry = (): void => {
     '__ROWER3D_FRAME_PACING',
     '__ROWER3D_CAMERA',
     '__ROWER3D_CONTEXT_STATE',
+    '__ROWER3D_SURFACE',
     '__ROWER3D_POS',
     '__ROWER3D_ROUTE',
     '__ROWER3D_CLEARANCE',

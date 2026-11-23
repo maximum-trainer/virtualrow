@@ -38,6 +38,15 @@ export interface BuildingTierCaps {
   drawVignette: boolean;
   drawLut: boolean;
   drawSsao: boolean;
+  /**
+   * #731 VP-13 FR1 — the canvas backing store is its CSS size times
+   * min(devicePixelRatio, maxPixelRatio), lowered (never cropped) to stay
+   * under maxBackingPixels, and never below the CSS size for that reason.
+   */
+  maxPixelRatio: number;
+  maxBackingPixels: number;
+  /** #731 FR3 — edge anti-aliasing: FXAA in the composite pass. */
+  antialias: 'fxaa' | 'none';
   drawDof: boolean;
   /** #574 — auto-exposure (1×1 luminance render + composite divisor).
    *  On at `high` + `extra-high`; off below so a weaker GPU doesn't take
@@ -119,6 +128,9 @@ const CAPS: Record<PerformanceTier, BuildingTierCaps> = {
     maxBuildingsPerSegment: 0,
     fleetCount: 0,
     castFleetShadows: false,
+    maxPixelRatio: 1.0,
+    maxBackingPixels: 2_100_000,
+    antialias: 'fxaa',
   },
   low: {
     drawBuildings: true,
@@ -142,6 +154,9 @@ const CAPS: Record<PerformanceTier, BuildingTierCaps> = {
     maxBuildingsPerSegment: 8,
     fleetCount: 2,
     castFleetShadows: false,
+    maxPixelRatio: 1.0,
+    maxBackingPixels: 2_100_000,
+    antialias: 'fxaa',
   },
   medium: {
     drawBuildings: true,
@@ -165,6 +180,9 @@ const CAPS: Record<PerformanceTier, BuildingTierCaps> = {
     maxBuildingsPerSegment: 16,
     fleetCount: 4,
     castFleetShadows: true,
+    maxPixelRatio: 1.5,
+    maxBackingPixels: 2_100_000,
+    antialias: 'fxaa',
   },
   high: {
     drawBuildings: true,
@@ -188,6 +206,9 @@ const CAPS: Record<PerformanceTier, BuildingTierCaps> = {
     maxBuildingsPerSegment: 32,
     fleetCount: 6,
     castFleetShadows: true,
+    maxPixelRatio: 2.0,
+    maxBackingPixels: 3_700_000,
+    antialias: 'fxaa',
   },
   'extra-high': {
     drawBuildings: true,
@@ -211,6 +232,9 @@ const CAPS: Record<PerformanceTier, BuildingTierCaps> = {
     maxBuildingsPerSegment: 64,
     fleetCount: 8,
     castFleetShadows: true,
+    maxPixelRatio: 2.0,
+    maxBackingPixels: 8_300_000,
+    antialias: 'fxaa',
   },
 };
 

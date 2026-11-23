@@ -113,7 +113,25 @@ export interface RenderStatsReading {
   stalled: boolean;
   /** How the graphics context was obtained, and whether it is still there. */
   context: ContextState | null;
+  /** #731 VP-13 FR4 — the engine's canvas sizing and anti-aliasing. */
+  surface?: SurfaceReading | null;
 }
+
+export interface SurfaceReading {
+  cssWidth: number;
+  cssHeight: number;
+  devicePixelRatio: number;
+  scale: number;
+  width: number;
+  height: number;
+  antialias: string;
+}
+
+/** #731 FR4 — the engine's `__ROWER3D_SURFACE`, or null before it attaches. */
+export const readSurface = (): SurfaceReading | null => {
+  const s = (globalThis as { window?: { __ROWER3D_SURFACE?: SurfaceReading } }).window?.__ROWER3D_SURFACE;
+  return s && s.width > 0 ? { ...s } : null;
+};
 
 /** Take a reading now: the latest stats, whether they are stale, and the context. */
 export const readRenderStatsReading = (now: number = Date.now()): RenderStatsReading => {
@@ -122,5 +140,6 @@ export const readRenderStatsReading = (now: number = Date.now()): RenderStatsRea
     stats,
     stalled: !!stats && now - stats.sampledAt > STALL_THRESHOLD_MS,
     context: readContextState(),
+    surface: readSurface(),
   };
 };

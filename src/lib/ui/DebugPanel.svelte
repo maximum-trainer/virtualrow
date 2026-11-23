@@ -271,6 +271,17 @@
           {:else}
             <tr><td>Drawing:</td><td>❌ the 3D scene has not drawn a frame</td></tr>
           {/if}
+          {#if renderStore.reading.surface}
+            {@const surface = renderStore.reading.surface}
+            <tr>
+              <td>Canvas:</td>
+              <td data-testid="debug-surface"
+                >{surface.cssWidth}×{surface.cssHeight} CSS → {surface.width}×{surface.height} px (×{surface.scale.toFixed(2)},
+                DPR {surface.devicePixelRatio})</td
+              >
+            </tr>
+            <tr><td>Anti-aliasing:</td><td>{surface.antialias === 'none' ? 'off' : surface.antialias.toUpperCase()}</td></tr>
+          {/if}
           {#if renderStore.reading.context}
             {@const context = renderStore.reading.context}
             <tr><td>GPU adapter:</td><td>{context.powerPreference}</td></tr>
