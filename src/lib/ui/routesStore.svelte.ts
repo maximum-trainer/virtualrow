@@ -24,6 +24,8 @@ import type { RouteEnrichmentData } from '../services/routeEnrichmentService';
 import { OUTLINE_ONLY_TAG } from '../services/routeService';
 import { TrackParseError, detectTrackFormat } from '../utils/trackParsers';
 import { defaultServices } from './services';
+import { trackAttachmentStore } from '../services/trackAttachmentStore';
+import { normalizeGeometrySource } from '../utils/geometryProvenance';
 
 /** The bundled demo route, selected when nothing else resolves (App.tsx). */
 const DEMO_ROUTE_ID = '1';
@@ -31,8 +33,12 @@ const DEMO_ROUTE_ID = '1';
 type DifficultyFilter = 'all' | 'easy' | 'moderate' | 'hard';
 
 /** Provenance of a route's geometry, for the badge (ported from App.tsx). */
-export function routeGeometrySource(route: WaterRoute): WaterRoute['geometrySource'] {
-  if (route.geometrySource) return route.geometrySource;
+export function routeGeometrySource(
+  route: WaterRoute,
+  hasAttachedTrack: (courseId: string) => boolean = (id) => trackAttachmentStore.getCoordinates(id) !== null,
+): WaterRoute['geometrySource'] {
+  // #747: a rownative `track` with nothing attached is the course's own path.
+  if (route.geometrySource) return normalizeGeometrySource(route, hasAttachedTrack);
   return route.tags?.includes(OUTLINE_ONLY_TAG) ? 'gate-chain' : undefined;
 }
 

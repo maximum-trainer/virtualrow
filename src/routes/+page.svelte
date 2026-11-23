@@ -20,6 +20,7 @@
     externalDistanceNote,
     formatRouteDistanceKm,
     geometryProvenanceBadge,
+    geometryWarningNote,
   } from '$lib/utils/geometryProvenance';
   import { loadSessions } from '$lib/services/localStorageWorkoutStore';
   import { bestRowOnRoute } from '../components/rower3d/ghost';
@@ -211,6 +212,12 @@
               </span>
             {/if}
           </div>
+          {#if geometryWarningNote(route)}
+            <!-- #747 FR3: say which real line was refused, and why. -->
+            <p class="route-geometry-warning" data-testid="route-geometry-warning">
+              {geometryWarningNote(route)}
+            </p>
+          {/if}
 
           {#if routes.selectedRouteEnrichmentLoading}
             <p class="route-enrichment-status" role="status">

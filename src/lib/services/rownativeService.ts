@@ -383,6 +383,8 @@ export class RownativeService {
       country: detail.country || fallback.country || 'Unknown',
       coordinates: geometry.coordinates,
       geometrySource: geometry.source,
+      // #747 FR3: only the refusals of a real line are worth showing a rower.
+      geometryWarnings: geometry.warnings.filter((w) => /^(Course path|Attached track) ignored/.test(w)),
       externalDistanceMeters: detail.distance_m ?? fallback.distanceMeters,
       status: detail.status ?? fallback.status,
     });

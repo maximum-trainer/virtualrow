@@ -17,7 +17,12 @@ export interface Coordinate {
  * - `osm-derived`  walked along OpenStreetMap waterway centrelines
  * - `gate-chain`   start/finish gate centroids only, so straight lines between
  */
-export type GeometrySource = 'track' | 'polygon-path' | 'osm-derived' | 'gate-chain';
+/**
+ * Where a route's line came from. `track` is a line the rower attached;
+ * `path` is the course file's own top-level `path` (rownative/courses#23,
+ * #747).
+ */
+export type GeometrySource = 'track' | 'path' | 'polygon-path' | 'osm-derived' | 'gate-chain';
 
 /**
  * Lives here, not in `routeEnrichmentService`, so lightweight consumers
@@ -86,6 +91,11 @@ export interface WaterRoute {
    * by definition and is shown alongside ours when the two differ materially.
    */
   externalDistanceMeters?: number;
+  /**
+   * #747 FR3: why a better line was refused at import, e.g. "Course path
+   * ignored: ...". Shown on the route card.
+   */
+  geometryWarnings?: string[];
   enrichment?: RouteEnrichmentMetadata; // Optional enrichment metadata
   /**
    * #712 FR3 phase 1 — route-authored biome schedule, read by
@@ -273,6 +283,7 @@ export interface RouteFormData {
   externalId?: WaterRoute['externalId'];
   geometrySource?: WaterRoute['geometrySource'];
   externalDistanceMeters?: WaterRoute['externalDistanceMeters'];
+  geometryWarnings?: WaterRoute['geometryWarnings'];
 }
 
 // Structured workout with intervals (like intervals.icu)

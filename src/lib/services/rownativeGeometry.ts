@@ -12,28 +12,29 @@
  * This module resolves the best geometry available, in a fixed precedence, and
  * says which one it used so the UI can be honest about it:
  *
- *   track → polygon-path → osm-derived → gate-chain
+ *   track → path → polygon-path → osm-derived → gate-chain
  *
  * Everything here runs before `createRoute()`. The 3D engine is untouched: give
  * it a real water path and it already renders correct curvature and scale.
  *
- * ## Where a real path is meant to come from (#208)
+ * ## Where a real path comes from (#208, #747)
  *
- * The `track` slot at the head of that chain is filled by either of two things:
- * a course file carrying an optional top-level `path`, or a track the rower has
- * attached themselves (R-8 of #194, `trackAttachmentStore`).
+ * Two things outrank the polygons:
  *
- * Neither exists in the mirror today. Across all 169 KML files there are 1,047
- * `<Polygon>` elements and zero `<LineString>`, so no upstream artefact carries
- * a traced centreline at all; courses 257 and 277 resort to storing one as a
- * polygon. The `path` field has been proposed upstream in
- * rownative/courses#23, with the data-quality anomalies it would help settle in
- * rownative/courses#24. VirtualRow needs no change if it is accepted —
+ * - `track`: a line the rower attached to the course id (R-8 of #194,
+ *   `trackAttachmentStore`). Held to `GATE_TOLERANCE_M`, because a wrong
+ *   upload must not quietly replace the course.
+ * - `path`: the course file's optional top-level `path`, merged upstream in
+ *   rownative/courses#26 (from #23). Its SCHEMA.md rule is that the path
+ *   passes within 250 m of each gate centroid, or the gate's own extent if
+ *   larger, so that is the tolerance it is held to here
+ *   (`upstreamPathTolerance`). It runs start to finish by contract, so it is
+ *   oriented but not trimmed at the gates. Few courses carry one yet; the rest still go
+ *   through the chain below, so #743 remains the fix for most of them.
+ *
+ * Legacy files still store a traced line as a polygon (`polygon-path`).
  * `rownativeMirrorContract.test.ts` guards the shape against the live mirror
  * under `ROWNATIVE_CONTRACT_CHECK=1`.
- *
- * If upstream declines it, the rower-attached track is the long-term answer and
- * this chain already prefers it. Record the outcome on #208 either way.
  */
 
 import type { Coordinate, GeometrySource } from '../types/index';
@@ -50,10 +51,27 @@ import {
 export type { GeometrySource };
 
 /**
- * How close the final polyline must pass to every gate centroid, in metres.
- * Roughly half the median gate extent across the mirror's 169 courses.
+ * How close the final polyline must pass to every gate centroid, in metres,
+ * for a rower-attached track, a traced polygon or a map-derived line. Roughly
+ * half the median gate extent across the mirror's courses.
  */
 export const GATE_TOLERANCE_M = 40;
+
+/** #747: upstream's own rule for a course file's `path` (courses SCHEMA.md). */
+export const UPSTREAM_PATH_TOLERANCE_M = 250;
+
+/** How far from a gate a line may pass, per gate. */
+export type GateTolerance = (gate: CourseGate) => number;
+
+/** The strict rule: `GATE_TOLERANCE_M` for every gate. */
+export const strictGateTolerance: GateTolerance = () => GATE_TOLERANCE_M;
+
+/**
+ * #747 FR1: a course file's `path` is held to upstream's rule, 250 m or the
+ * gate polygon's own extent if that is larger.
+ */
+export const upstreamPathTolerance: GateTolerance = (gate) =>
+  Math.max(UPSTREAM_PATH_TOLERANCE_M, gate.extentMeters ?? 0);
 
 /** A polygon needs at least this many distinct vertices to be a path candidate. */
 export const PATH_MIN_VERTICES = 12;
@@ -102,8 +120,8 @@ export interface RownativeCourseGeometryInput {
   name?: string;
   polygons?: RownativeCoursePolygon[];
   /**
-   * Optional upstream traced path (issue #194 R-13/R-14). Not in the mirror
-   * schema yet; when it appears it is treated as an authoritative track.
+   * Optional upstream traced path (rownative/courses#23, merged in #26):
+   * start to finish, not closed on a loop. Resolved as source `path` (#747).
    */
   path?: RownativeCoursePolygonPoint[];
 }
@@ -136,7 +154,8 @@ export class RownativeGeometryUnavailableError extends Error {
     super(
       `${courseName} (${courseId}) starts and finishes in the same place, so its gates `
       + 'describe no path at all — importing it would row a few metres and stop. '
-      + 'Attach a track (GPX, KML or GeoJSON) of the course to import it.',
+      + 'Attach a track (GPX, KML or GeoJSON) of the course to import it. It will also import '
+      + 'once rownative adds a traced path for it.',
     );
     this.name = 'RownativeGeometryUnavailableError';
     this.courseId = courseId;
@@ -148,15 +167,17 @@ export class RownativeGeometryUnavailableError extends Error {
 export class GateFidelityError extends Error {
   readonly gateName: string;
   readonly offsetMeters: number;
-  constructor(gateName: string, offsetMeters: number) {
+  readonly allowedMeters: number;
+  constructor(gateName: string, offsetMeters: number, allowedMeters: number = GATE_TOLERANCE_M) {
     super(
       `That line passes ${Number.isFinite(offsetMeters) ? `${Math.round(offsetMeters)} m` : 'too far'} `
-      + `from the "${gateName}" gate, more than the ${GATE_TOLERANCE_M} m allowed. `
+      + `from the "${gateName}" gate, more than the ${Math.round(allowedMeters)} m allowed. `
       + 'It is not a path around this course.',
     );
     this.name = 'GateFidelityError';
     this.gateName = gateName;
     this.offsetMeters = offsetMeters;
+    this.allowedMeters = allowedMeters;
   }
 }
 
@@ -302,6 +323,24 @@ function worstGateOffset(
   return worst;
 }
 
+/** The gate a line misses by the most beyond its tolerance, or null if none is missed. */
+function worstGateMiss(
+  line: Coordinate[],
+  gates: CourseGate[],
+  tolerance: GateTolerance,
+): { gate: CourseGate; offsetMeters: number; allowedMeters: number } | null {
+  let worst: { gate: CourseGate; offsetMeters: number; allowedMeters: number } | null = null;
+  for (const gate of gates) {
+    const offsetMeters = projectPointOntoPolyline(gate.center, line).offsetMeters;
+    const allowedMeters = tolerance(gate);
+    if (offsetMeters <= allowedMeters) continue;
+    if (!worst || offsetMeters - allowedMeters > worst.offsetMeters - worst.allowedMeters) {
+      worst = { gate, offsetMeters, allowedMeters };
+    }
+  }
+  return worst;
+}
+
 function meanGateOffset(line: Coordinate[], gates: CourseGate[]): number {
   if (gates.length === 0) return 0;
   const total = gates.reduce(
@@ -324,7 +363,12 @@ export type CandidateFit =
  * round a loop is rowed and never rejects a candidate on its own, because
  * upstream ordering is not always right (course 257 has WP4 and WP5 swapped).
  */
-export function fitCandidateToGates(candidate: Coordinate[], gates: CourseGate[]): CandidateFit {
+export function fitCandidateToGates(
+  candidate: Coordinate[],
+  gates: CourseGate[],
+  tolerance: GateTolerance = strictGateTolerance,
+  { trimToGates = true }: { trimToGates?: boolean } = {},
+): CandidateFit {
   if (candidate.length < 2) {
     return { ok: false, error: new GateFidelityError('start', Number.POSITIVE_INFINITY) };
   }
@@ -332,9 +376,9 @@ export function fitCandidateToGates(candidate: Coordinate[], gates: CourseGate[]
     return { ok: true, coordinates: candidate, meanOffsetMeters: 0, isLoop: false };
   }
 
-  const worst = worstGateOffset(candidate, gates);
-  if (worst && worst.offsetMeters > GATE_TOLERANCE_M) {
-    return { ok: false, error: new GateFidelityError(worst.gate.name, worst.offsetMeters) };
+  const worst = worstGateMiss(candidate, gates, tolerance);
+  if (worst) {
+    return { ok: false, error: new GateFidelityError(worst.gate.name, worst.offsetMeters, worst.allowedMeters) };
   }
 
   const startGate = findStartGate(gates);
@@ -374,15 +418,21 @@ export function fitCandidateToGates(candidate: Coordinate[], gates: CourseGate[]
     fitted = rotateLoopToStart(oriented, orientedStart);
   } else {
     const oriented = startAlong <= finishAlong ? candidate : reversePolyline(candidate);
+    // An upstream `path` is drawn start to finish by contract, so all of it is
+    // the course; trimming it at the gates' projections would only shorten a
+    // line drawn a little to one side (#747).
     const from = projectPointOntoPolyline(startGate.center, oriented).alongMeters;
     const to = projectPointOntoPolyline(finishGate.center, oriented).alongMeters;
-    fitted = slicePolyline(oriented, from, to);
+    fitted = trimToGates ? slicePolyline(oriented, from, to) : oriented;
   }
 
   // Trimming can cut a gate off the end of the line, so re-check what survived.
-  const worstAfterFit = worstGateOffset(fitted, gates);
-  if (worstAfterFit && worstAfterFit.offsetMeters > GATE_TOLERANCE_M) {
-    return { ok: false, error: new GateFidelityError(worstAfterFit.gate.name, worstAfterFit.offsetMeters) };
+  const worstAfterFit = worstGateMiss(fitted, gates, tolerance);
+  if (worstAfterFit) {
+    return {
+      ok: false,
+      error: new GateFidelityError(worstAfterFit.gate.name, worstAfterFit.offsetMeters, worstAfterFit.allowedMeters),
+    };
   }
   if (fitted.length < 2 || polylineLengthMeters(fitted) <= 0) {
     return { ok: false, error: new GateFidelityError(startGate.name, Number.POSITIVE_INFINITY) };
@@ -448,13 +498,10 @@ export async function resolveCourseGeometry(
   const gateCenters = gates.map((gate) => gate.center);
   const warnings: string[] = [];
 
-  // 1. A user-attached track, or an upstream `path` field, outranks everything.
-  const upstreamPath = toCoordinates(course.path);
-  const track = options.attachedTrack?.length
-    ? options.attachedTrack
-    : (upstreamPath.length >= 2 ? upstreamPath : null);
-  if (track && track.length >= 2) {
-    const fit = fitCandidateToGates(track, gates);
+  // 1. A track the rower attached outranks everything, under the strict rule.
+  const attached = options.attachedTrack?.length ? options.attachedTrack : null;
+  if (attached && attached.length >= 2) {
+    const fit = fitCandidateToGates(attached, gates);
     if (fit.ok) {
       return {
         coordinates: fit.coordinates,
@@ -465,6 +512,22 @@ export async function resolveCourseGeometry(
       };
     }
     warnings.push(`Attached track ignored: ${fit.error.message}`);
+  }
+
+  // 1b. The course file's own `path` (#747), under upstream's rule.
+  const upstreamPath = toCoordinates(course.path);
+  if (upstreamPath.length >= 2) {
+    const fit = fitCandidateToGates(upstreamPath, gates, upstreamPathTolerance, { trimToGates: false });
+    if (fit.ok) {
+      return {
+        coordinates: fit.coordinates,
+        source: 'path',
+        confidence: confidenceFor(fit.meanOffsetMeters),
+        gates: gateCenters,
+        warnings,
+      };
+    }
+    warnings.push(`Course path ignored: ${fit.error.message}`);
   }
 
   // 2. Path-shaped polygons already in the course file. Each is judged on its

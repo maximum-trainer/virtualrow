@@ -21,6 +21,8 @@ export interface GeometryProvenanceBadge {
 
 const BADGES: Record<GeometrySource, GeometryProvenanceBadge | null> = {
   track: null,
+  // #747: the course file's own traced path is a real path, like a track.
+  path: null,
   'polygon-path': {
     label: 'traced',
     title: 'This course follows a path traced by whoever submitted it, checked against every gate.',
@@ -62,4 +64,33 @@ export function externalDistanceNote(route: Pick<WaterRoute, 'distance' | 'exter
 /** Route distance for display, in kilometres to two decimal places. */
 export function formatRouteDistanceKm(distanceKm: number): string {
   return `${distanceKm.toFixed(2)} km`;
+}
+
+/**
+ * #747: before the `path` source existed, a rownative course whose file
+ * carried a `path` was stored as `track`. A rownative route marked `track`
+ * with no track attached to its course id is read as `path`.
+ */
+export function normalizeGeometrySource(
+  route: Pick<WaterRoute, 'source' | 'geometrySource' | 'externalId'>,
+  hasAttachedTrack: (courseId: string) => boolean,
+): GeometrySource | undefined {
+  if (
+    route.geometrySource === 'track'
+    && route.source === 'rownative'
+    && route.externalId
+    && !hasAttachedTrack(route.externalId)
+  ) {
+    return 'path';
+  }
+  return route.geometrySource;
+}
+
+/**
+ * #747 FR3: the note shown on the route card when the course's own line was
+ * refused (a course `path`, or a track the rower attached), naming the gate it
+ * missed and by how far. Null when nothing was refused.
+ */
+export function geometryWarningNote(route: Pick<WaterRoute, 'geometryWarnings'>): string | null {
+  return route.geometryWarnings?.find((warning) => warning.trim().length > 0) ?? null;
 }
