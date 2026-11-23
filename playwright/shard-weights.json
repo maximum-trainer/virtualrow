@@ -66,6 +66,7 @@
     "default:webgpu-frame-pacing.spec.ts": 60,
     "default:ride-camera-button.spec.ts": 90,
     "default:route-map-offline.spec.ts": 40,
-    "default:webgpu-ride-start-jank.spec.ts": 40
+    "default:webgpu-ride-start-jank.spec.ts": 40,
+    "default:webgpu-parallel-legs.spec.ts": 60
   }
 }
