@@ -13,6 +13,7 @@ import type { Mat4 } from '../math/mat4';
 import sceneryMeshWgsl from './sceneryMesh.wgsl?raw';
 import type { ShadowResources } from './bank';
 import { SAMPLE_SHADOW_WGSL, SHADOW_UNIFORMS_WGSL } from '../engine/shaderSnippets';
+import { buildCellLayout, frustumPlanes, maxScale, meshRadius, visibleRuns, type CellLayout } from '../plan/instanceCells';
 import { ALWAYS_REVEALED, packRevealUniform, SCENERY_REVEAL_UNIFORM_BYTES } from './sceneryReveal';
 import { renderPipelineAsync } from '../engine/pipelineAsync';
 
@@ -87,6 +88,22 @@ export interface SceneryMeshInput {
    * (the scull) uploads all its matrices in one write per frame.
    */
   instanceGroup?: { name: string; index: number };
+  /**
+   * #727 FR1 — bin the instances into ground cells this many metres across
+   * and draw only the cells in view (and, for shadows, inside each
+   * cascade). For static route scenery; the scull, re-posed every frame,
+   * leaves it off.
+   */
+  cullCellMetres?: number;
+}
+
+/** #727 — per-mesh culling state: the cell layout and a scratch run list. */
+interface MeshCull {
+  cellMetres: number;
+  /** The model's reach from its pivot, before instance scale. */
+  radius: number;
+  layout: CellLayout | null;
+  runs: Uint32Array;
 }
 
 /** #736 — one GPU buffer shared by several meshes, uploaded in one write. */
@@ -128,6 +145,10 @@ interface RegisteredMesh {
   translucentBindGroup: GPUBindGroup;
   /** #688 — included in the shadow-depth iteration; defaults to true. */
   castsShadow: boolean;
+  /** #727 — null for a mesh drawn whole every frame. */
+  cull: MeshCull | null;
+  /** #727 FR5 — GPU bytes this mesh holds (not counting a shared group buffer). */
+  bytes: number;
 }
 
 /**
@@ -156,6 +177,9 @@ export interface SceneryMeshFrameStats {
   draws: number;
   instances: number;
   triangles: number;
+  /** #727 FR5 — meshes registered (resident) this frame, and the GPU bytes they hold. */
+  residentMeshes: number;
+  residentBytes: number;
 }
 
 export interface SceneryMeshPass extends Pass {
@@ -208,6 +232,26 @@ export interface SceneryMeshPass extends Pass {
    * pass created without `receiveShadows`.
    */
   setShadow(shadow: ShadowResources): void;
+  /**
+   * #727 FR1 — the camera's view-projection for this frame. Culled meshes
+   * draw only their cells inside it; until it is set they draw whole.
+   */
+  setView(viewProj: Mat4): void;
+  /**
+   * #727 FR2 — like `forEachActiveShadowCaster`, with the runs of each
+   * mesh's instances inside `viewProj` (a cascade's light projection):
+   * `runs` holds `runCount` `(firstInstance, count)` pairs. A mesh with no
+   * instance inside is skipped.
+   */
+  forEachShadowCasterIn(
+    viewProj: Mat4,
+    cb: (snapshot: SceneryMeshSnapshot, runs: Uint32Array, runCount: number) => void,
+  ): void;
+  /**
+   * #727 FR3 — drop a mesh and free its GPU buffers; it can be registered
+   * again later. Meshes in an instance group cannot be dropped.
+   */
+  unregister(id: string): boolean;
   /** Whether this pass samples the shadow atlas. */
   readonly receivesShadows: boolean;
 }
@@ -455,7 +499,19 @@ export const createSceneryMeshPass = async ({
       bindGroup,
       translucentBindGroup,
       castsShadow: input.castsShadow ?? true,
+      cull:
+        input.cullCellMetres && !group
+          ? { cellMetres: input.cullCellMetres, radius: meshRadius(input.positions), layout: null, runs: new Uint32Array(0) }
+          : null,
+      bytes:
+        input.positions.byteLength +
+        input.normals.byteLength +
+        colors.byteLength +
+        indexData.byteLength +
+        (group ? 0 : instanceSize) +
+        SCENERY_REVEAL_UNIFORM_BYTES,
     });
+    residentBytes += registry.get(input.id)!.bytes;
   };
 
   const writeColors = (id: string, colors: Float32Array): void => {
@@ -471,8 +527,25 @@ export const createSceneryMeshPass = async ({
     const count = Math.min(instances.length, mesh.maxInstances);
     mesh.instanceCount = count;
     mesh.translucentCount = 0;
+    // #727 FR1 — a culled mesh stores its instances cell by cell.
+    let order: Uint32Array | null = null;
+    if (mesh.cull) {
+      const positions = new Float32Array(count * 3);
+      const radii = new Float32Array(count);
+      for (let i = 0; i < count; i += 1) {
+        const inst = instances[i];
+        const m = isStyled(inst) ? inst.model : inst;
+        positions[i * 3] = m[12];
+        positions[i * 3 + 1] = m[13];
+        positions[i * 3 + 2] = m[14];
+        radii[i] = mesh.cull.radius * maxScale(m);
+      }
+      mesh.cull.layout = buildCellLayout(positions, radii, mesh.cull.cellMetres);
+      mesh.cull.runs = new Uint32Array(mesh.cull.layout.cells.length * 2);
+      order = mesh.cull.layout.order;
+    }
     for (let i = 0; i < count; i += 1) {
-      const inst = instances[i];
+      const inst = instances[order ? order[i] : i];
       const o = i * FLOATS_PER_INSTANCE;
       const slot = mesh.staging.subarray(o, o + FLOATS_PER_INSTANCE);
       slot.fill(0);
@@ -508,7 +581,50 @@ export const createSceneryMeshPass = async ({
     }
   };
 
-  const stats: SceneryMeshFrameStats = { draws: 0, instances: 0, triangles: 0 };
+  let residentBytes = 0;
+  const stats: SceneryMeshFrameStats = { draws: 0, instances: 0, triangles: 0, residentMeshes: 0, residentBytes: 0 };
+  // #727 FR1 — this frame's view frustum, once `setView` has been called.
+  const viewPlanes = new Float32Array(24);
+  let viewSet = false;
+  const cascadePlanes = new Float32Array(24);
+  const wholeRun = new Uint32Array(2);
+  const runResult: { runs: Uint32Array; count: number } = { runs: wholeRun, count: 0 };
+  /** Runs of `mesh` to draw inside `planes`; the whole list when it is not culled. */
+  const runsIn = (mesh: RegisteredMesh, planes: Float32Array | null): { runs: Uint32Array; count: number } => {
+    if (!mesh.cull?.layout || !planes) {
+      wholeRun[0] = 0;
+      wholeRun[1] = mesh.instanceCount;
+      runResult.runs = wholeRun;
+      runResult.count = 1;
+      return runResult;
+    }
+    runResult.runs = mesh.cull.runs;
+    runResult.count = visibleRuns(mesh.cull.layout, planes, mesh.cull.runs);
+    return runResult;
+  };
+  // One reused snapshot object, so the per-cascade walk allocates nothing.
+  const shadowSnapshot = {} as { -readonly [K in keyof SceneryMeshSnapshot]: SceneryMeshSnapshot[K] };
+  const snapshotOf = (mesh: RegisteredMesh): SceneryMeshSnapshot => {
+    shadowSnapshot.id = mesh.id;
+    shadowSnapshot.positionBuffer = mesh.positionBuffer;
+    shadowSnapshot.indexBuffer = mesh.indexBuffer;
+    shadowSnapshot.indexFormat = mesh.indexFormat;
+    shadowSnapshot.indexCount = mesh.indexCount;
+    shadowSnapshot.instanceBuffer = mesh.instanceBuffer;
+    shadowSnapshot.instanceOffset = mesh.instanceOffset;
+    shadowSnapshot.instanceSize = mesh.instanceSize;
+    shadowSnapshot.instanceCount = mesh.instanceCount;
+    shadowSnapshot.castsShadow = mesh.castsShadow;
+    return shadowSnapshot;
+  };
+  const destroyMesh = (mesh: RegisteredMesh): void => {
+    mesh.positionBuffer.destroy();
+    mesh.normalBuffer.destroy();
+    mesh.colorBuffer.destroy();
+    mesh.indexBuffer.destroy();
+    if (!mesh.group) mesh.instanceBuffer.destroy();
+    mesh.revealBuffer.destroy();
+  };
   const draw = (pass: GPURenderPassEncoder, mesh: RegisteredMesh, count: number, first = 0): void => {
     pass.drawIndexed(mesh.indexCount, count, 0, 0, first);
     stats.draws += 1;
@@ -555,6 +671,27 @@ export const createSceneryMeshPass = async ({
     stats,
     setShadow,
     receivesShadows: receiveShadows,
+    setView(viewProj: Mat4) {
+      frustumPlanes(viewProj, viewPlanes);
+      viewSet = true;
+    },
+    forEachShadowCasterIn(viewProj, cb) {
+      frustumPlanes(viewProj, cascadePlanes);
+      for (const mesh of registry.values()) {
+        if (mesh.instanceCount === 0 || !mesh.castsShadow) continue;
+        const { runs, count } = runsIn(mesh, cascadePlanes);
+        if (count === 0) continue;
+        cb(snapshotOf(mesh), runs, count);
+      }
+    },
+    unregister(id: string) {
+      const mesh = registry.get(id);
+      if (!mesh || mesh.group) return false;
+      destroyMesh(mesh);
+      residentBytes -= mesh.bytes;
+      registry.delete(id);
+      return true;
+    },
     register,
     setInstances,
     reserveInstanceGroup,
@@ -600,6 +737,8 @@ export const createSceneryMeshPass = async ({
       stats.draws = 0;
       stats.instances = 0;
       stats.triangles = 0;
+      stats.residentMeshes = registry.size;
+      stats.residentBytes = residentBytes;
       if (disposed || registry.size === 0) return;
       flushInstanceGroups();
       if (receiveShadows && !shadowBind) return;
@@ -632,9 +771,16 @@ export const createSceneryMeshPass = async ({
         if (mesh.instanceCount === 0) continue;
         if (mesh.translucentCount > 0) translucentMeshes += 1;
         if (mesh.translucentCount === mesh.instanceCount) continue;
+        if (mesh.translucentCount === 0) {
+          // #727 FR1 — only the cells in view.
+          const { runs, count } = runsIn(mesh, viewSet ? viewPlanes : null);
+          if (count === 0) continue;
+          bindMesh(mesh, mesh.bindGroup);
+          for (let r = 0; r < count; r += 1) draw(pass, mesh, runs[r * 2 + 1], runs[r * 2]);
+          continue;
+        }
         bindMesh(mesh, mesh.bindGroup);
-        if (mesh.translucentCount === 0) draw(pass, mesh, mesh.instanceCount);
-        else drawRuns(pass, mesh, 0);
+        drawRuns(pass, mesh, 0);
       }
       // #728 FR2 — translucent instances last, over everything opaque
       // this pass drew.
@@ -653,15 +799,9 @@ export const createSceneryMeshPass = async ({
     dispose() {
       if (disposed) return;
       disposed = true;
-      for (const mesh of registry.values()) {
-        mesh.positionBuffer.destroy();
-        mesh.normalBuffer.destroy();
-        mesh.colorBuffer.destroy();
-        mesh.indexBuffer.destroy();
-        if (!mesh.group) mesh.instanceBuffer.destroy();
-        mesh.revealBuffer.destroy();
-      }
+      for (const mesh of registry.values()) destroyMesh(mesh);
       registry.clear();
+      residentBytes = 0;
       for (const group of groups.values()) group.buffer.destroy();
       groups.clear();
     },

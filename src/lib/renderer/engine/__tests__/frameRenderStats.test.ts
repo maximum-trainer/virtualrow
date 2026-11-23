@@ -23,6 +23,8 @@ const fresh = (): Omit<Rower3DRenderStats, 'drawCalls'> => ({
   shadowDraws: 0,
   shadowTriangles: 0,
   shadowAtlasBytes: 0,
+  residentMeshes: 0,
+  residentMeshBytes: 0,
   groups: emptyRenderGroups(),
 });
 
@@ -37,6 +39,13 @@ const inputs = (): FrameRenderInputs => ({
 });
 
 describe('assembleRenderStats', () => {
+  it('publishes the resident kit meshes and their bytes (#727 FR5)', () => {
+    const s = fresh();
+    assembleRenderStats(s, { ...inputs(), sceneryMesh: { draws: 5, instances: 40, triangles: 4000, residentMeshes: 7, residentBytes: 9000 } });
+    expect(s.residentMeshes).toBe(7);
+    expect(s.residentMeshBytes).toBe(9000);
+  });
+
   it('breaks the frame down by group, with the scene as the lit groups together', () => {
     const s = fresh();
     assembleRenderStats(s, inputs());

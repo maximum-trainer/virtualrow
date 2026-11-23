@@ -22,7 +22,7 @@ export interface FrameRenderInputs {
   /** Passes that ran this frame (the legacy `draws`). */
   passes: number;
   sceneryDispatch: number;
-  sceneryMesh: Rower3DRenderGroup;
+  sceneryMesh: Rower3DRenderGroup & { residentMeshes?: number; residentBytes?: number };
   /** Sprite pass: one indirect draw per pool; `drawn` read back from the cull, −1 before the first read. */
   sprites: { draws: number; pools: ReadonlyArray<{ drawn: number }> };
   buildings: { drawn: number; triangles: number };
@@ -78,6 +78,8 @@ export const assembleRenderStats = (
   stats.shadowDraws = g.shadows.draws;
   stats.shadowTriangles = g.shadows.triangles;
   stats.shadowAtlasBytes = input.shadowAtlasBytes;
+  stats.residentMeshes = input.sceneryMesh.residentMeshes ?? 0;
+  stats.residentMeshBytes = input.sceneryMesh.residentBytes ?? 0;
 };
 
 /* -------------------------------------------------------- debug panel --- */
