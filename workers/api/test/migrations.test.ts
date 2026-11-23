@@ -22,7 +22,7 @@ describe('db/migrations', () => {
 
   it('records the latest schema version', () => {
     const row = db.prepare("SELECT value FROM _meta WHERE key = 'schema_version'").get() as { value: string };
-    expect(row.value).toBe('2');
+    expect(row.value).toBe('3');
   });
 
   it('creates the #37 tables and indexes', () => {
