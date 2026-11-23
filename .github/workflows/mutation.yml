@@ -1,0 +1,52 @@
+# #588 FR4 / AC4: StrykerJS mutation testing, scoped to the engine's plan
+# layer, the smoothing/physics helper on the engine seam, and the FIT encoder
+# (`stryker.config.mjs`).
+#
+# It used to run on every PR build in next-branch-ci.yml. Once the plan layer
+# grew past ~2,000 mutants it hit the job's 40-minute cap on every PR, so Dan
+# moved it to its own build, four times a day (2026-11-23). It no longer gates
+# PRs; a red or timed-out run here is a signal to look at the report.
+name: Mutation testing (scheduled)
+
+on:
+  schedule:
+    # Four times a day, on main.
+    - cron: '17 0,6,12,18 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mutation
+  cancel-in-progress: false
+
+jobs:
+  mutation:
+    name: Mutation testing (#588 FR4)
+    runs-on: ubuntu-24.04
+    env:
+      CI: true
+    # One hour (Dan, 2026-11-23). The last PR runs were cancelled at the old
+    # 40-minute cap unfinished.
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: StrykerJS
+        # 4 workers, one per core of the hosted ubuntu-24.04 runner. The HTML
+        # report writes even on a green run so the upload below carries it.
+        run: npm run test:mutation:ci
+      - name: Upload mutation HTML report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-report
+          path: reports/mutation
+          retention-days: 14
