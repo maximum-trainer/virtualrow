@@ -135,3 +135,36 @@ export const poolsOffWater = <P extends { positions: Float32Array; metadata?: Ui
   }
   return { pools: out, rejected };
 };
+
+export type SurfaceKind = 'water' | 'land';
+
+const HULL_PROBE: ReadonlyArray<readonly [number, number]> = [[0, 0], [0.5, 0], [-0.5, 0], [0, 0.5], [0, -0.5]];
+
+/**
+ * #742 FR6 — what lies under the boat at (x, z): water when the route's
+ * ribbon is within half a metre of it, or it is inside a lake polygon
+ * outside its islands; land otherwise.
+ */
+export const surfaceAt = (
+  footprint: Pick<WaterFootprint, 'contains'>,
+  lakes: ReadonlyArray<{
+    outer: ReadonlyArray<{ x: number; z: number }>;
+    holes: ReadonlyArray<ReadonlyArray<{ x: number; z: number }>>;
+  }> = [],
+  x: number,
+  z: number,
+): SurfaceKind => {
+  // The hull is metres long: a point on the ribbon's own end (the start
+  // line, where the boat waits) counts when water is within half a metre.
+  for (const [dx, dz] of HULL_PROBE) if (footprint.contains(x + dx, z + dz, 0)) return 'water';
+  const inside = (ring: ReadonlyArray<{ x: number; z: number }>): boolean => {
+    let hit = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const a = ring[i];
+      const b = ring[j];
+      if (a.z > z !== b.z > z && x < ((b.x - a.x) * (z - a.z)) / (b.z - a.z) + a.x) hit = !hit;
+    }
+    return hit;
+  };
+  return lakes.some((l) => inside(l.outer) && !l.holes.some(inside)) ? 'water' : 'land';
+};

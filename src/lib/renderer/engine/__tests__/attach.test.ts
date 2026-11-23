@@ -122,8 +122,13 @@ describe('attach', () => {
       testMode: true,
       route: { pools, curvePoints, waterEdgesForProgress: () => ({ left: 10, right: 10 }) },
     })) as unknown as WithTest & {
-      _telemetry: { route: { selfParallel?: [number, number][]; rejectedOnWater?: number } };
+      _telemetry: {
+        route: { selfParallel?: [number, number][]; rejectedOnWater?: number };
+        clearance: { surface?: string };
+      };
     };
+    renderer._frameOnce();
+    expect(renderer._telemetry.clearance.surface, 'the surface under the boat (FR6)').toBe('water');
     expect(renderer._telemetry.route.selfParallel?.length ?? 0).toBeGreaterThan(0);
     expect(renderer._telemetry.route.rejectedOnWater).toBe(1);
     expect(renderer._telemetry.foliage.trees).toBe(1);

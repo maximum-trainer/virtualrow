@@ -124,7 +124,7 @@ import {
   type FleetState,
 } from './fleet';
 import { DEFAULT_WATER_HALF_WIDTH_M, buildWaterStrip } from '../plan/waterStrip';
-import { poolsOffWater, routeWaterFootprint } from '../plan/waterFootprint';
+import { poolsOffWater, routeWaterFootprint, surfaceAt } from '../plan/waterFootprint';
 import { FLEET_INSTANCE_CAPACITY } from '../passes/boat';
 import { assetUrl } from '../../utils/assetUrl';
 import { createSceneryPass } from './sceneryPass';
@@ -513,13 +513,13 @@ export const createRideScene = async (
   // A smoke page with no route lays its scenery out around the fallback
   // ribbon: nothing is taken out there.
   const hasRouteCurve = waterCurveSource !== fallbackCurveSource;
-  const routeWater = hasRouteCurve
-    ? routeWaterFootprint(buildWaterStrip(waterCurve, { edgesForProgress: stripEdgesForProgress }))
-    : { contains: () => false };
+  const routeWater = routeWaterFootprint(buildWaterStrip(waterCurve, { edgesForProgress: stripEdgesForProgress }));
+  const rejectOnWater = hasRouteCurve ? routeWater : { contains: () => false };
+  const surfaceLakes = isSceneryRoute(opts.route) ? opts.route.lakePolygons ?? [] : [];
   let rejectedOnWater = 0;
 
   // D7-a of #555: wire the scenery pass unconditionally.
-  const offWater = poolsOffWater(isSceneryRoute(opts.route) ? opts.route.pools : [], routeWater);
+  const offWater = poolsOffWater(isSceneryRoute(opts.route) ? opts.route.pools : [], rejectOnWater);
   rejectedOnWater += offWater.rejected;
   const sceneryPoolInputs: PoolInput[] = offWater.pools;
   // Scenery pool telemetry starts fresh on each scene build so a reattach
@@ -1211,7 +1211,7 @@ export const createRideScene = async (
   for (const place of furniture) {
     // #742 FR3 — bank furniture on another leg's water is not placed.
     // Spans and buoys belong on the water.
-    if (place.kind === 'furniture' && routeWater.contains(place.position[0], place.position[2])) {
+    if (place.kind === 'furniture' && rejectOnWater.contains(place.position[0], place.position[2])) {
       rejectedOnWater += 1;
       continue;
     }
@@ -1249,7 +1249,7 @@ export const createRideScene = async (
     // well inside some part of the route's water is not placed.
     const onWaterByDesign = group.id in BRIDGE_SPANS || group.id.includes('buoy');
     for (const inst of group.instances) {
-      if (!onWaterByDesign && routeWater.contains(inst.position[0], inst.position[2], GLB_WATER_MARGIN_METRES)) {
+      if (!onWaterByDesign && rejectOnWater.contains(inst.position[0], inst.position[2], GLB_WATER_MARGIN_METRES)) {
         rejectedOnWater += 1;
         continue;
       }
@@ -1811,6 +1811,8 @@ export const createRideScene = async (
     telemetry.boat.x = boatPlacement.world[0];
     telemetry.boat.y = boatPlacement.world[1];
     telemetry.boat.z = boatPlacement.world[2];
+    // #742 FR6 — the surface under the hull, every frame.
+    telemetry.clearance.surface = surfaceAt(routeWater, surfaceLakes, boatPlacement.world[0], boatPlacement.world[2]);
     telemetry.boat.heading = boatPlacement.heading;
     telemetry.boat.distanceMeters = boatPlacement.distanceMeters;
     telemetry.boat.progress = boatPlacement.progress;

@@ -114,6 +114,8 @@ export interface Rower3DRoute {
 export interface Rower3DClearance {
   min: number;
   samples: number;
+  /** #742 FR6 — what lies under the boat's hull this frame. */
+  surface?: 'water' | 'land';
 }
 
 /**

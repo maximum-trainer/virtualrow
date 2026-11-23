@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { RouteCurve } from '../../math/curve';
 import { vec3 } from '../../math/vec3';
 import { buildWaterStrip } from '../waterStrip';
-import { poolsOffWater, routeWaterFootprint } from '../waterFootprint';
+import { poolsOffWater, routeWaterFootprint, surfaceAt } from '../waterFootprint';
 
 describe('routeWaterFootprint', () => {
   const straight = new RouteCurve([vec3(0, 0, 0), vec3(0, 0, -200)], false);
@@ -71,5 +71,35 @@ describe('poolsOffWater', () => {
     const pool: { positions: Float32Array; metadata?: Uint32Array } = { positions: new Float32Array([30, 0, -10, 0, 0, -10]) };
     const { pools } = poolsOffWater([pool], footprint);
     expect(pools[0].metadata).toBeUndefined();
+  });
+});
+
+// #742 FR6 — the surface under the boat.
+describe('surfaceAt', () => {
+  const straight = new RouteCurve([vec3(0, 0, 0), vec3(0, 0, -200)], false);
+  const footprint = routeWaterFootprint(buildWaterStrip(straight, { divisions: 20, edgesForProgress: () => ({ left: 10, right: 10 }) }));
+  const ring = (x0: number, z0: number, x1: number, z1: number) => [
+    { x: x0, z: z0 }, { x: x1, z: z0 }, { x: x1, z: z1 }, { x: x0, z: z1 },
+  ];
+  const lake = { outer: ring(50, -50, 150, -150), holes: [ring(90, -90, 110, -110)] };
+
+  it('is water on the ribbon, up to its shore', () => {
+    expect(surfaceAt(footprint, [], 0, -100)).toBe('water');
+    expect(surfaceAt(footprint, [], 9.9, -100)).toBe('water');
+  });
+
+  it('is water at the ribbon\'s own end, where the boat waits on the start line', () => {
+    expect(surfaceAt(footprint, [], 0, 0)).toBe('water');
+    expect(surfaceAt(footprint, [], 0, 2)).toBe('land');
+  });
+
+  it('is land off the ribbon with no lake there', () => {
+    expect(surfaceAt(footprint, [], 30, -100)).toBe('land');
+    expect(surfaceAt(footprint, [lake], 30, -100)).toBe('land');
+  });
+
+  it('is water on a lake and land on its island', () => {
+    expect(surfaceAt(footprint, [lake], 70, -70)).toBe('water');
+    expect(surfaceAt(footprint, [lake], 100, -100)).toBe('land');
   });
 });

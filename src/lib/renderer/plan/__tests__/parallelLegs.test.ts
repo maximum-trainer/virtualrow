@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { bridgeParallelLegs, islandLand, PARALLEL_LEG_OVERLAP_METRES } from '../parallelLegs';
 import { buildBankStrips } from '../bankStrip';
 import { buildWaterStrip } from '../waterStrip';
-import { routeWaterFootprint } from '../waterFootprint';
+import { routeWaterFootprint, surfaceAt } from '../waterFootprint';
 import { RouteCurve } from '../../math/curve';
 import { vec3 } from '../../math/vec3';
 
@@ -56,6 +56,18 @@ describe('bridgeParallelLegs (#742 FR2)', () => {
       const cz = (bank.positions[i0 * 3 + 2] + bank.positions[i1 * 3 + 2] + bank.positions[i2 * 3 + 2]) / 3;
       const between = cx > 12 && cx < 48 && cz < -100 && cz > -900;
       expect(between, `bank triangle at (${cx.toFixed(1)}, ${cz.toFixed(1)})`).toBe(false);
+    }
+  });
+
+  it('keeps the boat on water every 10 m of the course (FR6 scenario)', () => {
+    const curve = outAndBack(30);
+    const { edgesForProgress } = bridgeParallelLegs(curve, narrow);
+    const water = routeWaterFootprint(buildWaterStrip(curve, { edgesForProgress }));
+    const length = curve.approximateLength(64);
+    const sample = { position: vec3(), tangent: vec3(0, 0, -1), angle: 0 };
+    for (let m = 0; m <= length; m += 10) {
+      curve.sample(m / length, sample);
+      expect(surfaceAt(water, [], sample.position[0], sample.position[2]), `at ${m} m`).toBe('water');
     }
   });
 
