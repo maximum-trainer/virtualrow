@@ -70,11 +70,11 @@ const makeFrameCtx = (
 };
 
 describe('sceneryPass', () => {
-  it('dispatches once per pool and emits one indirect draw per pool', () => {
+  it('dispatches once per pool and emits one indirect draw per pool', async () => {
     const device = makeMockDevice();
     const frameUniforms = makeUniformBuffer(device);
     const pools = makePools(device);
-    const pass = createSceneryPass({
+    const pass = await createSceneryPass({
       device,
       format: 'bgra8unorm',
       frameUniforms,
@@ -93,10 +93,10 @@ describe('sceneryPass', () => {
     for (const p of pools) p.dispose();
   });
 
-  it('encodes nothing when pools are empty', () => {
+  it('encodes nothing when pools are empty', async () => {
     const device = makeMockDevice();
     const frameUniforms = makeUniformBuffer(device);
-    const pass = createSceneryPass({
+    const pass = await createSceneryPass({
       device,
       format: 'bgra8unorm',
       frameUniforms,
@@ -109,11 +109,11 @@ describe('sceneryPass', () => {
     pass.dispose();
   });
 
-  it('populates telemetry per pool', () => {
+  it('populates telemetry per pool', async () => {
     const device = makeMockDevice();
     const frameUniforms = makeUniformBuffer(device);
     const pools = makePools(device);
-    const pass = createSceneryPass({
+    const pass = await createSceneryPass({
       device,
       format: 'bgra8unorm',
       frameUniforms,
@@ -130,11 +130,11 @@ describe('sceneryPass', () => {
     for (const p of pools) p.dispose();
   });
 
-  it('counts dispatches and draws per frame, not since mount (#737 FR2)', () => {
+  it('counts dispatches and draws per frame, not since mount (#737 FR2)', async () => {
     const device = makeMockDevice();
     const frameUniforms = makeUniformBuffer(device);
     const pools = makePools(device);
-    const pass = createSceneryPass({ device, format: 'bgra8unorm', frameUniforms, sproutUniforms: frameUniforms, pools });
+    const pass = await createSceneryPass({ device, format: 'bgra8unorm', frameUniforms, sproutUniforms: frameUniforms, pools });
     pass.encode(makeFrameCtx(device));
     pass.encode(makeFrameCtx(device));
     expect(pass.telemetry.dispatchCount).toBe(3);
@@ -160,7 +160,7 @@ describe('sceneryPass', () => {
     }) as typeof device.createBuffer;
     const frameUniforms = makeUniformBuffer(device);
     const pools = makePools(device);
-    const pass = createSceneryPass({ device, format: 'bgra8unorm', frameUniforms, sproutUniforms: frameUniforms, pools });
+    const pass = await createSceneryPass({ device, format: 'bgra8unorm', frameUniforms, sproutUniforms: frameUniforms, pools });
     expect(readBuffer).not.toBeNull();
     expect(pass.telemetry.pools.map((p) => p.drawn)).toEqual([-1, -1, -1]);
     const ctx = makeFrameCtx(device);
@@ -186,14 +186,14 @@ describe('sceneryPass', () => {
     expect(DEFAULT_MAX_DISTANCE).toBe(320);
   });
 
-  it('creates a 1×1 placeholder atlas when no foliageAtlasView is supplied', () => {
+  it('creates a 1×1 placeholder atlas when no foliageAtlasView is supplied', async () => {
     // The pass has to bind a texture to its frame bind-group, so when a
     // caller mounts it without a real atlas (unit tests) it falls back to a
     // tiny placeholder; mount succeeds, dispose stays idempotent.
     const device = makeMockDevice();
     const frameUniforms = makeUniformBuffer(device);
     const pools = makePools(device);
-    const pass = createSceneryPass({
+    const pass = await createSceneryPass({
       device,
       format: 'bgra8unorm',
       frameUniforms,
@@ -221,11 +221,11 @@ describe('sceneryPass', () => {
     expect(code).not.toMatch(/vec3<f32>\s*\(\s*0\.72\s*,\s*0\.78\s*,\s*0\.82/);
   });
 
-  it('refuses work after dispose', () => {
+  it('refuses work after dispose', async () => {
     const device = makeMockDevice();
     const frameUniforms = makeUniformBuffer(device);
     const pools = makePools(device);
-    const pass = createSceneryPass({
+    const pass = await createSceneryPass({
       device,
       format: 'bgra8unorm',
       frameUniforms,

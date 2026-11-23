@@ -104,7 +104,7 @@ export const DRAWN_READBACK_FRAMES = 30;
 /** Byte offset of `instanceCount` in a `drawIndexedIndirect` args block. */
 const INDIRECT_INSTANCE_COUNT_OFFSET = 4;
 
-export const createSceneryPass = (opts: SceneryPassOptions): SceneryPass => {
+export const createSceneryPass = async (opts: SceneryPassOptions): Promise<SceneryPass> => {
   const { device, format, frameUniforms, sproutUniforms, pools } = opts;
   // 1×1 placeholder atlas so a caller without textures (unit tests) can still
   // mount the pass; attach always supplies the real `paintFoliage` atlas.
@@ -124,8 +124,8 @@ export const createSceneryPass = (opts: SceneryPassOptions): SceneryPass => {
     return placeholderSampler;
   })();
   const maxDistance = opts.maxDistance ?? DEFAULT_MAX_DISTANCE;
-  const signature = createScenerySignature(device, format);
-  const culler = createSceneryCuller(device);
+  // #803 — both pipelines compile in parallel.
+  const [signature, culler] = await Promise.all([createScenerySignature(device, format), createSceneryCuller(device)]);
   const telemetry: SceneryTelemetry = opts.telemetry ?? {
     pools: pools.map((p) => ({
       kind: p.kind,

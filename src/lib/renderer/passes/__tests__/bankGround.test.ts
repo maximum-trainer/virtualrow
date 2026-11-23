@@ -66,9 +66,9 @@ const opts = (device: GPUDevice) => ({
 });
 
 describe('bank pass draws the land out to the horizon (#725, #755)', () => {
-  it('creates a ground pipeline that never writes or tests depth', () => {
+  it('creates a ground pipeline that never writes or tests depth', async () => {
     const { device, pipelines } = makeDevice();
-    createBankPass(opts(device));
+    await createBankPass(opts(device));
     const ground = pipelines.find((p) => p.label === 'bank-ground');
     expect(ground).toBeTruthy();
     expect(ground!.vertex.entryPoint).toBe('vs_ground');
@@ -78,9 +78,9 @@ describe('bank pass draws the land out to the horizon (#725, #755)', () => {
     expect(ground!.depthStencil.depthCompare).toBe('always');
   });
 
-  it('draws the ground before the bank strips', () => {
+  it('draws the ground before the bank strips', async () => {
     const { device } = makeDevice();
-    const pass = createBankPass(opts(device));
+    const pass = await createBankPass(opts(device));
     const { ctx, calls } = makeCtx();
     pass.encode(ctx);
     const ground = calls.indexOf('pipeline:bank-ground');
@@ -90,9 +90,9 @@ describe('bank pass draws the land out to the horizon (#725, #755)', () => {
     expect(calls.filter((c) => c.startsWith('draw:')).length).toBe(2);
   });
 
-  it('fades by alpha, so ground, bank and water all blend into the sky behind', () => {
+  it('fades by alpha, so ground, bank and water all blend into the sky behind', async () => {
     const { device, pipelines, modules } = makeDevice();
-    createBankPass(opts(device));
+    await createBankPass(opts(device));
     expect(modules[0]).toContain('fn horizonAlpha(');
     expect(modules[0]).toContain('fn vs_ground(');
     for (const p of pipelines) {

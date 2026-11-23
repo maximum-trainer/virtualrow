@@ -6,9 +6,9 @@ import {
 } from '../buildingsDepth';
 
 describe('buildingsDepth (#566 FR4 / D4-a)', () => {
-  it('builds a depth-only pipeline + two bind-group layouts', () => {
+  it('builds a depth-only pipeline + two bind-group layouts', async () => {
     const device = makeMockDevice();
-    const pipeline = createBuildingsDepthPipeline(device);
+    const pipeline = await createBuildingsDepthPipeline(device);
     expect(pipeline.pipeline).toBeDefined();
     expect(pipeline.cascadeLayout).toBeDefined();
     expect(pipeline.poolLayout).toBeDefined();
@@ -16,9 +16,9 @@ describe('buildingsDepth (#566 FR4 / D4-a)', () => {
     pipeline.dispose(); // idempotent
   });
 
-  it('makes a pool bind group that references both centres + sizes', () => {
+  it('makes a pool bind group that references both centres + sizes', async () => {
     const device = makeMockDevice();
-    const pipeline = createBuildingsDepthPipeline(device);
+    const pipeline = await createBuildingsDepthPipeline(device);
     const centresBuffer = device.createBuffer({ size: 16, usage: 0 });
     const sizesBuffer = device.createBuffer({ size: 16, usage: 0 });
     const bg = createBuildingsDepthPoolBindGroup(device, pipeline.poolLayout, {

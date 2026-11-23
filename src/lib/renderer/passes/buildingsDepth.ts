@@ -7,6 +7,7 @@
 /// <reference types="@webgpu/types" />
 
 import buildingsDepthWgsl from './buildingsDepth.wgsl?raw';
+import { renderPipelineAsync } from '../engine/pipelineAsync';
 
 export interface BuildingsDepthPipeline {
   pipeline: GPURenderPipeline;
@@ -15,9 +16,9 @@ export interface BuildingsDepthPipeline {
   dispose(): void;
 }
 
-export const createBuildingsDepthPipeline = (
+export const createBuildingsDepthPipeline = async (
   device: GPUDevice,
-): BuildingsDepthPipeline => {
+): Promise<BuildingsDepthPipeline> => {
   const module = device.createShaderModule({
     label: 'buildingsDepth',
     code: buildingsDepthWgsl,
@@ -35,7 +36,7 @@ export const createBuildingsDepthPipeline = (
       { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
     ],
   });
-  const pipeline = device.createRenderPipeline({
+  const pipeline = await renderPipelineAsync(device, {
     label: 'buildingsDepth',
     layout: device.createPipelineLayout({
       bindGroupLayouts: [cascadeLayout, poolLayout],

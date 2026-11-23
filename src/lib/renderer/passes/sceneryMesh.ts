@@ -12,6 +12,7 @@ import type { FrameContext, Pass } from '../engine/frameGraph';
 import type { Mat4 } from '../math/mat4';
 import sceneryMeshWgsl from './sceneryMesh.wgsl?raw';
 import { ALWAYS_REVEALED, packRevealUniform, SCENERY_REVEAL_UNIFORM_BYTES } from './sceneryReveal';
+import { renderPipelineAsync } from '../engine/pipelineAsync';
 
 /**
  * One instance record: a mat4 model, a tint vec4 and an effect vec4
@@ -173,18 +174,18 @@ export interface CreateSceneryMeshPassOptions {
   frameUniforms: GPUBuffer;
 }
 
-export const createSceneryMeshPass = ({
+export const createSceneryMeshPass = async ({
   device,
   format,
   frameUniforms,
-}: CreateSceneryMeshPassOptions): SceneryMeshPass => {
+}: CreateSceneryMeshPassOptions): Promise<SceneryMeshPass> => {
   const module = device.createShaderModule({ label: 'sceneryMesh', code: sceneryMeshWgsl });
   const vertexBuffers: GPUVertexBufferLayout[] = [
     { arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }] },
     { arrayStride: 12, attributes: [{ shaderLocation: 1, offset: 0, format: 'float32x3' }] },
     { arrayStride: 16, attributes: [{ shaderLocation: 2, offset: 0, format: 'float32x4' }] },
   ];
-  const pipeline = device.createRenderPipeline({
+  const pipeline = await renderPipelineAsync(device, {
     label: 'sceneryMesh',
     layout: 'auto',
     vertex: { module, entryPoint: 'vs_main', buffers: vertexBuffers },
@@ -195,7 +196,7 @@ export const createSceneryMeshPass = ({
   // #728 FR2 — the race ghost: the same mesh, blended over what is behind
   // it. It tests against the scene's depth but does not write it, so the
   // water and the player's boat stay visible through it.
-  const translucentPipeline = device.createRenderPipeline({
+  const translucentPipeline = await renderPipelineAsync(device, {
     label: 'sceneryMesh-translucent',
     layout: 'auto',
     vertex: { module, entryPoint: 'vs_main', buffers: vertexBuffers },

@@ -29,9 +29,9 @@ const makeDevice = () => ({
 }) as unknown as GPUDevice;
 
 describe('createBankDepthPipeline', () => {
-  it('builds a straight-ribbon pipeline when no curve is supplied', () => {
+  it('builds a straight-ribbon pipeline when no curve is supplied', async () => {
     const d = makeDevice();
-    const p = createBankDepthPipeline(d);
+    const p = await createBankDepthPipeline(d);
     expect(p.indexCount).toBeGreaterThan(0);
     expect(p.positions).toBeTruthy();
     expect(p.sides).toBeTruthy();
@@ -41,13 +41,13 @@ describe('createBankDepthPipeline', () => {
     p.dispose();
   });
 
-  it('builds a longer vertex buffer when given a route curve', () => {
+  it('builds a longer vertex buffer when given a route curve', async () => {
     const d = makeDevice();
     const curve = new RouteCurve(
       [vec3(0, 0, 0), vec3(0, 0, -500), vec3(0, 0, -1000)],
       false,
     );
-    const p = createBankDepthPipeline(d, { curve });
+    const p = await createBankDepthPipeline(d, { curve });
     // 1 km route → defaultDivisions ≥ 100 → each strip has ≥ 100 columns × 2
     // verts × 2 strips → indices ≥ 100 × 6 × 2 = 1200.
     expect(p.indexCount).toBeGreaterThan(1200);
@@ -56,23 +56,23 @@ describe('createBankDepthPipeline', () => {
 
   // #742 FR4/FR5 — the shadow caster gives way to the same water the lit
   // bank does, and draws none of the triangles it drops.
-  it('casts no bank over the water footprint it is given', () => {
+  it('casts no bank over the water footprint it is given', async () => {
     const curve = new RouteCurve([vec3(0, 0, 0), vec3(0, 0, -200)], false);
-    const whole = createBankDepthPipeline(makeDevice(), { curve, footprint: null });
+    const whole = await createBankDepthPipeline(makeDevice(), { curve, footprint: null });
     const allWater = { quads: 0, contains: () => true, shoreDistance: () => 10 };
     const d = makeDevice();
-    const none = createBankDepthPipeline(d, { curve, footprint: allWater });
+    const none = await createBankDepthPipeline(d, { curve, footprint: allWater });
     expect(whole.indexCount).toBeGreaterThan(0);
     expect(none.indexCount).toBe(0);
     whole.dispose();
     none.dispose();
   });
 
-  it('passes `edgesForProgress` through to the bank strip builder', () => {
+  it('passes `edgesForProgress` through to the bank strip builder', async () => {
     const d = makeDevice();
     const curve = new RouteCurve([vec3(0, 0, 0), vec3(0, 0, -200)], false);
     const edges = vi.fn(() => ({ left: 5, right: 25 }));
-    const p = createBankDepthPipeline(d, { curve, edgesForProgress: edges });
+    const p = await createBankDepthPipeline(d, { curve, edgesForProgress: edges });
     expect(edges).toHaveBeenCalled();
     p.dispose();
   });

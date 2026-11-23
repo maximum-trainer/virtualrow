@@ -19,6 +19,7 @@ import {
   type WakeState,
 } from '../engine/wakeParticles';
 import wakeWgsl from './wakeParticles.wgsl?raw';
+import { renderPipelineAsync } from '../engine/pipelineAsync';
 
 export interface WakeParticlesPassOptions {
   device: GPUDevice;
@@ -29,14 +30,14 @@ export interface WakeParticlesPassOptions {
   wakeState: WakeState;
 }
 
-export const createWakeParticlesPass = ({
+export const createWakeParticlesPass = async ({
   device,
   format,
   frameUniforms,
   wakeState,
-}: WakeParticlesPassOptions): Pass => {
+}: WakeParticlesPassOptions): Promise<Pass> => {
   const module = device.createShaderModule({ label: 'wake', code: wakeWgsl });
-  const pipeline = device.createRenderPipeline({
+  const pipeline = await renderPipelineAsync(device, {
     label: 'wake',
     layout: 'auto',
     vertex: { module, entryPoint: 'vs_main' },

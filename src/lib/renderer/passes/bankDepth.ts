@@ -10,6 +10,7 @@ import { buildBankStrips, indexUpload } from '../plan/bankStrip';
 import type { WaterFootprint } from '../plan/waterFootprint';
 import type { WaterEdges } from '../plan/waterStrip';
 import bankDepthWgsl from './bankDepth.wgsl?raw';
+import { renderPipelineAsync } from '../engine/pipelineAsync';
 
 export interface BankDepthPipeline {
   pipeline: GPURenderPipeline;
@@ -32,10 +33,10 @@ export interface BankDepthOptions {
   footprint?: WaterFootprint | null;
 }
 
-export const createBankDepthPipeline = (
+export const createBankDepthPipeline = async (
   device: GPUDevice,
   options: BankDepthOptions = {},
-): BankDepthPipeline => {
+): Promise<BankDepthPipeline> => {
   const module = device.createShaderModule({ label: 'bankDepth', code: bankDepthWgsl });
   const cascadeLayout = device.createBindGroupLayout({
     label: 'bankDepth:cascade',
@@ -43,7 +44,7 @@ export const createBankDepthPipeline = (
       { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: 'uniform' } },
     ],
   });
-  const pipeline = device.createRenderPipeline({
+  const pipeline = await renderPipelineAsync(device, {
     label: 'bankDepth',
     layout: device.createPipelineLayout({ bindGroupLayouts: [cascadeLayout] }),
     vertex: {

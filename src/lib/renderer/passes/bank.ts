@@ -16,6 +16,7 @@ import { paintBiomeDensityR8 } from '../../scenery/biomeDensity';
 import { BANK_ATLAS_SIZE, paintBankAtlas } from '../../scenery/bankAtlas';
 import type { SceneryProfile } from '../../services/routeEnrichmentService';
 import bankWgsl from './bank.wgsl?raw';
+import { renderPipelineAsync } from '../engine/pipelineAsync';
 
 export interface ShadowResources {
   uniforms: GPUBuffer;
@@ -72,7 +73,7 @@ export const meanLinearGrass = (pixels: Uint8Array): [number, number, number] =>
   return [r / n, g / n, b / n];
 };
 
-export const createBankPass = ({
+export const createBankPass = async ({
   device,
   format,
   frameUniforms,
@@ -82,10 +83,10 @@ export const createBankPass = ({
   edgesForProgress,
   grass,
   footprint,
-}: BankPassOptions): Pass => {
+}: BankPassOptions): Promise<Pass> => {
   const code = SHADOW_UNIFORMS_WGSL + SAMPLE_SHADOW_WGSL + HORIZON_HAZE_WGSL + bankWgsl;
   const module = device.createShaderModule({ label: 'bank', code });
-  const pipeline = device.createRenderPipeline({
+  const pipeline = await renderPipelineAsync(device, {
     label: 'bank',
     layout: 'auto',
     vertex: {
@@ -118,7 +119,7 @@ export const createBankPass = ({
   // they meet. No depth write and no depth test: it is drawn first, straight
   // over the sky, and everything else draws over it. That rules out
   // z-fighting with the water 0.1 m below it at any distance.
-  const groundPipeline = device.createRenderPipeline({
+  const groundPipeline = await renderPipelineAsync(device, {
     label: 'bank-ground',
     layout: 'auto',
     vertex: {

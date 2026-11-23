@@ -11,6 +11,7 @@
 import type { FrustumPlanes } from '../math/frustum';
 import type { InstancePool } from '../plan/instancePools';
 import sceneryCullWgsl from './sceneryCull.wgsl?raw';
+import { computePipelineAsync } from '../engine/pipelineAsync';
 
 export const INDIRECT_DRAW_ARGS_SIZE = 20; // 5 * u32
 
@@ -51,7 +52,7 @@ const UNIFORM_FLOATS = 4 /*planes[0]*/ + 4 + 4 + 4 + 4 + 4 /*planes[1..5]*/ + 4 
 const UNIFORM_WORDS = UNIFORM_FLOATS + 4; // draw.vec4<u32>
 const UNIFORM_BYTES = UNIFORM_WORDS * 4;
 
-export const createSceneryCuller = (device: GPUDevice): SceneryCuller => {
+export const createSceneryCuller = async (device: GPUDevice): Promise<SceneryCuller> => {
   const module = device.createShaderModule({ label: 'sceneryCull', code: sceneryCullWgsl });
   const bindGroupLayout = device.createBindGroupLayout({
     label: 'sceneryCull',
@@ -62,7 +63,7 @@ export const createSceneryCuller = (device: GPUDevice): SceneryCuller => {
       { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
     ],
   });
-  const pipeline = device.createComputePipeline({
+  const pipeline = await computePipelineAsync(device, {
     label: 'sceneryCull',
     layout: device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] }),
     compute: { module, entryPoint: 'cs_main' },

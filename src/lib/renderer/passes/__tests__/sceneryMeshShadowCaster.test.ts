@@ -52,8 +52,8 @@ const register = (pass: SceneryMeshPass, id: string, castsShadow?: boolean): voi
 describe('#688 sceneryMesh pass — shadow-caster exemption', () => {
   let pass: SceneryMeshPass;
 
-  beforeEach(() => {
-    pass = createSceneryMeshPass({
+  beforeEach(async () => {
+    pass = await createSceneryMeshPass({
       device: makeFakeDevice(),
       format: 'rgba8unorm',
       frameUniforms: {} as GPUBuffer,

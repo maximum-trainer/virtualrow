@@ -9,6 +9,7 @@
 import type { FrameContext, Pass } from '../engine/frameGraph';
 import type { OarSplashState } from '../engine/oarSplashParticles';
 import oarSplashWgsl from './oarSplashParticles.wgsl?raw';
+import { renderPipelineAsync } from '../engine/pipelineAsync';
 
 export interface OarSplashPassOptions {
   device: GPUDevice;
@@ -17,14 +18,14 @@ export interface OarSplashPassOptions {
   state: OarSplashState;
 }
 
-export const createOarSplashPass = ({
+export const createOarSplashPass = async ({
   device,
   format,
   frameUniforms,
   state,
-}: OarSplashPassOptions): Pass => {
+}: OarSplashPassOptions): Promise<Pass> => {
   const module = device.createShaderModule({ label: 'oar-splash', code: oarSplashWgsl });
-  const pipeline = device.createRenderPipeline({
+  const pipeline = await renderPipelineAsync(device, {
     label: 'oar-splash',
     layout: 'auto',
     vertex: { module, entryPoint: 'vs_main' },

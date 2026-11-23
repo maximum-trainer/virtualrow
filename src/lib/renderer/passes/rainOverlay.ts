@@ -14,6 +14,7 @@
 
 import type { FrameContext, Pass } from '../engine/frameGraph';
 import rainWgsl from './rainOverlay.wgsl?raw';
+import { renderPipelineAsync } from '../engine/pipelineAsync';
 
 export interface RainOverlayPassOptions {
   device: GPUDevice;
@@ -21,13 +22,13 @@ export interface RainOverlayPassOptions {
   frameUniforms: GPUBuffer;
 }
 
-export const createRainOverlayPass = ({
+export const createRainOverlayPass = async ({
   device,
   format,
   frameUniforms,
-}: RainOverlayPassOptions): Pass => {
+}: RainOverlayPassOptions): Promise<Pass> => {
   const module = device.createShaderModule({ label: 'rain-overlay', code: rainWgsl });
-  const pipeline = device.createRenderPipeline({
+  const pipeline = await renderPipelineAsync(device, {
     label: 'rain-overlay',
     layout: 'auto',
     vertex: { module, entryPoint: 'vs_main' },

@@ -11,6 +11,7 @@
 
 import type { PoolCullResources } from './sceneryCull';
 import sceneryWgsl from './scenery.wgsl?raw';
+import { renderPipelineAsync } from '../engine/pipelineAsync';
 
 export interface ScenerySignature {
   module: GPUShaderModule;
@@ -22,10 +23,10 @@ export interface ScenerySignature {
 
 export const INSTANCE_INDEX_COUNT = 12; // see QUAD_INDICES in scenery.wgsl
 
-export const createScenerySignature = (
+export const createScenerySignature = async (
   device: GPUDevice,
   format: GPUTextureFormat,
-): ScenerySignature => {
+): Promise<ScenerySignature> => {
   const module = device.createShaderModule({ label: 'scenery', code: sceneryWgsl });
   const frameLayout = device.createBindGroupLayout({
     label: 'scenery-frame',
@@ -45,7 +46,7 @@ export const createScenerySignature = (
       { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
     ],
   });
-  const pipeline = device.createRenderPipeline({
+  const pipeline = await renderPipelineAsync(device, {
     label: 'scenery',
     layout: device.createPipelineLayout({ bindGroupLayouts: [frameLayout, poolLayout] }),
     vertex: { module, entryPoint: 'vs_main' },

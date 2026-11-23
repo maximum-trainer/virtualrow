@@ -9,10 +9,10 @@ import { createWaterDebugPass } from '../lib/renderer/passes/waterDebug';
  * flag is on but nothing has been detected yet.
  */
 describe('createWaterDebugPass', () => {
-  it('returns null for an empty debug input (no mesh → no pass)', () => {
+  it('returns null for an empty debug input (no mesh → no pass)', async () => {
     const stubDevice = {} as unknown as GPUDevice;
     const stubBuffer = {} as unknown as GPUBuffer;
-    const pass = createWaterDebugPass({
+    const pass = await createWaterDebugPass({
       device: stubDevice,
       format: 'bgra8unorm',
       frameUniforms: stubBuffer,

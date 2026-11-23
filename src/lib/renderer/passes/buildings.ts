@@ -14,6 +14,7 @@ import type { ShadowResources } from './bank';
 import type { BuildingPool } from '../plan/buildings';
 import { BUILDING_ATLAS_SIZE, paintBuildingAtlas } from '../../scenery/buildingAtlas';
 import buildingsWgsl from './buildings.wgsl?raw';
+import { renderPipelineAsync } from '../engine/pipelineAsync';
 
 /**
  * 48 vertices per instance: 36 for the box prism (six faces × two tris ×
@@ -39,11 +40,11 @@ export interface BuildingsPass extends Pass {
   readonly pool: BuildingPool | null;
 }
 
-export const createBuildingsPass = (opts: BuildingsPassOptions): BuildingsPass => {
+export const createBuildingsPass = async (opts: BuildingsPassOptions): Promise<BuildingsPass> => {
   const { device, format, frameUniforms, shadow, pool, telemetry } = opts;
   const code = SHADOW_UNIFORMS_WGSL + SAMPLE_SHADOW_WGSL + buildingsWgsl;
   const module = device.createShaderModule({ label: 'buildings', code });
-  const pipeline = device.createRenderPipeline({
+  const pipeline = await renderPipelineAsync(device, {
     label: 'buildings',
     layout: 'auto',
     vertex: { module, entryPoint: 'vs_main' },
