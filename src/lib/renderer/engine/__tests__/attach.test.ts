@@ -100,6 +100,32 @@ describe('attach', () => {
     renderer.dispose();
   });
 
+  // #726 VP-08 FR6 — a model that fails to load is reported, not swallowed.
+  it('reports scenery models whose fetch fails on __ROWER3D_SCENERY', async () => {
+    const original = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(null, { status: 404 })) as typeof fetch;
+    try {
+      const renderer = (await attach(makeMockCanvas(), {
+        testMode: true,
+        route: {
+          pools: [],
+          sceneryGlbs: [{ id: 'a09-gazebo-hexagonal', instances: [{ position: [40, 0, -50], rotationY: 0, scale: 1 }] }],
+        },
+      })) as unknown as WithTest & {
+        _telemetry: { scenery: { failed: number; failedIds: string[]; registered: number } };
+      };
+      for (let i = 0; i < 20 && renderer._telemetry.scenery.failed === 0; i += 1) {
+        renderer._frameOnce();
+        await new Promise((r) => setTimeout(r, 5));
+      }
+      expect(renderer._telemetry.scenery.failedIds).toContain('a09-gazebo-hexagonal');
+      expect(renderer._telemetry.scenery.failed).toBe(renderer._telemetry.scenery.failedIds.length);
+      renderer.dispose();
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
   it('isSceneryRoute recognises the shape', () => {
     expect(isSceneryRoute({ pools: [] })).toBe(true);
     expect(isSceneryRoute(null)).toBe(false);

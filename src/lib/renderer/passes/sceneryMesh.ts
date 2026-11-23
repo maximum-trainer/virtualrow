@@ -86,6 +86,8 @@ interface RegisteredMesh {
   instanceCount: number;
   /** #728 — per instance, whether it draws in the translucent pass. */
   translucent: Uint8Array;
+  /** #726 FR4 — CPU staging for the instance buffer: one write per `setInstances`. */
+  staging: Float32Array;
   translucentCount: number;
   bindGroup: GPUBindGroup;
   translucentBindGroup: GPUBindGroup;
@@ -212,7 +214,6 @@ export const createSceneryMeshPass = ({
   const translucentMeshLayout = translucentPipeline.getBindGroupLayout(1);
 
   const registry = new Map<string, RegisteredMesh>();
-  const scratchInstance = new Float32Array(FLOATS_PER_INSTANCE);
 
   const register = (input: SceneryMeshInput): void => {
     if (registry.has(input.id)) return;
@@ -297,6 +298,7 @@ export const createSceneryMeshPass = ({
       maxInstances: Math.max(1, input.maxInstances),
       instanceCount: 0,
       translucent: new Uint8Array(Math.max(1, input.maxInstances)),
+      staging: new Float32Array(Math.max(1, input.maxInstances) * FLOATS_PER_INSTANCE),
       translucentCount: 0,
       bindGroup,
       translucentBindGroup,
@@ -319,24 +321,33 @@ export const createSceneryMeshPass = ({
     mesh.translucentCount = 0;
     for (let i = 0; i < count; i += 1) {
       const inst = instances[i];
-      scratchInstance.fill(0);
+      const o = i * FLOATS_PER_INSTANCE;
+      const slot = mesh.staging.subarray(o, o + FLOATS_PER_INSTANCE);
+      slot.fill(0);
       if (isStyled(inst)) {
-        scratchInstance.set(inst.model, 0);
-        if (inst.tint) scratchInstance.set(inst.tint, 16);
+        slot.set(inst.model, 0);
+        if (inst.tint) slot.set(inst.tint, 16);
         const alpha = inst.alpha ?? 1;
-        scratchInstance[20] = alpha;
-        scratchInstance[21] = inst.rim ?? 0;
-        scratchInstance[22] = inst.flat ?? 0;
-        scratchInstance[23] = inst.haze ?? 1;
+        slot[20] = alpha;
+        slot[21] = inst.rim ?? 0;
+        slot[22] = inst.flat ?? 0;
+        slot[23] = inst.haze ?? 1;
         mesh.translucent[i] = alpha < 1 ? 1 : 0;
       } else {
-        scratchInstance.set(inst, 0);
-        scratchInstance[20] = 1;
-        scratchInstance[23] = 1;
+        slot.set(inst, 0);
+        slot[20] = 1;
+        slot[23] = 1;
         mesh.translucent[i] = 0;
       }
       mesh.translucentCount += mesh.translucent[i];
-      device.queue.writeBuffer(mesh.instanceBuffer, i * SCENERY_INSTANCE_BYTES, scratchInstance as BufferSource);
+    }
+    // #726 FR4 — one contiguous write for the whole list, not one per instance.
+    if (count > 0) {
+      device.queue.writeBuffer(
+        mesh.instanceBuffer,
+        0,
+        mesh.staging.subarray(0, count * FLOATS_PER_INSTANCE) as BufferSource,
+      );
     }
   };
 

@@ -102,8 +102,30 @@ describe('createSceneryMeshPass', () => {
     const writesBefore = (queue.writeBuffer as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
     p.setInstances('buoy', [mat4Identity(mat4()), mat4Identity(mat4()), mat4Identity(mat4()), mat4Identity(mat4())]);
     const writesAfter = (queue.writeBuffer as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
-    // Clamped to 2 writes.
-    expect(writesAfter - writesBefore).toBe(2);
+    // Clamped to 2 instances, in one write.
+    expect(writesAfter - writesBefore).toBe(1);
+    const last = (queue.writeBuffer as unknown as { mock: { calls: unknown[][] } }).mock.calls.at(-1)!;
+    expect((last[2] as Float32Array).byteLength).toBe(2 * SCENERY_INSTANCE_BYTES);
+  });
+
+  // #726 VP-08 FR4 — one model's instances go up in one write, not one per instance.
+  it('uploads 400 instances in exactly one writeBuffer', () => {
+    const { device, queue } = makeDevice();
+    const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+    p.register(makeInput({ id: 'tree', maxInstances: 1024 }));
+    const calls = (queue.writeBuffer as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    const before = calls.length;
+    const instances = Array.from({ length: 400 }, (_, i) => {
+      const m = mat4Identity(mat4());
+      m[12] = i;
+      return m;
+    });
+    p.setInstances('tree', instances);
+    expect(calls.length - before).toBe(1);
+    const [, offset, data] = calls[calls.length - 1] as [GPUBuffer, number, Float32Array];
+    expect(offset).toBe(0);
+    expect(data.byteLength).toBe(400 * SCENERY_INSTANCE_BYTES);
+    expect(data[399 * (SCENERY_INSTANCE_BYTES / 4) + 12]).toBe(399);
   });
 
   it('encode skips when nothing is registered', () => {
@@ -327,13 +349,14 @@ describe('createSceneryMeshPass', () => {
         { model: mat4Identity(mat4()), tint: [0.6, 1, 0.3, 1], alpha: 0.6, rim: 0.8, flat: 1 },
       ]);
       const w = writes(queue).slice(before);
-      expect(w).toHaveLength(2);
+      expect(w).toHaveLength(1);
       expect(w[0][1]).toBe(0);
-      expect(w[1][1]).toBe(SCENERY_INSTANCE_BYTES);
+      const both = copies[copies.length - 1];
+      expect(both.length).toBe(2 * 24);
       // An unstyled instance keeps its authored colour, fully opaque.
       // fx.w is the share of the distance haze it takes: all of it by default.
-      expect(Array.from(copies[0].slice(16, 24))).toEqual([0, 0, 0, 0, 1, 0, 0, 1]);
-      expect(Array.from(copies[1].slice(16, 24)).map((v) => Number(v.toFixed(3)))).toEqual([0.6, 1, 0.3, 1, 0.6, 0.8, 1, 1]);
+      expect(Array.from(both.slice(16, 24))).toEqual([0, 0, 0, 0, 1, 0, 0, 1]);
+      expect(Array.from(both.slice(24 + 16, 24 + 24)).map((v) => Number(v.toFixed(3)))).toEqual([0.6, 1, 0.3, 1, 0.6, 0.8, 1, 1]);
       p.setInstances('hull', [{ model: mat4Identity(mat4()), tint: [0, 0, 0, 1], haze: 0 }]);
       expect(copies[copies.length - 1][23]).toBe(0);
     });
