@@ -356,6 +356,28 @@
         "radius": 30,
         "centreX": 0,
         "centreZ": 0
+      },
+      "span": {
+        "axis": "x",
+        "start": -30,
+        "length": 60,
+        "openings": [
+          {
+            "centre": -19.75,
+            "width": 13.5,
+            "underside": 4
+          },
+          {
+            "centre": 0,
+            "width": 13,
+            "underside": 5.15
+          },
+          {
+            "centre": 19.75,
+            "width": 13.5,
+            "underside": 3.8
+          }
+        ]
       }
     },
     "c02-bridge-road-concrete": {
@@ -373,6 +395,28 @@
         "radius": 40,
         "centreX": 0,
         "centreZ": 0
+      },
+      "span": {
+        "axis": "x",
+        "start": -40,
+        "length": 80,
+        "openings": [
+          {
+            "centre": -30.75,
+            "width": 18.5,
+            "underside": 8.5
+          },
+          {
+            "centre": 0,
+            "width": 37,
+            "underside": 8.5
+          },
+          {
+            "centre": 30.75,
+            "width": 18.5,
+            "underside": 8.5
+          }
+        ]
       }
     },
     "c03-bridge-truss-steel": {
@@ -390,6 +434,12 @@
         "radius": 35.25,
         "centreX": 0,
         "centreZ": 0
+      },
+      "span": {
+        "axis": "x",
+        "start": -35.25,
+        "length": 70.5,
+        "openings": []
       }
     },
     "c04-bridge-rail-girder": {
@@ -407,6 +457,18 @@
         "radius": 22.5004,
         "centreX": 0,
         "centreZ": 0
+      },
+      "span": {
+        "axis": "x",
+        "start": -22.5004,
+        "length": 45.0008,
+        "openings": [
+          {
+            "centre": 0.2496,
+            "width": 34.5,
+            "underside": 3.5
+          }
+        ]
       }
     },
     "c05-bridge-bascule": {
@@ -424,6 +486,18 @@
         "radius": 11.8722,
         "centreX": -3.1278,
         "centreZ": -1.4999
+      },
+      "span": {
+        "axis": "x",
+        "start": -15,
+        "length": 23.7444,
+        "openings": [
+          {
+            "centre": -9.25,
+            "width": 11.5,
+            "underside": 3
+          }
+        ]
       }
     },
     "c06-bridge-foot-suspension": {
@@ -441,6 +515,18 @@
         "radius": 27.5392,
         "centreX": 0,
         "centreZ": -0.0002
+      },
+      "span": {
+        "axis": "x",
+        "start": -27.5392,
+        "length": 55.0783,
+        "openings": [
+          {
+            "centre": 0.2108,
+            "width": 55.5,
+            "underside": 5.85
+          }
+        ]
       }
     },
     "c07-bridge-dutch-lift": {
@@ -458,6 +544,18 @@
         "radius": 5.1218,
         "centreX": 1.8782,
         "centreZ": 0
+      },
+      "span": {
+        "axis": "x",
+        "start": -3.2436,
+        "length": 10.2436,
+        "openings": [
+          {
+            "centre": 4.2564,
+            "width": 6,
+            "underside": 3.8
+          }
+        ]
       }
     },
     "c08-bridge-cantilever": {
@@ -475,6 +573,18 @@
         "radius": 60.2114,
         "centreX": 0,
         "centreZ": 0
+      },
+      "span": {
+        "axis": "x",
+        "start": -60.2114,
+        "length": 120.4229,
+        "openings": [
+          {
+            "centre": 0.0386,
+            "width": 120.5,
+            "underside": 9.4
+          }
+        ]
       }
     },
     "d-ce-01-baroque-church-onion": {
@@ -2039,6 +2149,33 @@
         "radius": 60,
         "centreX": 0,
         "centreZ": 0
+      },
+      "span": {
+        "axis": "x",
+        "start": -60,
+        "length": 120,
+        "openings": [
+          {
+            "centre": -50.5,
+            "width": 19,
+            "underside": 10.5
+          },
+          {
+            "centre": -20,
+            "width": 38,
+            "underside": 10.5
+          },
+          {
+            "centre": 20,
+            "width": 38,
+            "underside": 10.5
+          },
+          {
+            "centre": 50.5,
+            "width": 19,
+            "underside": 10.5
+          }
+        ]
       }
     },
     "g03-bridge-pipeline": {
@@ -2056,6 +2193,53 @@
         "radius": 22.5,
         "centreX": 0,
         "centreZ": 0
+      },
+      "span": {
+        "axis": "x",
+        "start": -22.5,
+        "length": 45,
+        "openings": [
+          {
+            "centre": -20.5,
+            "width": 4,
+            "underside": 4.1
+          },
+          {
+            "centre": -15,
+            "width": 5,
+            "underside": 4.1
+          },
+          {
+            "centre": -9,
+            "width": 5,
+            "underside": 4.1
+          },
+          {
+            "centre": -3,
+            "width": 5,
+            "underside": 4.1
+          },
+          {
+            "centre": 3,
+            "width": 5,
+            "underside": 4.1
+          },
+          {
+            "centre": 9,
+            "width": 5,
+            "underside": 4.1
+          },
+          {
+            "centre": 15,
+            "width": 5,
+            "underside": 4.1
+          },
+          {
+            "centre": 20.5,
+            "width": 4,
+            "underside": 4.1
+          }
+        ]
       }
     },
     "g04-bridge-tram": {
@@ -2073,6 +2257,43 @@
         "radius": 30,
         "centreX": 0,
         "centreZ": 0
+      },
+      "span": {
+        "axis": "x",
+        "start": -30,
+        "length": 60,
+        "openings": [
+          {
+            "centre": -27.75,
+            "width": 4.5,
+            "underside": 8.3
+          },
+          {
+            "centre": -18,
+            "width": 9,
+            "underside": 8.3
+          },
+          {
+            "centre": -6,
+            "width": 9,
+            "underside": 8.3
+          },
+          {
+            "centre": 6,
+            "width": 9,
+            "underside": 8.3
+          },
+          {
+            "centre": 18,
+            "width": 9,
+            "underside": 8.3
+          },
+          {
+            "centre": 27.75,
+            "width": 4.5,
+            "underside": 8.3
+          }
+        ]
       }
     },
     "g05-footbridge-timber": {
@@ -2090,6 +2311,23 @@
         "radius": 12,
         "centreX": 0,
         "centreZ": 0
+      },
+      "span": {
+        "axis": "x",
+        "start": -12,
+        "length": 24,
+        "openings": [
+          {
+            "centre": -5.5,
+            "width": 9,
+            "underside": 3.45
+          },
+          {
+            "centre": 5.5,
+            "width": 9,
+            "underside": 3.45
+          }
+        ]
       }
     },
     "g06-dam-gravity-concrete": {
@@ -2226,6 +2464,18 @@
         "radius": 30,
         "centreX": 0,
         "centreZ": 4.6755
+      },
+      "span": {
+        "axis": "x",
+        "start": -30,
+        "length": 60,
+        "openings": [
+          {
+            "centre": 0,
+            "width": 60,
+            "underside": 3.3
+          }
+        ]
       }
     },
     "l-fremont-bridge": {
@@ -2243,6 +2493,18 @@
         "radius": 21.2168,
         "centreX": 0,
         "centreZ": 0
+      },
+      "span": {
+        "axis": "x",
+        "start": -21.2168,
+        "length": 42.4337,
+        "openings": [
+          {
+            "centre": 0.0332,
+            "width": 19.5,
+            "underside": 3.85
+          }
+        ]
       }
     },
     "l-ponte-isabella": {
@@ -2260,6 +2522,28 @@
         "radius": 35,
         "centreX": 0,
         "centreZ": 0
+      },
+      "span": {
+        "axis": "x",
+        "start": -35,
+        "length": 70,
+        "openings": [
+          {
+            "centre": -22.75,
+            "width": 15.5,
+            "underside": 4.5
+          },
+          {
+            "centre": 0,
+            "width": 15,
+            "underside": 5.1
+          },
+          {
+            "centre": 22.75,
+            "width": 15.5,
+            "underside": 4.3
+          }
+        ]
       }
     },
     "scull-female": {

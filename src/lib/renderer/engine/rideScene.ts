@@ -116,6 +116,7 @@ import {
   createFleet,
   fleetFadeFor,
   fleetHullTintFor,
+  fleetMemberOnCourse,
   fleetStrokeOffset,
   fleetPaletteIndexForColor,
   fleetWaterHalfWidth,
@@ -154,6 +155,8 @@ import {
 } from '../../scenery/foliageTexture';
 import { buildFoliageMips } from '../../scenery/foliageMips';
 import { mergeSceneryInstances } from '../../scenery/mergeSceneryInstances';
+import { spanCeilingAt, type SpanCeilingSource } from '../../scenery/bridgeSpan';
+import { BRIDGE_SPANS } from '../../scenery/bridgeSpans.generated';
 import { loadFloraAtlas } from './textureLoader';
 import { mipLevelCountFor, textureBytes } from './textures';
 import { createFrameGraph, type FrameGraph, type FrameUniforms, type Pass } from './frameGraph';
@@ -1184,9 +1187,11 @@ export const createRideScene = async (
     const rot = mat4();
     const t = mat4();
     mat4FromRotationY(rot, place.rotationY);
-    rot[0] *= ASSET_SCALE; rot[1] *= ASSET_SCALE; rot[2] *= ASSET_SCALE;
-    rot[4] *= ASSET_SCALE; rot[5] *= ASSET_SCALE; rot[6] *= ASSET_SCALE;
-    rot[8] *= ASSET_SCALE; rot[9] *= ASSET_SCALE; rot[10] *= ASSET_SCALE;
+    // #724 — spans carry the scale that fits them to the river.
+    const k = ASSET_SCALE * (place.scale ?? 1);
+    rot[0] *= k; rot[1] *= k; rot[2] *= k;
+    rot[4] *= k; rot[5] *= k; rot[6] *= k;
+    rot[8] *= k; rot[9] *= k; rot[10] *= k;
     mat4Identity(t);
     t[12] = place.position[0];
     t[13] = place.position[1];
@@ -1225,6 +1230,38 @@ export const createRideScene = async (
     }
     routeGlbInstanceMats.set(group.id, mats);
   }
+  // #724 VP-06 FR4 — every bridge span in the scene, so the camera can
+  // stay under its deck: the hand-authored/composed spans with their fitted
+  // headroom, and the route's own bridge GLBs (OSM crossings, landmarks),
+  // whose headroom is read from the opening over the camera.
+  const bridgeSpans: SpanCeilingSource[] = [
+    ...furniture
+      .filter((place) => place.kind === 'span')
+      .map((place) => ({
+        id: place.id,
+        position: place.position,
+        rotationY: place.rotationY,
+        scale: place.scale ?? 1,
+        ceiling: place.ceiling,
+      })),
+    ...sceneryGlbList
+      .filter((group) => group.id in BRIDGE_SPANS)
+      .flatMap((group) => group.instances.map((inst) => ({
+        id: group.id,
+        position: inst.position,
+        rotationY: inst.rotationY,
+        scale: inst.scale / ASSET_SCALE,
+      }))),
+  ];
+  telemetry.route.spans = bridgeSpans.map((span) => ({
+    id: span.id,
+    x: span.position[0],
+    z: span.position[2],
+    rotationY: span.rotationY,
+    scale: span.scale,
+    ceiling: span.ceiling ?? null,
+  }));
+  const ceilingAt = (x: number, z: number): number => spanCeilingAt(bridgeSpans, x, z);
   const sceneryInstanceMats = mergeSceneryInstances([
     courseFurnitureInstanceMats,
     routeGlbInstanceMats,
@@ -1408,6 +1445,8 @@ export const createRideScene = async (
   // those three frames sample the same pixels of a boat that has not moved.
   let holdFrame = false;
   let heldFrame: { time: number; ride: RideFrame | null; smoothed?: RideFrame | null } | null = null;
+  // #724 — test mode: pin the boat at a distance along the route (null rows).
+  let seekMeters: number | null = null;
 
   const frameOnce = (): void => {
     if (disposed) return;
@@ -1428,7 +1467,7 @@ export const createRideScene = async (
     if (holdFrame && !heldFrame) heldFrame = { time: frame.time, ride: rideFrame };
     if (!holdFrame) heldFrame = null;
 
-    const smoothedFrame: RideFrame | null = heldFrame?.smoothed !== undefined
+    const rowedFrame: RideFrame | null = heldFrame?.smoothed !== undefined
       ? heldFrame.smoothed
       : rideFrame
       ? {
@@ -1440,6 +1479,10 @@ export const createRideScene = async (
           ),
         }
       : null;
+    // #724 — a spec can pin the boat to a distance to traverse a bridge.
+    const smoothedFrame: RideFrame | null = seekMeters !== null && rowedFrame
+      ? { ...rowedFrame, distanceMeters: seekMeters, holdBoat: false, finished: false }
+      : rowedFrame;
     if (heldFrame && heldFrame.smoothed === undefined) heldFrame.smoothed = smoothedFrame;
 
     placeBoat(boatPlacement, routeCurve, smoothedFrame, totalDistanceMeters, curveLength, 0);
@@ -1650,6 +1693,9 @@ export const createRideScene = async (
       else if (relative < -half) relative += totalDistanceMeters;
       const fade = fleetFadeFor(relative);
       if (fade <= 0) continue;
+      // #757 VP-33 — not behind the start or past the finish of a route
+      // that does not loop.
+      if (!fleetMemberOnCourse(relative, boatPlacement.distanceMeters, totalDistanceMeters, !!rideFrame?.loop)) continue;
       const slot = visibleFleet;
       visibleFleet += 1;
       const syntheticFrame: RideFrame = {
@@ -1777,6 +1823,7 @@ export const createRideScene = async (
         velocityMps: speedMps,
         view: rideFrame?.view ?? 'chase',
         bendSign: 0,
+        ceilingAt,
       },
       cameraRig,
     );
@@ -1916,6 +1963,10 @@ export const createRideScene = async (
     telemetry.camera.lookX = target[0];
     telemetry.camera.lookY = target[1];
     telemetry.camera.lookZ = target[2];
+    {
+      const ceiling = ceilingAt(eye[0], eye[2]);
+      telemetry.camera.ceiling = Number.isFinite(ceiling) ? ceiling : null;
+    }
   };
 
   // Lazy flora atlas load (#562 FR2 / FR3). The decoder lives in its own
@@ -1985,6 +2036,7 @@ export const createRideScene = async (
   const HIDE_GHOST_KEY = '__ROWER3D_HIDE_GHOST' as const;
   const GHOST_MASK_KEY = '__ROWER3D_GHOST_MASK' as const;
   const HOLD_FRAME_KEY = '__ROWER3D_HOLD_FRAME' as const;
+  const SEEK_METERS_KEY = '__ROWER3D_SEEK_METERS' as const;
   if (opts.testMode) {
     try {
       (globalThis as unknown as Record<string, unknown>)[SET_CONDITIONS_KEY] = setConditions;
@@ -1996,6 +2048,9 @@ export const createRideScene = async (
       };
       (globalThis as unknown as Record<string, unknown>)[HOLD_FRAME_KEY] = (on: boolean) => {
         holdFrame = !!on;
+      };
+      (globalThis as unknown as Record<string, unknown>)[SEEK_METERS_KEY] = (metres: number | null) => {
+        seekMeters = typeof metres === 'number' && Number.isFinite(metres) ? Math.max(0, metres) : null;
       };
     } catch { /* non-browser */ }
   }
@@ -2031,6 +2086,7 @@ export const createRideScene = async (
         delete (globalThis as unknown as Record<string, unknown>)[HIDE_GHOST_KEY];
         delete (globalThis as unknown as Record<string, unknown>)[GHOST_MASK_KEY];
         delete (globalThis as unknown as Record<string, unknown>)[HOLD_FRAME_KEY];
+        delete (globalThis as unknown as Record<string, unknown>)[SEEK_METERS_KEY];
       } catch { /* non-browser */ }
       clearPolygonWaterTelemetry();
       session.dispose();
