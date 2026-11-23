@@ -61,6 +61,7 @@
     "short-wide:responsive.spec.ts": 59,
     "tablet-landscape:responsive.spec.ts": 157,
     "tablet-portrait:responsive.spec.ts": 156,
-    "uhd:responsive.spec.ts": 232
+    "uhd:responsive.spec.ts": 232,
+    "default:webgpu-ride-camera-steady.spec.ts": 60
   }
 }
