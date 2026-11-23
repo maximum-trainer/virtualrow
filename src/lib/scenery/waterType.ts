@@ -76,3 +76,14 @@ export const waterWidthForType = (waterType: WaterBodyType): number => {
       return DEFAULT_WATER_WIDTH_METERS;
   }
 };
+
+/**
+ * FR4 — a route tagged `coastal` (sea courses, #756) has land on one side
+ * only. Nothing offline says which side the coast is on, so the land is
+ * put on the rower's left (port, looking down the course) and the sea on
+ * the right, where the water runs out past the ground's haze
+ * (`GROUND_HAZE_END_M`, 1.7 km) so it meets the sky at the horizon.
+ */
+export const COASTAL_TAG = 'coastal';
+export const COASTAL_LAND_SIDE: 'left' | 'right' = 'left';
+export const COASTAL_SEA_HALF_WIDTH_METERS = 2000;

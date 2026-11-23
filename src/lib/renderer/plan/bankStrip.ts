@@ -66,6 +66,11 @@ export interface BuildBankStripsOptions {
    * edges; pass null to keep every bank vertex up.
    */
   footprint?: WaterFootprint | null;
+  /**
+   * #755 FR4 — a coastal course has land on one side only: the strip on the
+   * other (sea) side is not emitted. Omitted → both banks.
+   */
+  landSide?: 'left' | 'right';
 }
 
 const UP: Vec3 = vec3(0, 1, 0);
@@ -190,8 +195,8 @@ export const buildBankStrips = (
     }
   };
 
-  writeStrip(-1, 0);
-  writeStrip(1, vertsPerStrip);
+  if (options.landSide !== 'right') writeStrip(-1, 0);
+  if (options.landSide !== 'left') writeStrip(1, vertsPerStrip);
 
   return { positions, sides, indices: indices.slice(0, written), indexFormat, sunkVertices, droppedTriangles };
 };

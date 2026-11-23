@@ -31,6 +31,8 @@ export interface BankDepthOptions {
   edgesForProgress?: (progress: number) => WaterEdges;
   /** #742 — the same water footprint the lit bank pass gives way to. */
   footprint?: WaterFootprint | null;
+  /** #755 FR4 — the same one-sided land as the lit bank pass. */
+  landSide?: 'left' | 'right';
 }
 
 export const createBankDepthPipeline = async (
@@ -62,6 +64,7 @@ export const createBankDepthPipeline = async (
     curve: options.curve ?? null,
     edgesForProgress: options.edgesForProgress,
     footprint: options.footprint,
+    landSide: options.landSide,
   });
   const positions = device.createBuffer({
     label: 'bankDepth-pos',

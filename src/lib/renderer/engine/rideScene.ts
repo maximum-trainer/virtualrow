@@ -281,6 +281,8 @@ export interface SceneryRoute {
    * per frame. Omitted → symmetric `WATER_CHANNEL_HALF_WIDTH`.
    */
   waterEdgesForProgress?: (progress: number) => { left: number; right: number };
+  /** #755 FR4 — a coastal course: land on this side only, sea on the other. */
+  landSide?: 'left' | 'right';
   /**
    * Dominant biome profile along the route — the bank pass's grass-density
    * tile (#496 Phase 2) is baked from this. One profile per route for now;
@@ -609,6 +611,7 @@ export const createRideScene = async (
     isSceneryRoute(opts.route) ? !!opts.route.isClosedLoop : false,
   );
   const waterEdgesForProgress = isSceneryRoute(opts.route) ? opts.route.waterEdgesForProgress : undefined;
+  const routeLandSide = isSceneryRoute(opts.route) ? opts.route.landSide : undefined;
   // #742 VP-22 FR2 — the water and bank strips close the gap between legs
   // that run beside each other. Fleet lanes and course furniture keep the
   // measured shores (`waterEdgesForProgress`).
@@ -1054,6 +1057,7 @@ export const createRideScene = async (
     bankCurve: waterCurve,
     bankEdgesForProgress: stripEdgesForProgress,
     bankFootprint,
+    bankLandSide: routeLandSide,
     // #591-fu P1c: tier-gated flora + GLB-scenery shadow casters. Each
     // input stays null below medium so the depth stage adds nothing on
     // basic/low; at medium+ the stage picks up every solid-flora pool
@@ -1098,6 +1102,7 @@ export const createRideScene = async (
     edgesForProgress: stripEdgesForProgress,
     footprint: bankFootprint,
     grass: { profile: bankGrassProfile, strength: bankGrassStrength },
+    landSide: routeLandSide,
   });
   // #493 Phase 3b — if the enrichment carried lake polygons AND the kill
   // switch isn't disabled, draw polygon water in place of the strip. The

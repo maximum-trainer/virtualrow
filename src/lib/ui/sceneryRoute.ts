@@ -37,7 +37,13 @@ import {
   type RouteEnrichmentData,
   type WaterBodyType,
 } from '../services/routeEnrichmentService';
-import { resolveWaterType, waterWidthForType } from '../scenery/waterType';
+import {
+  COASTAL_LAND_SIDE,
+  COASTAL_SEA_HALF_WIDTH_METERS,
+  COASTAL_TAG,
+  resolveWaterType,
+  waterWidthForType,
+} from '../scenery/waterType';
 import { DEFAULT_WATER_WIDTH_METERS } from '../scenery/waterHalfWidth';
 import { distanceBetweenLatLng, latLngToMeters } from '../utils/geoUtils';
 import type { OsmBuilding } from '../services/routeEnrichmentService';
@@ -149,6 +155,8 @@ export interface EngineRoute {
    * then applies its symmetric fallback.
    */
   waterEdgesForProgress?: (progress: number) => WaterEdges;
+  /** #755 FR4 — a coastal course: land on this side only, sea on the other. */
+  landSide?: 'left' | 'right';
   /** #741 — the route's water detection, published as `__ROWER3D_WATER_DETECTION`. */
   waterDetectionSummary?: WaterDetectionSummary;
   /**
@@ -281,12 +289,19 @@ export const toEngineRoute = (
   // enrichment (what the React scene does via defaultWaterWidthMeters).
   const fallbackWidthMeters =
     layoutEnrichment?.waterWidthMeters ?? DEFAULT_WATER_WIDTH_METERS / SCENE_SCALE;
-  const waterEdgesForProgress = (progress: number): WaterEdges =>
-    getWaterEdgesSceneUnitsForProgress(
+  // FR4 — a coastal course with no map data: land on one side, the sea out
+  // to the horizon on the other.
+  const landSide: 'left' | 'right' | undefined =
+    !enrichment && !routeTrack && route.tags?.includes(COASTAL_TAG) ? COASTAL_LAND_SIDE : undefined;
+  const seaSide = landSide === 'left' ? 'right' : landSide === 'right' ? 'left' : null;
+  const waterEdgesForProgress = (progress: number): WaterEdges => {
+    const edges = getWaterEdgesSceneUnitsForProgress(
       layoutEnrichment?.segmentProfiles,
       fallbackWidthMeters,
       progress,
     );
+    return seaSide ? { ...edges, [seaSide]: COASTAL_SEA_HALF_WIDTH_METERS * SCENE_SCALE } : edges;
+  };
 
   // Populate the foliage pools and facade buildings from the same
   // deterministic layouts the React scene uses. Three-free:
@@ -316,14 +331,29 @@ export const toEngineRoute = (
     const reeds = layoutReeds({ curve, enrichment: layoutEnrichment, track });
     const rocks = layoutRocks({ curve, enrichment: layoutEnrichment, track });
     const everyLeg = centrelineIndex(curvePoints);
+    // FR4 — on a coastal course nothing stands on the sea side.
+    const sideSample = { position: vec3(), tangent: vec3(0, 0, -1), angle: 0 };
+    const onLandSide = (progress: number, x: number, z: number): boolean => {
+      if (!seaSide) return true;
+      curve.sample(Math.max(0, Math.min(1, progress)), sideSample);
+      // perp = tangent × up = (−tz, 0, tx); negative is the left bank.
+      const s = (x - sideSample.position[0]) * -sideSample.tangent[2] + (z - sideSample.position[2]) * sideSample.tangent[0];
+      return (s < 0 ? 'left' : 'right') === landSide;
+    };
     const onShore = <T,>(items: readonly T[], at: (item: T) => readonly [number, number], radius?: (item: T) => number): T[] =>
       openShoreHalfWidth === null ? [...items] : beyondEveryLegShore(items, everyLeg, openShoreHalfWidth, at, radius);
-    const groundProps = onShore([...trees, ...reeds, ...rocks], (t) => [t.position[0], t.position[2]]);
+    const groundProps = onShore(
+      [...trees, ...reeds, ...rocks].filter((t) => onLandSide(t.progress, t.position[0], t.position[2])),
+      (t) => [t.position[0], t.position[2]],
+    );
     const speciesCount = Math.max(FOLIAGE_SHAPES.length, ROCK_SPECIES + 1);
     const routeLength = (totalDistanceMeters ?? curve.approximateLength(32)) || 1;
     pools.push(...batchFoliagePools(groundProps, speciesCount, routeLength, FOLIAGE_CHUNK_METRES));
 
-    const landscape = layoutLandscape({ curve, enrichment: layoutEnrichment, track });
+    const laidOut = layoutLandscape({ curve, enrichment: layoutEnrichment, track });
+    const landscape = seaSide
+      ? { leftElements: seaSide === 'left' ? [] : laidOut.leftElements, rightElements: seaSide === 'right' ? [] : laidOut.rightElements }
+      : laidOut;
     buildings = onShore(layoutToBuildingSpecs(landscape, SCENERY_PROFILES), (b) => [b.x, b.z], (b) => Math.hypot(b.halfWidth, b.halfDepth));
     // Real OSM buildings on top of the procedural facades (#549 slice 4).
     // Convert each footprint to an axis-aligned prism anchored at the
@@ -358,8 +388,8 @@ export const toEngineRoute = (
       resolvedByProfile.set(profile, resolveSceneryModels(profile, waterType, treeSpecies, region));
     }
     const kitTrees = keepsKitTrees(mode);
-    const left = computePlacements({ curve, enrichment: layoutEnrichment, resolvedByProfile, budget, side: 'left', track, kitTrees });
-    const right = computePlacements({ curve, enrichment: layoutEnrichment, resolvedByProfile, budget, side: 'right', track, kitTrees });
+    const left = seaSide === 'left' ? [] : computePlacements({ curve, enrichment: layoutEnrichment, resolvedByProfile, budget, side: 'left', track, kitTrees });
+    const right = seaSide === 'right' ? [] : computePlacements({ curve, enrichment: layoutEnrichment, resolvedByProfile, budget, side: 'right', track, kitTrees });
     const requests = routeStructures({
       side: 'left',
       hasCurve: true,
@@ -368,7 +398,14 @@ export const toEngineRoute = (
       routeMeters: totalDistanceMeters,
     });
     const terrain = buildTerrainProfile(layoutEnrichment?.elevations);
-    const structures: Placement[] = computeStructurePlacements(curve, requests, terrain, layoutEnrichment);
+    // On a coastal course a bank structure on the sea side has no bank to stand on.
+    // A boathouse or finish tower moves to the land; buoys and bridges stay put.
+    const sidedRequests = landSide
+      ? requests.map((r) => (r.kind === 'furniture' || r.kind === 'landmark' ? { ...r, side: landSide } : r))
+      : requests;
+    const structures: Placement[] = computeStructurePlacements(curve, sidedRequests, terrain, layoutEnrichment).filter(
+      (p) => p.footing === 'water' || onLandSide(p.progress, p.position[0], p.position[2]),
+    );
     const grouped = new Map<SceneryModelId, SceneryInstance[]>();
     // #760 — a bank placement on one leg must not stand in another leg's lane.
     const bank = onShore(
@@ -420,6 +457,7 @@ export const toEngineRoute = (
     // #755 FR6 — with the water type and where it came from.
     waterDetectionSummary: { ...waterDetectionSummaryOf(enrichment), ...resolvedWater },
     waterEdgesForProgress,
+    ...(landSide ? { landSide } : {}),
     dominantProfile,
   };
 };

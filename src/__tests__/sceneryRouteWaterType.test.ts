@@ -3,7 +3,9 @@ import { describe, expect, it } from 'vitest';
 import lap115 from './fixtures/rownative/115.json';
 import { resolveCourseGeometry, type RownativeCourseGeometryInput } from '../lib/services/rownativeGeometry';
 import {
+  COASTAL_SEA_HALF_WIDTH_METERS,
   LAKE_OPEN_WATER_HALF_WIDTH_METERS,
+  SEA_OPEN_WATER_HALF_WIDTH_METERS,
   resolveWaterType,
   waterWidthForType,
 } from '../lib/scenery/waterType';
@@ -14,6 +16,10 @@ import { willowbrookRiverCoordinates } from '../data/seedRouteCoordinates';
 import { WILLOWBROOK_ROUTE_ID } from '../components/rower3d/sceneryTrack';
 import { createFallbackRouteEnrichment } from '../lib/services/routeEnrichmentService';
 import type { Coordinate, WaterRoute } from '../lib/types';
+import { GROUND_HAZE_END_M } from '../lib/renderer/plan/groundPlane';
+import { buildBankStrips } from '../lib/renderer/plan/bankStrip';
+import { RouteCurve } from '../lib/renderer/math/curve';
+import { vec3 } from '../lib/renderer/math/vec3';
 
 const waterRoute = (id: string, name: string, coordinates: Coordinate[], tags: string[] = []): WaterRoute => ({
   id,
@@ -132,5 +138,72 @@ describe('a lake course looks like a lake before any map data arrives (#755 FR3/
       .flatMap((g) => g.instances)
       .filter((inst) => nearestOnPolyline(line, inst.position[0], inst.position[2]).distance < 10);
     expect(laneBuoys.length).toBeGreaterThanOrEqual(2 * Math.floor(routeTotalDistanceMeters(resolved.coordinates) / 250));
+  });
+});
+
+describe('a coastal course has land on one side (#755 FR4)', () => {
+  const coast = waterRoute('rownative-177', 'CCRC - Catterline to Stonehaven', straight(), ['open_water', 'coastal']);
+  const route = toEngineRoute(coast, null, 'high')!;
+  const line = route.curvePoints!;
+  /** Signed offset from the course line: negative is the rower's left. */
+  const signedOffset = (x: number, z: number): number => {
+    let best = Infinity;
+    let sign = 0;
+    for (let i = 0; i + 1 < line.length; i += 1) {
+      const [ax, , az] = line[i];
+      const [bx, , bz] = line[i + 1];
+      const dx = bx - ax;
+      const dz = bz - az;
+      const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz)));
+      const px = x - (ax + dx * t);
+      const pz = z - (az + dz * t);
+      const d = Math.hypot(px, pz);
+      if (d < best) {
+        best = d;
+        // perp = tangent × up = (−tz, 0, tx)
+        sign = Math.sign(px * -dz + pz * dx);
+      }
+    }
+    return sign * best;
+  };
+
+  it('is open water on the sea side out past the land haze', () => {
+    expect(route.landSide).toBe('left');
+    expect(COASTAL_SEA_HALF_WIDTH_METERS).toBeGreaterThan(GROUND_HAZE_END_M);
+    for (let i = 0; i <= 10; i += 1) {
+      const e = route.waterEdgesForProgress!(i / 10);
+      expect(e.right).toBe(COASTAL_SEA_HALF_WIDTH_METERS);
+      expect(e.left).toBe(SEA_OPEN_WATER_HALF_WIDTH_METERS);
+    }
+  });
+
+  it('places scenery on the land side only, and draws one bank strip', () => {
+    const seaSide: string[] = [];
+    let placed = 0;
+    const check = (what: string, x: number, z: number) => {
+      placed += 1;
+      if (signedOffset(x, z) > 0) seaSide.push(what);
+    };
+    for (const pool of route.pools) {
+      for (let i = 0; i < pool.positions.length; i += 3) check(pool.kind, pool.positions[i], pool.positions[i + 2]);
+    }
+    for (const b of route.buildings ?? []) check('building', b.x, b.z);
+    for (const g of route.sceneryGlbs ?? []) {
+      if (onWaterByDesign(g.id)) continue;
+      for (const inst of g.instances) check(g.id, inst.position[0], inst.position[2]);
+    }
+    expect(placed).toBeGreaterThan(0);
+    expect(seaSide.slice(0, 10), `${seaSide.length} on the sea side`).toEqual([]);
+
+    const curve = new RouteCurve(line.map(([x, y, z]) => vec3(x, y, z)), false);
+    const bank = buildBankStrips({ curve, edgesForProgress: route.waterEdgesForProgress, landSide: route.landSide, footprint: null });
+    const signs = new Set<number>();
+    for (const i of bank.indices) signs.add(bank.sides[i * 2]);
+    expect([...signs]).toEqual([-1]);
+  });
+
+  it('a sea course without the tag keeps both shores', () => {
+    const r = toEngineRoute(waterRoute('sea', 'CCRC - Catterline to Stonehaven', straight(), ['open_water']), null)!;
+    expect(r.landSide).toBeUndefined();
   });
 });
