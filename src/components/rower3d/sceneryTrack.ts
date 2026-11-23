@@ -1,7 +1,7 @@
 // ============================================================================
 // AUTHORED SCENERY TRACKS — a route's dressing written down as data.
 //
-// Enrichment reads real geography from Overpass and OpenTopoData, which is the
+// Enrichment reads real geography from Overpass and Open-Meteo, which is the
 // right source for a real course. The bundled demo route is not a real course:
 // its description promises five distinct stretches, its coordinates sit over
 // Munich, and its five sections lived only as comments in

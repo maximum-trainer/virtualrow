@@ -135,6 +135,76 @@ describe('attach', () => {
     renderer.dispose();
   });
 
+  // #726 VP-08 FR6 — a model that fails to load is reported, not swallowed.
+  it('reports scenery models whose fetch fails on __ROWER3D_SCENERY', async () => {
+    const original = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(null, { status: 404 })) as typeof fetch;
+    try {
+      const renderer = (await attach(makeMockCanvas(), {
+        testMode: true,
+        route: {
+          pools: [],
+          sceneryGlbs: [{ id: 'a09-gazebo-hexagonal', instances: [{ position: [40, 0, -50], rotationY: 0, scale: 1 }] }],
+        },
+      })) as unknown as WithTest & {
+        _telemetry: { scenery: { failed: number; failedIds: string[]; registered: number } };
+      };
+      for (let i = 0; i < 20 && renderer._telemetry.scenery.failed === 0; i += 1) {
+        renderer._frameOnce();
+        await new Promise((r) => setTimeout(r, 5));
+      }
+      expect(renderer._telemetry.scenery.failedIds).toContain('a09-gazebo-hexagonal');
+      expect(renderer._telemetry.scenery.failed).toBe(renderer._telemetry.scenery.failedIds.length);
+      renderer.dispose();
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  // #726 VP-08 FR3 — a model streamed in mid-ride starts its fade on the
+  // frame it registers (reveal alpha 0) and is fully drawn 1.5 s later.
+  it('reports each streamed model\'s reveal on __ROWER3D_SCENERY', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { resolve } = await import('node:path');
+    const bytes = readFileSync(resolve(process.cwd(), 'public/assets/scenery/tier-a/a01-buoy-lane-sphere.glb'));
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url;
+      if (url.endsWith('/a01-buoy-lane-sphere.glb')) return new Response(bytes);
+      return new Response(null, { status: 404 });
+    }) as typeof fetch;
+    try {
+      const renderer = (await attach(makeMockCanvas(), {
+        testMode: true,
+        route: {
+          pools: [],
+          sceneryGlbs: [{ id: 'a01-buoy-lane-sphere', instances: [{ position: [4, 0, -50], rotationY: 0, scale: 1 }] }],
+        },
+      })) as unknown as WithTest & {
+        _telemetry: {
+          scenery: {
+            frame: number;
+            registered: number;
+            reveals: { id: string; registeredAtFrame: number; registeredAt: number; revealAlpha: number }[];
+          };
+        };
+      };
+      const scenery = renderer._telemetry.scenery;
+      for (let i = 0; i < 40 && scenery.reveals.length === 0; i += 1) {
+        renderer._frameOnce();
+        await new Promise((r) => setTimeout(r, 5));
+      }
+      expect(scenery.reveals.map((r) => r.id)).toEqual(['a01-buoy-lane-sphere']);
+      const reveal = scenery.reveals[0];
+      expect(reveal.registeredAtFrame).toBe(scenery.frame);
+      expect(reveal.revealAlpha).toBe(0);
+      expect(scenery.registered).toBe(1);
+      renderer.dispose();
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
   it('isSceneryRoute recognises the shape', () => {
     expect(isSceneryRoute({ pools: [] })).toBe(true);
     expect(isSceneryRoute(null)).toBe(false);

@@ -4,6 +4,7 @@ import { createSceneryMeshPass, SCENERY_INSTANCE_BYTES, type SceneryMeshInput } 
 import sceneryMeshDepthWgsl from '../sceneryMeshDepth.wgsl?raw';
 import sceneryMeshWgsl from '../sceneryMesh.wgsl?raw';
 import { mat4, mat4Identity } from '../../math/mat4';
+import { ALWAYS_REVEALED, SCENERY_REVEAL_SECONDS, SCENERY_VISIBILITY_METRES } from '../sceneryReveal';
 
 // jsdom doesn't ship the WebGPU globals; the pass only reads
 // GPUBufferUsage.*, so a numeric stub is enough for coverage.
@@ -65,6 +66,7 @@ const makeInput = (over: Partial<SceneryMeshInput> = {}): SceneryMeshInput => ({
   baseColor: over.baseColor ?? [0.3, 0.5, 0.4, 1],
   ...(over.colors ? { colors: over.colors } : {}),
   maxInstances: over.maxInstances ?? 4,
+  ...(over.revealAt !== undefined ? { revealAt: over.revealAt } : {}),
 });
 
 describe('createSceneryMeshPass', () => {
@@ -102,8 +104,30 @@ describe('createSceneryMeshPass', () => {
     const writesBefore = (queue.writeBuffer as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
     p.setInstances('buoy', [mat4Identity(mat4()), mat4Identity(mat4()), mat4Identity(mat4()), mat4Identity(mat4())]);
     const writesAfter = (queue.writeBuffer as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
-    // Clamped to 2 writes.
-    expect(writesAfter - writesBefore).toBe(2);
+    // Clamped to 2 instances, in one write.
+    expect(writesAfter - writesBefore).toBe(1);
+    const last = (queue.writeBuffer as unknown as { mock: { calls: unknown[][] } }).mock.calls.at(-1)!;
+    expect((last[2] as Float32Array).byteLength).toBe(2 * SCENERY_INSTANCE_BYTES);
+  });
+
+  // #726 VP-08 FR4 — one model's instances go up in one write, not one per instance.
+  it('uploads 400 instances in exactly one writeBuffer', () => {
+    const { device, queue } = makeDevice();
+    const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+    p.register(makeInput({ id: 'tree', maxInstances: 1024 }));
+    const calls = (queue.writeBuffer as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    const before = calls.length;
+    const instances = Array.from({ length: 400 }, (_, i) => {
+      const m = mat4Identity(mat4());
+      m[12] = i;
+      return m;
+    });
+    p.setInstances('tree', instances);
+    expect(calls.length - before).toBe(1);
+    const [, offset, data] = calls[calls.length - 1] as [GPUBuffer, number, Float32Array];
+    expect(offset).toBe(0);
+    expect(data.byteLength).toBe(400 * SCENERY_INSTANCE_BYTES);
+    expect(data[399 * (SCENERY_INSTANCE_BYTES / 4) + 12]).toBe(399);
   });
 
   it('encode skips when nothing is registered', () => {
@@ -284,6 +308,64 @@ describe('createSceneryMeshPass', () => {
     expect(ceiling).toBeLessThanOrEqual(0.5);
   });
 
+  // #726 VP-08 FR3 — a model streamed in mid-ride fades in over 1.5 s,
+  // driven by a per-mesh reveal uniform at group 1 binding 2.
+  describe('reveal fade (#726 FR3)', () => {
+    type Desc = { entries: { binding: number; resource: { buffer: unknown } }[] };
+    const revealWrites = (queue: GPUQueue) =>
+      (queue.writeBuffer as unknown as { mock: { calls: [GPUBuffer, number, Float32Array][] } }).mock.calls.filter(
+        ([, , data]) => data instanceof Float32Array && data.length === 4 && data[1] === SCENERY_REVEAL_SECONDS,
+      );
+
+    it('binds one reveal uniform at binding 2 in both bind groups', () => {
+      const { device, bindGroups } = makeDevice();
+      const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+      p.register(makeInput({ id: 'boathouse' }));
+      const meshGroups = (bindGroups as Desc[]).filter((d) => d.entries.some((e) => e.binding === 1));
+      expect(meshGroups).toHaveLength(2);
+      const reveal = meshGroups.map((d) => d.entries.find((e) => e.binding === 2)?.resource.buffer);
+      expect(reveal[0]).toBeDefined();
+      expect(reveal[1]).toBe(reveal[0]);
+    });
+
+    it('writes the registration time when the model is revealed mid-ride', () => {
+      const { device, queue } = makeDevice();
+      const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+      p.register(makeInput({ id: 'boathouse', revealAt: 42.5 }));
+      const w = revealWrites(queue);
+      expect(w).toHaveLength(1);
+      expect(Array.from(w[0][2])).toEqual([42.5, SCENERY_REVEAL_SECONDS, SCENERY_VISIBILITY_METRES, 0]);
+    });
+
+    it('draws a mesh registered without revealAt at full opacity from the first frame', () => {
+      const { device, queue } = makeDevice();
+      const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+      p.register(makeInput({ id: 'boat' }));
+      expect(revealWrites(queue)[0][2][0]).toBe(ALWAYS_REVEALED);
+    });
+
+    it('destroys the reveal buffer on dispose', () => {
+      const created: GPUBuffer[] = [];
+      const { device } = makeDevice();
+      (device.createBuffer as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => {
+        const b = makeBuffer();
+        created.push(b);
+        return b;
+      });
+      const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+      p.register(makeInput({ id: 'boathouse', revealAt: 1 }));
+      p.dispose();
+      for (const b of created) expect(b.destroy).toHaveBeenCalled();
+    });
+
+    it('the fragment shader dithers instances out until their reveal alpha reaches 1', () => {
+      expect(sceneryMeshWgsl).toMatch(/@group\(1\)\s*@binding\(2\)\s*var<uniform>\s*reveal\s*:\s*vec4<f32>/);
+      expect(sceneryMeshWgsl).toMatch(/frame\.time\s*-\s*reveal\.x/);
+      expect(sceneryMeshWgsl).toMatch(/in\.worldDist\s*>\s*reveal\.z/);
+      expect(sceneryMeshWgsl).toMatch(/discard/);
+    });
+  });
+
   it('encode is a no-op after dispose', () => {
     const { device } = makeDevice();
     const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
@@ -327,13 +409,14 @@ describe('createSceneryMeshPass', () => {
         { model: mat4Identity(mat4()), tint: [0.6, 1, 0.3, 1], alpha: 0.6, rim: 0.8, flat: 1 },
       ]);
       const w = writes(queue).slice(before);
-      expect(w).toHaveLength(2);
+      expect(w).toHaveLength(1);
       expect(w[0][1]).toBe(0);
-      expect(w[1][1]).toBe(SCENERY_INSTANCE_BYTES);
+      const both = copies[copies.length - 1];
+      expect(both.length).toBe(2 * 24);
       // An unstyled instance keeps its authored colour, fully opaque.
       // fx.w is the share of the distance haze it takes: all of it by default.
-      expect(Array.from(copies[0].slice(16, 24))).toEqual([0, 0, 0, 0, 1, 0, 0, 1]);
-      expect(Array.from(copies[1].slice(16, 24)).map((v) => Number(v.toFixed(3)))).toEqual([0.6, 1, 0.3, 1, 0.6, 0.8, 1, 1]);
+      expect(Array.from(both.slice(16, 24))).toEqual([0, 0, 0, 0, 1, 0, 0, 1]);
+      expect(Array.from(both.slice(24 + 16, 24 + 24)).map((v) => Number(v.toFixed(3)))).toEqual([0.6, 1, 0.3, 1, 0.6, 0.8, 1, 1]);
       p.setInstances('hull', [{ model: mat4Identity(mat4()), tint: [0, 0, 0, 1], haze: 0 }]);
       expect(copies[copies.length - 1][23]).toBe(0);
     });

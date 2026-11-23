@@ -7,10 +7,16 @@ import {
   routeTotalDistanceMeters,
 } from '../utils/geoUtils';
 
-export const OPEN_TOPO_DATA_BATCH_LIMIT = 100;
+/** Open-Meteo answers up to 100 coordinates per elevation request. */
+export const ELEVATION_BATCH_LIMIT = 100;
 export const ROUTE_SEGMENT_LENGTH_METERS = 50;
 export const ROUTE_ENRICHMENT_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-export const OPEN_TOPO_DATA_URL = 'https://api.opentopodata.org/v1/srtm30m';
+/**
+ * #741 FR2 / D1 — Open-Meteo's elevation API (Copernicus DEM, 90 m). It sends
+ * CORS headers, so it works from the browser; the public OpenTopoData API
+ * did not, and failed on every route.
+ */
+export const ELEVATION_API_URL = 'https://api.open-meteo.com/v1/elevation';
 import { findCrossings, type Crossing } from '../utils/bridgeCrossings';
 import { mapOsmTagsToSceneryProfile } from '../utils/sceneryFromTags';
 import { SHORE_RAY_LIMIT_METERS, type DetectedSample } from '../utils/shoreDetection';
@@ -214,8 +220,8 @@ interface OverpassResponse {
   elements?: OverpassElement[];
 }
 
-interface OpenTopoDataResponse {
-  results?: Array<{ elevation: number | null }>;
+interface ElevationResponse {
+  elevation?: Array<number | null>;
 }
 
 interface CacheLookupResult {
@@ -309,7 +315,7 @@ const debugLog = (message: string) => {
  * Constrain an upstream elevation payload to exactly one finite number per
  * route coordinate.
  *
- * OpenTopoData is untrusted input: it can return fewer results than requested
+ * The elevation API is untrusted input: it can return fewer results than requested
  * (partial batch), more than requested, or `null` for no-data cells. Any of
  * those would silently misalign `elevations` against `route.coordinates`.
  * Short payloads are padded with the last known value (0 if there is none),
@@ -338,7 +344,7 @@ export const getRouteEnrichmentCacheKey = (routeId: string) =>
 
 export const splitCoordinatesIntoElevationBatches = (
   coordinates: Coordinate[],
-  batchSize: number = OPEN_TOPO_DATA_BATCH_LIMIT,
+  batchSize: number = ELEVATION_BATCH_LIMIT,
 ) => {
   const batches: Coordinate[][] = [];
   for (let index = 0; index < coordinates.length; index += batchSize) {
@@ -1509,22 +1515,19 @@ export class RouteEnrichmentService {
 
     for (const [index, batch] of batches.entries()) {
       debugLog(
-        `[route-enrichment] OpenTopoData batch ${index + 1}/${batches.length} (${batch.length} points)`,
+        `[route-enrichment] elevation batch ${index + 1}/${batches.length} (${batch.length} points)`,
       );
 
-      const locations = batch
-        .map((coordinate) => `${coordinate.lat},${coordinate.lng}`)
-        .join('|');
+      const latitude = batch.map((coordinate) => coordinate.lat).join(',');
+      const longitude = batch.map((coordinate) => coordinate.lng).join(',');
       const response = await this.fetchImpl(
-        `${OPEN_TOPO_DATA_URL}?locations=${encodeURIComponent(locations)}`,
+        `${ELEVATION_API_URL}?latitude=${latitude}&longitude=${longitude}`,
       );
       if (!response.ok) {
-        throw new Error(`OpenTopoData request failed with HTTP ${response.status}`);
+        throw new Error(`Elevation request failed with HTTP ${response.status}`);
       }
-      const payload = (await response.json()) as OpenTopoDataResponse;
-      elevations.push(
-        ...(payload.results ?? []).map((result) => result.elevation),
-      );
+      const payload = (await response.json()) as ElevationResponse;
+      elevations.push(...(payload.elevation ?? []));
     }
 
     debugLog(

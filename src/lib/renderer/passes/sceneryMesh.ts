@@ -11,6 +11,7 @@
 import type { FrameContext, Pass } from '../engine/frameGraph';
 import type { Mat4 } from '../math/mat4';
 import sceneryMeshWgsl from './sceneryMesh.wgsl?raw';
+import { ALWAYS_REVEALED, packRevealUniform, SCENERY_REVEAL_UNIFORM_BYTES } from './sceneryReveal';
 
 /**
  * One instance record: a mat4 model, a tint vec4 and an effect vec4
@@ -70,6 +71,13 @@ export interface SceneryMeshInput {
    * draws them exactly the same regardless.
    */
   castsShadow?: boolean;
+  /**
+   * #726 FR3 — frame time (seconds, `frame.time`) the model became
+   * available. Its instances fade in over `SCENERY_REVEAL_SECONDS` from
+   * then. Omit it for a mesh that should draw fully from its first frame
+   * (the boat, the crew, models placed before the ride starts).
+   */
+  revealAt?: number;
 }
 
 interface RegisteredMesh {
@@ -82,10 +90,14 @@ interface RegisteredMesh {
   indexFormat: 'uint16' | 'uint32';
   indexCount: number;
   instanceBuffer: GPUBuffer;
+  /** #726 FR3 — {revealTime, fadeSeconds, visibility, pad}. */
+  revealBuffer: GPUBuffer;
   maxInstances: number;
   instanceCount: number;
   /** #728 — per instance, whether it draws in the translucent pass. */
   translucent: Uint8Array;
+  /** #726 FR4 — CPU staging for the instance buffer: one write per `setInstances`. */
+  staging: Float32Array;
   translucentCount: number;
   bindGroup: GPUBindGroup;
   translucentBindGroup: GPUBindGroup;
@@ -212,7 +224,6 @@ export const createSceneryMeshPass = ({
   const translucentMeshLayout = translucentPipeline.getBindGroupLayout(1);
 
   const registry = new Map<string, RegisteredMesh>();
-  const scratchInstance = new Float32Array(FLOATS_PER_INSTANCE);
 
   const register = (input: SceneryMeshInput): void => {
     if (registry.has(input.id)) return;
@@ -272,17 +283,25 @@ export const createSceneryMeshPass = ({
       size: Math.max(1, input.maxInstances) * SCENERY_INSTANCE_BYTES,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
+    const revealBuffer = device.createBuffer({
+      label: `sceneryMesh:${input.id}-reveal`,
+      size: SCENERY_REVEAL_UNIFORM_BYTES,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(revealBuffer, 0, packRevealUniform(input.revealAt ?? ALWAYS_REVEALED) as BufferSource);
+    const meshEntries: GPUBindGroupEntry[] = [
+      { binding: 1, resource: { buffer: instanceBuffer } },
+      { binding: 2, resource: { buffer: revealBuffer } },
+    ];
     const bindGroup = device.createBindGroup({
       label: `sceneryMesh:${input.id}-bg`,
       layout: meshLayout,
-      entries: [
-        { binding: 1, resource: { buffer: instanceBuffer } },
-      ],
+      entries: meshEntries,
     });
     const translucentBindGroup = device.createBindGroup({
       label: `sceneryMesh:${input.id}-translucent-bg`,
       layout: translucentMeshLayout,
-      entries: [{ binding: 1, resource: { buffer: instanceBuffer } }],
+      entries: meshEntries,
     });
     registry.set(input.id, {
       id: input.id,
@@ -294,9 +313,11 @@ export const createSceneryMeshPass = ({
       indexFormat: input.indices instanceof Uint32Array ? 'uint32' : 'uint16',
       indexCount: input.indices.length,
       instanceBuffer,
+      revealBuffer,
       maxInstances: Math.max(1, input.maxInstances),
       instanceCount: 0,
       translucent: new Uint8Array(Math.max(1, input.maxInstances)),
+      staging: new Float32Array(Math.max(1, input.maxInstances) * FLOATS_PER_INSTANCE),
       translucentCount: 0,
       bindGroup,
       translucentBindGroup,
@@ -319,24 +340,33 @@ export const createSceneryMeshPass = ({
     mesh.translucentCount = 0;
     for (let i = 0; i < count; i += 1) {
       const inst = instances[i];
-      scratchInstance.fill(0);
+      const o = i * FLOATS_PER_INSTANCE;
+      const slot = mesh.staging.subarray(o, o + FLOATS_PER_INSTANCE);
+      slot.fill(0);
       if (isStyled(inst)) {
-        scratchInstance.set(inst.model, 0);
-        if (inst.tint) scratchInstance.set(inst.tint, 16);
+        slot.set(inst.model, 0);
+        if (inst.tint) slot.set(inst.tint, 16);
         const alpha = inst.alpha ?? 1;
-        scratchInstance[20] = alpha;
-        scratchInstance[21] = inst.rim ?? 0;
-        scratchInstance[22] = inst.flat ?? 0;
-        scratchInstance[23] = inst.haze ?? 1;
+        slot[20] = alpha;
+        slot[21] = inst.rim ?? 0;
+        slot[22] = inst.flat ?? 0;
+        slot[23] = inst.haze ?? 1;
         mesh.translucent[i] = alpha < 1 ? 1 : 0;
       } else {
-        scratchInstance.set(inst, 0);
-        scratchInstance[20] = 1;
-        scratchInstance[23] = 1;
+        slot.set(inst, 0);
+        slot[20] = 1;
+        slot[23] = 1;
         mesh.translucent[i] = 0;
       }
       mesh.translucentCount += mesh.translucent[i];
-      device.queue.writeBuffer(mesh.instanceBuffer, i * SCENERY_INSTANCE_BYTES, scratchInstance as BufferSource);
+    }
+    // #726 FR4 — one contiguous write for the whole list, not one per instance.
+    if (count > 0) {
+      device.queue.writeBuffer(
+        mesh.instanceBuffer,
+        0,
+        mesh.staging.subarray(0, count * FLOATS_PER_INSTANCE) as BufferSource,
+      );
     }
   };
 
@@ -445,6 +475,7 @@ export const createSceneryMeshPass = ({
         mesh.colorBuffer.destroy();
         mesh.indexBuffer.destroy();
         mesh.instanceBuffer.destroy();
+        mesh.revealBuffer.destroy();
       }
       registry.clear();
     },

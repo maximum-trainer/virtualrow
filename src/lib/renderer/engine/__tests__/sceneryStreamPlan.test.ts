@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  createRegistrationQueue,
   planSceneryStream,
+  streamLookaheadMeters,
   sceneryModelsToLoad,
   type CurveDistanceSample,
 } from '../sceneryStreamPlan';
@@ -124,5 +126,41 @@ describe('sceneryModelsToLoad', () => {
         sceneryModelsToLoad(plan, new Set(), 0, 400, 10, { loopRouteMeters: 0 }),
       ).toEqual(['a', 'b']);
     });
+  });
+});
+
+// #726 VP-08 FR2 — the look-ahead is a minute of travel, never under 600 m.
+describe('streamLookaheadMeters', () => {
+  it('is 600 m at rest and at a paddle', () => {
+    expect(streamLookaheadMeters(0)).toBe(600);
+    expect(streamLookaheadMeters(5)).toBe(600);
+  });
+
+  it('is a minute of travel when that is further', () => {
+    expect(streamLookaheadMeters(12)).toBe(720);
+  });
+
+  it('treats a missing or negative speed as rest', () => {
+    expect(streamLookaheadMeters(Number.NaN)).toBe(600);
+    expect(streamLookaheadMeters(-3)).toBe(600);
+  });
+});
+
+// #726 VP-08 FR5 — at most one registration per frame.
+describe('createRegistrationQueue', () => {
+  it('hands over one item per drain, oldest first', () => {
+    const q = createRegistrationQueue<string>();
+    q.push('a');
+    q.push('b');
+    q.push('c');
+    const done: string[] = [];
+    expect(q.drainOne((id) => done.push(id))).toBe(true);
+    expect(done).toEqual(['a']);
+    expect(q.pending).toBe(2);
+    q.drainOne((id) => done.push(id));
+    q.drainOne((id) => done.push(id));
+    expect(done).toEqual(['a', 'b', 'c']);
+    expect(q.drainOne(() => { throw new Error('nothing waits'); })).toBe(false);
+    expect(q.pending).toBe(0);
   });
 });

@@ -64,6 +64,7 @@ import {
   type WaterDetectionSummary,
 } from './waterDetectionSummary';
 import { createSceneryMeshPass } from '../passes/sceneryMesh';
+import { revealAlpha, SCENERY_VISIBILITY_METRES } from '../passes/sceneryReveal';
 import { loadGlb } from '../../scenery/glbLoader';
 import {
   placeFurniture,
@@ -146,8 +147,10 @@ const defaultSceneryDecoderOptions = (): GlbDecoderPoolOptions => {
   };
 };
 import {
+  createRegistrationQueue,
   planSceneryStream,
   sceneryModelsToLoad,
+  streamLookaheadMeters,
   type CurveDistanceSample,
 } from './sceneryStreamPlan';
 import {
@@ -537,6 +540,11 @@ export const createRideScene = async (
   // Scenery pool telemetry starts fresh on each scene build so a reattach
   // doesn't double-count pools from the dead device.
   telemetry.scenery.pools = [];
+  telemetry.scenery.registered = 0;
+  telemetry.scenery.failed = 0;
+  telemetry.scenery.failedIds = [];
+  telemetry.scenery.frame = 0;
+  telemetry.scenery.reveals = [];
   const scenePools: InstancePool[] = sceneryPoolInputs.map((input) => createInstancePool(device, input));
 
   // #566 P6 — buildings pool. Per D5-b we skip the pool entirely when the
@@ -867,30 +875,31 @@ export const createRideScene = async (
     'a11-bank-railing',
     'a12-regatta-flagpole',
   ]);
-  const loadSceneryModel = async (id: string): Promise<boolean> => {
-    try {
-      const url = assetUrl(`/assets/scenery/${tierFolderFor(id)}/${id}.glb`);
-      const applyVegetationGain = tierFolderFor(id) === 'tier-e';
-      // Decode + merge off-thread. Tier-E vegetation is lifted inside the
-      // worker via `VEGETATION_ALBEDO_GAIN` so the main thread never touches
-      // the raw colour buffer; buildings (tier-D) pass through unchanged.
-      const decoded = await decoderPool.decode(id, url, applyVegetationGain);
-      sceneryMeshPass.register({
-        id,
-        positions: decoded.positions,
-        normals: decoded.normals,
-        indices: decoded.indices,
-        colors: decoded.colors,
-        baseColor: decoded.baseColor,
-        maxInstances: COURSE_FURNITURE_MAX_INSTANCES,
-        castsShadow: !SHADOW_NEUTRAL_MODEL_IDS.has(id),
-      });
-      return true;
-    } catch {
-      // A fetch or decode failure leaves the model unregistered; the pass
-      // silently skips it rather than taking the engine down.
-      return false;
-    }
+  type DecodedScenery = Awaited<ReturnType<typeof decoderPool.decode>>;
+  /**
+   * Fetch and decode one scenery GLB off-thread. Registration (the GPU
+   * buffers) happens later, one model per frame (#726 FR5).
+   */
+  const loadSceneryModel = async (id: string): Promise<DecodedScenery> => {
+    const url = assetUrl(`/assets/scenery/${tierFolderFor(id)}/${id}.glb`);
+    const applyVegetationGain = tierFolderFor(id) === 'tier-e';
+    // Decode + merge off-thread. Tier-E vegetation is lifted inside the
+    // worker via `VEGETATION_ALBEDO_GAIN` so the main thread never touches
+    // the raw colour buffer; buildings (tier-D) pass through unchanged.
+    return decoderPool.decode(id, url, applyVegetationGain);
+  };
+  const registerSceneryModel = (id: string, decoded: DecodedScenery, revealAt?: number): void => {
+    sceneryMeshPass.register({
+      id,
+      positions: decoded.positions,
+      normals: decoded.normals,
+      indices: decoded.indices,
+      colors: decoded.colors,
+      baseColor: decoded.baseColor,
+      maxInstances: COURSE_FURNITURE_MAX_INSTANCES,
+      castsShadow: !SHADOW_NEUTRAL_MODEL_IDS.has(id),
+      ...(revealAt !== undefined ? { revealAt } : {}),
+    });
   };
 
 
@@ -1316,7 +1325,6 @@ export const createRideScene = async (
   // out where each model first appears, and load models as the boat comes
   // within the look-ahead window (driven from the frame loop below).
   const SCENERY_STREAM_SAMPLES = 128;
-  const SCENERY_LOOKAHEAD_M = 400;
   const SCENERY_MAX_PER_TICK = 3;
   const streamSamples: CurveDistanceSample[] = [];
   for (let i = 0; i <= SCENERY_STREAM_SAMPLES; i += 1) {
@@ -1336,12 +1344,15 @@ export const createRideScene = async (
   );
   const sceneryLoaded = new Set<string>();
   const sceneryLoading = new Set<string>();
+  const sceneryRegistrations = createRegistrationQueue<{ id: string; decoded: DecodedScenery }>();
+  // #726 FR2 — the window follows the boat's speed (the previous frame's).
+  let streamSpeedMps = 0;
   const streamScenery = (boatDistanceMeters: number, loop: boolean): void => {
     const pending = sceneryModelsToLoad(
       sceneryPlan,
       new Set<string>([...sceneryLoaded, ...sceneryLoading]),
       boatDistanceMeters,
-      SCENERY_LOOKAHEAD_M,
+      streamLookaheadMeters(streamSpeedMps),
       SCENERY_MAX_PER_TICK,
       // #647 FR6 — looping walks the stream plan torus-style so the first
       // tiles of the route are already loaded when the boat crosses the seam.
@@ -1350,15 +1361,35 @@ export const createRideScene = async (
     for (const id of pending) {
       sceneryLoading.add(id);
       void loadSceneryModel(id)
-        .then((ok) => {
-          sceneryLoading.delete(id);
-          sceneryLoaded.add(id);
-          if (ok) sceneryMeshPass.setInstances(id, sceneryInstanceMats.get(id) ?? []);
+        .then((decoded) => {
+          sceneryRegistrations.push({ id, decoded });
         })
         .catch(() => {
+          // #726 FR6 — a fetch or decode failure leaves the model out and is
+          // reported, rather than swallowed.
           sceneryLoading.delete(id);
+          sceneryLoaded.add(id);
+          if (!telemetry.scenery.failedIds.includes(id)) telemetry.scenery.failedIds.push(id);
+          telemetry.scenery.failed = telemetry.scenery.failedIds.length;
         });
     }
+  };
+  /** #726 FR5 — register at most one decoded model this frame. */
+  const registerNextScenery = (): void => {
+    sceneryRegistrations.drainOne(({ id, decoded }) => {
+      // #726 FR3 — fade it in from this frame rather than pop it in.
+      registerSceneryModel(id, decoded, frame.time);
+      telemetry.scenery.reveals.push({
+        id,
+        registeredAtFrame: telemetry.scenery.frame,
+        registeredAt: frame.time,
+        revealAlpha: 0,
+      });
+      sceneryMeshPass.setInstances(id, sceneryInstanceMats.get(id) ?? []);
+      sceneryLoading.delete(id);
+      sceneryLoaded.add(id);
+      telemetry.scenery.registered = sceneryLoaded.size - telemetry.scenery.failed;
+    });
   };
 
   const cameraRig = createRigTarget();
@@ -1550,6 +1581,11 @@ export const createRideScene = async (
     // Pass the boat's position along the current lap (already wrapped by
     // `placeBoat` when the frame is looping) together with the loop flag so
     // the stream planner wraps its lookahead window around the seam.
+    telemetry.scenery.frame += 1;
+    for (const r of telemetry.scenery.reveals) {
+      if (r.revealAlpha < 1) r.revealAlpha = revealAlpha(frame.time, r.registeredAt, 0);
+    }
+    registerNextScenery();
     streamScenery(boatPlacement.progress * totalDistanceMeters, !!rideFrame?.loop);
     const ghostInfo = placeGhost(
       ghostPlacement,
@@ -1836,6 +1872,7 @@ export const createRideScene = async (
     lastDistanceMeters = telemetry.boat.distanceMeters;
     lastSpeedTime = frame.time;
     publishSpeedMps(telemetry, speedMps);
+    streamSpeedMps = speedMps;
     telemetry.pos.x = boatPlacement.world[0];
     telemetry.pos.y = boatPlacement.world[1];
     telemetry.pos.z = boatPlacement.world[2];
@@ -1879,7 +1916,7 @@ export const createRideScene = async (
     const up = vec3(0, 1, 0);
     mat4LookAt(frame.view, eye, target, up);
     const fovY = (cameraRig.fov * Math.PI) / 180;
-    projectionWithInsets(frame.proj, fovY, width, height, viewportInsets, 0.1, 2000);
+    projectionWithInsets(frame.proj, fovY, width, height, viewportInsets, 0.1, SCENERY_VISIBILITY_METRES);
     mat4Multiply(frame.viewProj, frame.proj, frame.view);
     // #733 VP-15 FR3 telemetry: where the player boat lands on screen, and
     // the area the HUD leaves clear, so a spec can check one is inside the
