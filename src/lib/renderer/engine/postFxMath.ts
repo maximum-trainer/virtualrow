@@ -204,14 +204,21 @@ export const EXPOSURE_ADAPT_TAU_S = 0.6;
 export const EXPOSURE_METER_TOP = 0.4;
 
 /**
+ * FR2 — the metered luminance that leaves the authored exposure alone: what
+ * the authored daylight scene meters at. Mirrors `EXPOSURE_KEY` in
+ * `composite.wgsl`. Middle grey (0.18) left high 29% darker than medium.
+ */
+export const EXPOSURE_KEY = 0.3;
+
+/**
  * FR2 — the multiplier auto-exposure applies for a metered average
- * luminance: middle grey (0.18) as the key, clamped to ±0.7 EV.
+ * luminance: `EXPOSURE_KEY` over it, clamped to ±0.7 EV.
  * Mirrors the composite shader.
  */
 export const autoExposureScale = (avgLum: number): number => {
   const lum = Math.max(avgLum, 1e-4);
   const limit = Math.pow(2, EXPOSURE_CLAMP_EV);
-  return Math.min(limit, Math.max(1 / limit, 0.18 / lum));
+  return Math.min(limit, Math.max(1 / limit, EXPOSURE_KEY / lum));
 };
 
 /**
