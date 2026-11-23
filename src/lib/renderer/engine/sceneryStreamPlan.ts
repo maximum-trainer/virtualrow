@@ -94,7 +94,7 @@ export interface SceneryModelsToLoadOptions {
  */
 export const sceneryModelsToLoad = (
   plan: readonly SceneryStreamEntry[],
-  loaded: ReadonlySet<string>,
+  loaded: Pick<ReadonlySet<string>, 'has'>,
   boatDistanceMeters: number,
   lookaheadMeters: number,
   maxCount: number,
@@ -172,3 +172,32 @@ export const createRegistrationQueue = <T>(): RegistrationQueue<T> => {
     get pending() { return items.length; },
   };
 };
+
+/** #736 FR2 — how far the boat, or the far edge of its look-ahead, moves before the stream looks again. */
+export const STREAM_RECHECK_METERS = 5;
+
+/** Where the stream last looked: the boat's distance and the far edge of its window. */
+export interface StreamLook {
+  meters: number;
+  horizon: number;
+  loop: boolean;
+}
+
+/**
+ * #736 FR2 — whether the stream plan can have a new answer since `last`.
+ * Not while nothing is in flight, the boat is within `STREAM_RECHECK_METERS`
+ * of where it last looked, and the window's far edge has not grown by as
+ * much (a shrinking window cannot bring a model into range).
+ */
+export const streamNeedsRecheck = (
+  last: StreamLook | null,
+  boatDistanceMeters: number,
+  lookaheadMeters: number,
+  loop: boolean,
+  inFlight: boolean,
+): boolean =>
+  last === null
+  || inFlight
+  || last.loop !== loop
+  || Math.abs(boatDistanceMeters - last.meters) >= STREAM_RECHECK_METERS
+  || boatDistanceMeters + lookaheadMeters - last.horizon >= STREAM_RECHECK_METERS;

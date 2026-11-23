@@ -95,8 +95,9 @@ export const practicalSplits = (
   far: number,
   cascades: number,
   lambda = 0.5,
+  target?: Float32Array,
 ): Float32Array => {
-  const out = new Float32Array(cascades);
+  const out = target && target.length === cascades ? target : new Float32Array(cascades);
   for (let i = 1; i <= cascades; i++) {
     const p = i / cascades;
     const logSplit = near * Math.pow(far / near, p);
@@ -143,14 +144,48 @@ const emptyCascade = (): CascadeData => ({
   radius: 0,
 });
 
+/** #736 — scratch shared by every `computeCascades` call; nothing outlives one. */
+const scratch = {
+  lightDir: new Float32Array(3) as Vec3,
+  tmpUp: new Float32Array(3) as Vec3,
+  lightRight: new Float32Array(3) as Vec3,
+  lightUp: new Float32Array(3) as Vec3,
+  camForward: new Float32Array(3) as Vec3,
+  camRight: new Float32Array(3) as Vec3,
+  camUp: new Float32Array(3) as Vec3,
+  eye: new Float32Array(3) as Vec3,
+  centre: new Float32Array(3) as Vec3,
+  corners: Array.from({ length: 8 }, () => new Float32Array(3) as Vec3),
+  lightView: mat4(),
+  lightProj: mat4(),
+};
+
+/** World-space frustum corner at camera-space (fx, fy, fz), using the scratch basis. */
+const setCorner = (c: Vec3, camPos: Vec3, fx: number, fy: number, fz: number): void => {
+  const { camRight, camUp, camForward } = scratch;
+  c[0] = camPos[0] + camRight[0] * fx + camUp[0] * fy + camForward[0] * fz;
+  c[1] = camPos[1] + camRight[1] * fx + camUp[1] * fy + camForward[1] * fz;
+  c[2] = camPos[2] + camRight[2] * fx + camUp[2] * fy + camForward[2] * fz;
+};
+
+/** A result `computeCascades` can fill in place, frame after frame (#736). */
+export const createComputedCascades = (): ComputedCascades => ({
+  cascades: Array.from({ length: 4 }, emptyCascade),
+  splits: new Float32Array(0),
+});
+
 /**
  * Compute `cascades` light view-projection matrices + their split far
  * depths. Each cascade fits an orthographic volume around the view
  * frustum's slice from `splits[i-1]` to `splits[i]` and texel-snaps the
  * origin for stability.
+ *
+ * Pass `target` (from `createComputedCascades`) to fill it in place instead
+ * of allocating a new result; the per-frame shadow path does (#736).
  */
 export const computeCascades = (
   config: CascadedShadowsConfig,
+  target?: ComputedCascades,
 ): ComputedCascades => {
   const cascades = Math.max(1, Math.min(4, Math.floor(config.cascades)));
   const splits = practicalSplits(
@@ -158,19 +193,18 @@ export const computeCascades = (
     config.far,
     cascades,
     config.lambda ?? 0.5,
+    target?.splits,
   );
 
   // Light basis — look *along* `lightDirection` from a point above the
   // camera. Build a stable right/up pair avoiding colinearity with
   // (0, 1, 0).
-  const lightDir: Vec3 = new Float32Array([
-    config.lightDirection[0],
-    config.lightDirection[1],
-    config.lightDirection[2],
-  ]);
+  const { lightDir, tmpUp, lightRight, lightUp, camForward, camRight, camUp, corners } = scratch;
+  lightDir[0] = config.lightDirection[0];
+  lightDir[1] = config.lightDirection[1];
+  lightDir[2] = config.lightDirection[2];
   normalize3(lightDir, lightDir);
 
-  const tmpUp: Vec3 = new Float32Array(3);
   if (Math.abs(lightDir[1]) > 0.95) {
     tmpUp[0] = 0;
     tmpUp[1] = 0;
@@ -180,32 +214,29 @@ export const computeCascades = (
     tmpUp[1] = 1;
     tmpUp[2] = 0;
   }
-  const lightRight: Vec3 = new Float32Array(3);
   cross3(lightRight, lightDir, tmpUp);
   normalize3(lightRight, lightRight);
-  const lightUp: Vec3 = new Float32Array(3);
   cross3(lightUp, lightRight, lightDir);
   normalize3(lightUp, lightUp);
 
   // Camera basis.
-  const camForward: Vec3 = new Float32Array(3);
   normalize3(camForward, config.camForward);
-  const camRight: Vec3 = new Float32Array(3);
   cross3(camRight, camForward, config.camUp);
   normalize3(camRight, camRight);
-  const camUp: Vec3 = new Float32Array(3);
   cross3(camUp, camRight, camForward);
   normalize3(camUp, camUp);
 
   const halfFovTan = Math.tan(config.fovY / 2);
   const camPos = config.camPos;
 
-  const out: CascadeData[] = [];
+  const out: CascadeData[] = target?.cascades ?? [];
   let prevSplit = config.near;
 
   for (let i = 0; i < 4; i++) {
+    const dst = out[i] ?? (out[i] = emptyCascade());
     if (i >= cascades) {
-      out.push(emptyCascade());
+      mat4Identity(dst.viewProj);
+      dst.radius = 0;
       continue;
     }
     const splitNear = prevSplit;
@@ -218,24 +249,14 @@ export const computeCascades = (
     const yf = halfFovTan * splitFar;
     const xf = yf * config.aspect;
     // 8 corners: near TL/TR/BR/BL, far TL/TR/BR/BL.
-    const corners: Vec3[] = [];
-    const addCorner = (fx: number, fy: number, fz: number): void => {
-      const wx =
-        camPos[0] + camRight[0] * fx + camUp[0] * fy + camForward[0] * fz;
-      const wy =
-        camPos[1] + camRight[1] * fx + camUp[1] * fy + camForward[1] * fz;
-      const wz =
-        camPos[2] + camRight[2] * fx + camUp[2] * fy + camForward[2] * fz;
-      corners.push(new Float32Array([wx, wy, wz]));
-    };
-    addCorner(-xn, yn, splitNear);
-    addCorner(xn, yn, splitNear);
-    addCorner(xn, -yn, splitNear);
-    addCorner(-xn, -yn, splitNear);
-    addCorner(-xf, yf, splitFar);
-    addCorner(xf, yf, splitFar);
-    addCorner(xf, -yf, splitFar);
-    addCorner(-xf, -yf, splitFar);
+    setCorner(corners[0], camPos, -xn, yn, splitNear);
+    setCorner(corners[1], camPos, xn, yn, splitNear);
+    setCorner(corners[2], camPos, xn, -yn, splitNear);
+    setCorner(corners[3], camPos, -xn, -yn, splitNear);
+    setCorner(corners[4], camPos, -xf, yf, splitFar);
+    setCorner(corners[5], camPos, xf, yf, splitFar);
+    setCorner(corners[6], camPos, xf, -yf, splitFar);
+    setCorner(corners[7], camPos, -xf, -yf, splitFar);
 
     // Centroid for a stable light-view origin.
     let cxw = 0, cyw = 0, czw = 0;
@@ -262,16 +283,14 @@ export const computeCascades = (
     // Texel-grid snap: project centroid onto the light's XY plane and
     // round to the atlas tile's texel size, so adjacent frames align.
     const texelsPerUnit = config.tileTexels / (2 * radius);
-    const lookX = cxw - lightDir[0] * (radius + 10);
-    const lookY = cyw - lightDir[1] * (radius + 10);
-    const lookZ = czw - lightDir[2] * (radius + 10);
-    const lightView = mat4Identity(mat4());
-    mat4LookAt(
-      lightView,
-      new Float32Array([lookX, lookY, lookZ]),
-      new Float32Array([cxw, cyw, czw]),
-      lightUp,
-    );
+    scratch.eye[0] = cxw - lightDir[0] * (radius + 10);
+    scratch.eye[1] = cyw - lightDir[1] * (radius + 10);
+    scratch.eye[2] = czw - lightDir[2] * (radius + 10);
+    scratch.centre[0] = cxw;
+    scratch.centre[1] = cyw;
+    scratch.centre[2] = czw;
+    const lightView = mat4Identity(scratch.lightView);
+    mat4LookAt(lightView, scratch.eye, scratch.centre, lightUp);
     // Snap origin to texel grid in light view space.
     const originLightX = lightView[0] * cxw + lightView[4] * cyw + lightView[8] * czw + lightView[12];
     const originLightY = lightView[1] * cxw + lightView[5] * cyw + lightView[9] * czw + lightView[13];
@@ -282,7 +301,7 @@ export const computeCascades = (
     lightView[12] += dxs;
     lightView[13] += dys;
 
-    const lightProj = mat4Identity(mat4());
+    const lightProj = mat4Identity(scratch.lightProj);
     // The light eye sits `radius + 10` up-light of the centroid, so the
     // sphere spans view depths 10 .. 2*radius + 10. Start at the eye and run
     // 50 m past the sphere so a caster or receiver just outside it still
@@ -291,10 +310,14 @@ export const computeCascades = (
     const zFar = 2 * radius + 60;
     mat4Ortho(lightProj, -radius, radius, -radius, radius, zNear, zFar);
 
-    const viewProj = mat4Identity(mat4());
-    mat4Multiply(viewProj, lightProj, lightView);
-    out.push({ viewProj, radius });
+    mat4Multiply(mat4Identity(dst.viewProj), lightProj, lightView);
+    dst.radius = radius;
   }
+  out.length = 4;
 
+  if (target) {
+    target.splits = splits;
+    return target;
+  }
   return { cascades: out, splits };
 };

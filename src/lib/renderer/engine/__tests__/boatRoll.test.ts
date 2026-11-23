@@ -91,3 +91,18 @@ describe('boatRollRadians', () => {
     expect(boatRollRadians(Number.POSITIVE_INFINITY)).toBe(0);
   });
 });
+
+// #736 VP-18 — routeCurvatureAt reuses module scratch; one call must not leak
+// into the next, even across different curves.
+describe('routeCurvatureAt scratch reuse', () => {
+  it('gives each curve its own answer when calls interleave', () => {
+    const straight = new RouteCurve([vec3(0, 0, 0), vec3(0, 0, -10), vec3(0, 0, -20), vec3(0, 0, -30)]);
+    const bend = new RouteCurve([vec3(0, 0, 0), vec3(0, 0, -10), vec3(5, 0, -18), vec3(15, 0, -22)]);
+    const bendAlone = routeCurvatureAt(bend, 0.5, 30);
+    expect(Math.abs(bendAlone)).toBeGreaterThan(1e-4);
+    for (let i = 0; i < 3; i += 1) {
+      expect(Math.abs(routeCurvatureAt(straight, 0.5, 30))).toBeLessThan(1e-6);
+      expect(routeCurvatureAt(bend, 0.5, 30)).toBe(bendAlone);
+    }
+  });
+});

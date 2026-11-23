@@ -8,6 +8,8 @@ import {
   fleetMemberOnCourse,
   fleetStrokeOffset,
   advanceFleet,
+  advanceFleetInPlace,
+  mutableFleet,
   createFleet,
   FLEET_HULL_PALETTE,
   fleetHullTintFor,
@@ -468,5 +470,32 @@ describe('#757 fleetMemberOnCourse', () => {
   it('keeps every member on a looping route', () => {
     expect(fleetMemberOnCourse(-37.5, 0, 2000, true)).toBe(true);
     expect(fleetMemberOnCourse(112.5, 1950, 2000, true)).toBe(true);
+  });
+});
+
+// #736 VP-18 FR5 — the engine advances its fleet in place; the answer is the
+// same as the pure step's.
+describe('advanceFleetInPlace', () => {
+  it('moves the same members to the same places as advanceFleet, without new objects', () => {
+    let pure = createFleet({ count: 6, routeMeters: 2_000, routeId: 'r', playerStartMeters: 100 });
+    const owned = mutableFleet(pure);
+    const members = owned.members.map((m) => m);
+    let player = 100;
+    for (let i = 0; i < 200; i += 1) {
+      player += 4.2 * 0.016 * (i % 7 === 0 ? 30 : 1);
+      pure = advanceFleet(pure, player, 0.016);
+      advanceFleetInPlace(owned, player, 0.016);
+    }
+    expect(owned.members).toEqual(pure.members);
+    expect(owned.paceMps).toBe(pure.paceMps);
+    expect(owned.playerMeters).toBe(pure.playerMeters);
+    owned.members.forEach((m, i) => expect(m).toBe(members[i]));
+  });
+
+  it('leaves the state it copied from alone', () => {
+    const state = createFleet({ count: 3, routeMeters: 2_000, routeId: 'r', playerStartMeters: 100 });
+    const before = state.members.map((m) => m.distanceMeters);
+    advanceFleet(state, 150, 1);
+    expect(state.members.map((m) => m.distanceMeters)).toEqual(before);
   });
 });

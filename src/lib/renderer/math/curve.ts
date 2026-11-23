@@ -48,6 +48,9 @@ export class RouteCurve {
   /** Cumulative length at uniform parameter steps; built on first use. */
   private table: Float64Array | null = null;
   private readonly scratch: CurvePoint = { position: vec3(), tangent: vec3(0, 0, -1), angle: 0 };
+  /** #736 — the mirrored virtual endpoints, reused instead of allocated per sample. */
+  private readonly beforeStart: Vec3 = vec3();
+  private readonly pastEnd: Vec3 = vec3();
 
   constructor(points: readonly Vec3[], closed = false) {
     this.closed = closed;
@@ -232,7 +235,7 @@ export class RouteCurve {
       // Mirror the second point across the first for a plausible virtual endpoint.
       const first = this.pts[0];
       const second = this.pts[1] ?? first;
-      const out = vec3();
+      const out = this.beforeStart;
       out[0] = 2 * first[0] - second[0];
       out[1] = 2 * first[1] - second[1];
       out[2] = 2 * first[2] - second[2];
@@ -241,7 +244,7 @@ export class RouteCurve {
     if (index >= n) {
       const last = this.pts[n - 1];
       const prev = this.pts[n - 2] ?? last;
-      const out = vec3();
+      const out = this.pastEnd;
       out[0] = 2 * last[0] - prev[0];
       out[1] = 2 * last[1] - prev[1];
       out[2] = 2 * last[2] - prev[2];

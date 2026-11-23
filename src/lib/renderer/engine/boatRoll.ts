@@ -39,6 +39,10 @@ export const angleDiff = (a: number, b: number): number => {
 /** Hard clamp used for the roll magnitude. */
 const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > hi ? hi : v);
 
+// #736 — reused by every call, so a frame samples the curve without garbage.
+const scratchA = { position: vec3() as Vec3, tangent: vec3() as Vec3, angle: 0 };
+const scratchB = { position: vec3() as Vec3, tangent: vec3() as Vec3, angle: 0 };
+
 /**
  * Route curvature at `progress`, in radians per metre (`dθ/ds`). Positive
  * = turning counter-clockwise. `lookAheadMetres` is the half-window used
@@ -60,8 +64,6 @@ export const routeCurvatureAt = (
   const span = after - before;
   if (span <= 0) return 0;
   const spanMetres = span * totalLengthMeters;
-  const scratchA = { position: vec3() as Vec3, tangent: vec3() as Vec3, angle: 0 };
-  const scratchB = { position: vec3() as Vec3, tangent: vec3() as Vec3, angle: 0 };
   const a = curve.sample(before, scratchA);
   const b = curve.sample(after, scratchB);
   return angleDiff(a.angle, b.angle) / spanMetres;

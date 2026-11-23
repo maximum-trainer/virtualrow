@@ -85,17 +85,17 @@ export const makeMockDevice = (): MockDevice => {
     resolveLost = resolve;
   });
 
-  const makeBuffer = (): GPUBuffer => ({
+  const makeBuffer = (desc?: GPUBufferDescriptor): GPUBuffer => ({
     destroy: () => {
       log.destroyedBuffers += 1;
     },
     mapAsync: async () => undefined,
     getMappedRange: () => new ArrayBuffer(0),
     unmap: () => undefined,
-    size: 0,
-    usage: 0,
+    size: desc?.size ?? 0,
+    usage: desc?.usage ?? 0,
     mapState: 'unmapped',
-    label: '',
+    label: desc?.label ?? '',
   }) as unknown as GPUBuffer;
 
   const makePipeline = (label: string): GPURenderPipeline =>
@@ -165,7 +165,7 @@ export const makeMockDevice = (): MockDevice => {
     // No optional features by default, so the GPU frame timer (#584 AC3) and
     // anything else gated on `device.features.has(...)` takes its absent path.
     features: new Set() as unknown as GPUSupportedFeatures,
-    createBuffer: () => makeBuffer(),
+    createBuffer: (desc: GPUBufferDescriptor) => makeBuffer(desc),
     createShaderModule: () => ({ label: '' }) as unknown as GPUShaderModule,
     createBindGroupLayout: () => ({}) as unknown as GPUBindGroupLayout,
     createPipelineLayout: () => ({}) as unknown as GPUPipelineLayout,
