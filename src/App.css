@@ -79,6 +79,9 @@ body {
 .header-auth {
   margin-left: auto;
   flex-shrink: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
 }
 
 .signed-out-notice {
@@ -703,6 +706,17 @@ body {
   color: var(--color-text-muted);
 }
 
+/* #741 FR5 — a start held for the route's map data, and its escape. */
+.route-enrichment-wait {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  align-items: center;
+  margin: var(--space-xs) 0 0;
+  font-size: 0.85rem;
+  color: var(--color-text-secondary);
+}
+
 .route-info-overlay .route-meta-compact {
   display: flex;
   flex-wrap: wrap;
@@ -1290,6 +1304,29 @@ body {
   width: 100%;
   height: 100%;
   display: block;
+}
+
+/* #728 VP-10 FR2 — over a race ghost more than 30 m away. The engine
+   places it (canvas CSS px, a point above the boat); it sits centred over
+   that point. The lime matches the ghost's own tint. */
+.rower3d-canvas-container {
+  position: relative;
+}
+
+.rower3d-canvas-container .ghost-marker {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 2px solid #b8ff4d;
+  background: rgb(10 20 10 / 70%);
+  color: #e9ffd0;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 5;
 }
 
 .activity-route-summary {

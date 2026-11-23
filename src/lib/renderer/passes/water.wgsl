@@ -19,6 +19,23 @@ struct Frame {
 
 @group(0) @binding(0) var<uniform> frame: Frame;
 
+// #730 VP-12 — the rower's conditions (Dawn / Midday / Golden hour /
+// Overcast / Dusk). Mirrors `packFrameLighting` in `engine/uniforms.ts`;
+// `wgsl.test.ts` checks the size. Midday (and no conditions) packs every
+// multiplier as exactly 1 and every shift as 0, so the maths below draws
+// the pre-#730 frame unchanged.
+struct Lighting {
+  sun: vec4<f32>,          // rgb direct-light multiplier, w shadowStrength
+  ambient: vec4<f32>,      // rgb ambient multiplier, w sunDisc
+  zenith: vec4<f32>,       // rgb day zenith, w cloudThresholdShift
+  horizonCool: vec4<f32>,  // rgb, w cloudAlpha
+  horizonWarm: vec4<f32>,  // rgb, w waterSpecular
+  sunDisc: vec4<f32>,      // rgb disc colour, w exposureBias (postFx)
+  cloudTint: vec4<f32>,    // rgb, w cloudCover
+  waterTint: vec4<f32>,    // rgb, w fogDensityScale (CPU-side)
+};
+@group(0) @binding(1) var<uniform> lighting: Lighting;
+
 struct VSOut {
   @builtin(position) pos: vec4<f32>,
   @location(0) worldXZ: vec2<f32>,
@@ -56,9 +73,28 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   let secondary = 0.5 + 0.5 * sin(in.worldXZ.x * 0.11 - frame.time * 0.6)
                       * cos(in.worldXZ.y * 0.09 + frame.time * 0.4);
   let col = mix(deep, shallow, clamp(ripple * 0.85 + secondary * 0.3 - 0.15, 0.0, 1.0));
-  let lit = sampleShadow(in.worldPos, in.viewZ);
+  // #730 FR4: Overcast softens the shadow (strength < 1); 1 is today's.
+  var lit = sampleShadow(in.worldPos, in.viewZ);
+  if (lighting.sun.w < 1.0) {
+    lit = mix(1.0, lit, lighting.sun.w);
+  }
   // Water takes a lighter shadow — only the reflection dims.
-  let shaded = col * (0.75 + 0.25 * lit);
+  var shaded = col * (0.75 + 0.25 * lit) * lighting.waterTint.rgb;
+  // #730: a low sun lays a glint down the water. waterSpecular is 0 at
+  // Midday and under Overcast, so those frames skip it entirely.
+  let spec = lighting.horizonWarm.w;
+  if (spec > 0.0) {
+    let ripple2 = vec3<f32>(
+      0.08 * sin(in.worldXZ.x * 1.7 + frame.time * 2.3),
+      1.0,
+      0.08 * cos(in.worldXZ.y * 1.3 - frame.time * 1.9),
+    );
+    let n = normalize(ripple2);
+    let v = normalize(frame.camPos - in.worldPos);
+    let r = reflect(-v, n);
+    let glint = pow(max(dot(r, normalize(frame.sunDir)), 0.0), 48.0);
+    shaded = shaded + lighting.sun.rgb * (glint * spec * lit);
+  }
   // Dissolve into the sky at the horizon in step with the land
   // (HORIZON_HAZE_WGSL), so distant water is not left as a hard blue line.
   let camDist = length(in.worldPos.xz - frame.camPos.xz);

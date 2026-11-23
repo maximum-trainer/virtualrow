@@ -365,3 +365,55 @@
   font-size: 0.75rem;
   color: #cbd5e1;
 }
+
+/* --- compact HUD (#733 VP-15 FR4) -------------------------------------------
+   On a stage shorter than 800px the strip, the workout block and the gap chip
+   stacked up to about 45% of the 3D view and the boat sat behind them. The ride
+   view adds `--compact-hud` to the stage there (`rowHudPlan.isCompactHud`) and
+   the strip lies down to one row, as it already does on a phone on its side:
+   tiles and controls along the bottom, type at the size the short-landscape
+   strip uses (still above the 11px floor, controls still 44px). */
+.activity-route-stage--compact-hud {
+  --row-hud-strip-height: 5.5rem;
+}
+
+.activity-route-stage--compact-hud .row-hud-strip {
+  flex-direction: row;
+  align-items: flex-end;
+  gap: var(--space-xs);
+  padding: var(--space-2xs) calc(var(--space-sm) + env(safe-area-inset-right, 0px))
+    calc(var(--space-2xs) + env(safe-area-inset-bottom, 0px))
+    calc(var(--space-sm) + env(safe-area-inset-left, 0px));
+}
+
+.activity-route-stage--compact-hud .row-hud .activity-stats-grid {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.activity-route-stage--compact-hud .row-hud .activity-stat-value {
+  font-size: 1.5rem;
+}
+
+.activity-route-stage--compact-hud .row-hud .activity-stat-label {
+  font-size: 0.8125rem;
+}
+
+.activity-route-stage--compact-hud .row-hud .activity-controls {
+  flex: 0 0 auto;
+  width: auto;
+}
+
+.activity-route-stage--compact-hud .row-hud .btn-activity-control {
+  padding: var(--space-2xs) var(--space-sm);
+  font-size: 0.8rem;
+}
+
+.activity-route-stage--compact-hud .row-hud-gap {
+  margin-bottom: 0.2rem;
+  padding: 0.15rem 0.7rem;
+}
+
+.activity-route-stage--compact-hud .row-hud-gap-value {
+  font-size: 1.125rem;
+}

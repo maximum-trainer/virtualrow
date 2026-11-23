@@ -110,7 +110,7 @@ describe('#493 lake outline storage budget (NFR3, AC10)', () => {
   it('keeps a stale lake readable while it re-fetches, and falls back to it if the re-fetch fails (AC9)', async () => {
     const storage = memoryStorage();
     const { enrichment } = await enrichFixture(byId(1), storage);
-    vi.spyOn(Date, 'now').mockReturnValue(enrichment.fetchedAt + ROUTE_ENRICHMENT_CACHE_TTL_MS + 1);
+    vi.spyOn(Date, 'now').mockReturnValue(enrichment.fetchedAt + ROUTE_ENRICHMENT_CACHE_TTL_MS + 60_000); // savedAt trails fetchedAt by a few ms on a slow runner
     try {
       const failing = new RouteEnrichmentService((async () => { throw new Error('offline'); }) as typeof fetch, storage, runDetectionInline);
       const stale = failing.readCached('course-1');

@@ -132,3 +132,43 @@ export const sceneryModelsToLoad = (
   }
   return out;
 };
+
+/** #726 FR2 — the shortest look-ahead, however slow the boat. */
+export const SCENERY_LOOKAHEAD_FLOOR_METRES = 600;
+/** #726 FR2 — seconds of travel the look-ahead covers at the current speed. */
+export const SCENERY_LOOKAHEAD_SECONDS = 60;
+
+/**
+ * #726 FR2 — the look-ahead window in metres: a minute of travel at the
+ * boat's current speed, never less than 600 m, so a model is requested
+ * well before its nearest instance can come into view.
+ */
+export const streamLookaheadMeters = (speedMps: number): number => (
+  Math.max(SCENERY_LOOKAHEAD_FLOOR_METRES, (Number.isFinite(speedMps) ? Math.max(0, speedMps) : 0) * SCENERY_LOOKAHEAD_SECONDS)
+);
+
+/**
+ * #726 FR5 — decoded models wait here and are registered (GPU buffers and
+ * a bind group each) one per frame, so several finishing together never
+ * stall one frame.
+ */
+export interface RegistrationQueue<T> {
+  push(item: T): void;
+  /** Hands the oldest waiting item to `register`; false when none waited. */
+  drainOne(register: (item: T) => void): boolean;
+  readonly pending: number;
+}
+
+export const createRegistrationQueue = <T>(): RegistrationQueue<T> => {
+  const items: T[] = [];
+  return {
+    push: (item) => { items.push(item); },
+    drainOne: (register) => {
+      const item = items.shift();
+      if (item === undefined) return false;
+      register(item);
+      return true;
+    },
+    get pending() { return items.length; },
+  };
+};

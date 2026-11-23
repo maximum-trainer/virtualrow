@@ -41,10 +41,38 @@ export function extractRouteStatus(tags: string[] | undefined): string | undefin
   return tags?.find((t) => t.startsWith('status:'))?.replace('status:', '');
 }
 
+/** #741 FR5 — what the Row screen says while a route's map data loads. */
+export const enrichmentStatusCopy = (phase: 'water' | 'scenery' | undefined): string =>
+  phase === 'water'
+    ? 'Reading the water…'
+    : phase === 'scenery'
+      ? 'Dressing the banks…'
+      : 'Loading route data…';
+
+/** Runs `cb` when the browser is idle; returns a cancel. Injected in tests. */
+export type IdleSchedule = (cb: () => void) => () => void;
+
+/** #741 FR6 — idle time, or a short timer where `requestIdleCallback` is missing. */
+export const scheduleIdle: IdleSchedule = (cb) => {
+  const w = typeof window !== 'undefined' ? window : undefined;
+  if (w && typeof w.requestIdleCallback === 'function') {
+    const id = w.requestIdleCallback(() => cb(), { timeout: 5_000 });
+    return () => w.cancelIdleCallback(id);
+  }
+  const id = setTimeout(cb, 500);
+  return () => clearTimeout(id);
+};
+
 export class RoutesStore {
   #routeService: Services['routeService'];
   #enrichment: Services['routeEnrichmentService'];
   #defaultPref: Services['defaultRoutePreferenceStore'];
+
+  /** Whether an athlete is signed in: only they need a route's map data. */
+  #signedIn = false;
+
+  /** #741 FR6 — bumped to stop a running prefetch. */
+  #prefetchGeneration = 0;
 
   /** Set once the opening route has been chosen, so an import or a later load
    *  does not snap the selection back (App.tsx `hasPreselectedRef`). */
@@ -57,6 +85,8 @@ export class RoutesStore {
   routeDetailOpen = $state<WaterRoute | null>(null);
   routeEnrichments = $state<Record<string, RouteEnrichmentData>>({});
   routeEnrichmentLoading = $state<Record<string, boolean>>({});
+  /** #741 FR5 — which part of a loading route's map data is being read. */
+  routeEnrichmentPhase = $state<Record<string, 'water' | 'scenery'>>({});
 
   // Import panel.
   isImportOpen = $state(false);
@@ -114,6 +144,7 @@ export class RoutesStore {
       this.routes.map((r) => r.id),
     );
     this.defaultRouteId = resolved;
+    this.setAthlete(userId);
 
     if (this.#hasPreselected || authLoading) return;
     this.#select(
@@ -122,6 +153,23 @@ export class RoutesStore {
         this.routes[0],
     );
     this.#hasPreselected = true;
+  }
+
+  /**
+   * Follow sign-in. Dan, 2026-11-23: the demo route and a guest need no
+   * external map data, so only a signed-in athlete's non-demo routes ask
+   * Overpass and Open-Meteo. Signing in brings the selected route's data in.
+   */
+  setAthlete(userId: string | null): void {
+    const signedIn = !!userId;
+    if (signedIn === this.#signedIn) return;
+    this.#signedIn = signedIn;
+    if (signedIn && this.selectedRoute) this.#enrich(this.selectedRoute);
+  }
+
+  /** Whether `route` is dressed from OSM: signed in, and not the demo route. */
+  #needsMapData(route: WaterRoute): boolean {
+    return this.#signedIn && route.id !== DEMO_ROUTE_ID;
   }
 
   /** Star / un-star a route as this athlete's default (App.tsx AC6.5/AC6.6). */
@@ -182,6 +230,7 @@ export class RoutesStore {
   }
 
   #enrich(route: WaterRoute): void {
+    if (!this.#needsMapData(route)) return;
     const cached = this.#enrichment.readCached(route.id);
     if (cached.data) {
       this.routeEnrichments = { ...this.routeEnrichments, [route.id]: cached.data };
@@ -192,13 +241,50 @@ export class RoutesStore {
     }
     this.routeEnrichmentLoading = { ...this.routeEnrichmentLoading, [route.id]: true };
     void this.#enrichment
-      .enrichRoute(route)
+      .enrichRoute(route, (phase) => {
+        this.routeEnrichmentPhase = { ...this.routeEnrichmentPhase, [route.id]: phase };
+      })
       .then((enrichment) => {
         this.routeEnrichments = { ...this.routeEnrichments, [route.id]: enrichment };
       })
       .finally(() => {
         this.routeEnrichmentLoading = { ...this.routeEnrichmentLoading, [route.id]: false };
       });
+  }
+
+  /**
+   * #741 VP-21 FR6 — bring in the enrichment for every route in My routes,
+   * so a route opened later starts with its real water and banks. One route
+   * at a time and only in idle time (Overpass asks clients for one request
+   * at a time), never alongside the selected route's own enrichment, and
+   * skipping routes the 7-day cache already holds. Resolves when done or
+   * cancelled; a failure on one route moves on to the next.
+   */
+  async prefetchEnrichments(schedule: IdleSchedule = scheduleIdle): Promise<void> {
+    const mine = (this.#prefetchGeneration += 1);
+    const alive = (): boolean => mine === this.#prefetchGeneration;
+    const idle = (): Promise<void> => new Promise((resolve) => schedule(resolve));
+    for (const route of [...this.routes]) {
+      do {
+        await idle();
+        if (!alive()) return;
+      } while (Object.values(this.routeEnrichmentLoading).some(Boolean));
+      if (route.id === DEMO_ROUTE_ID || this.routeEnrichments[route.id]) continue;
+      const cached = this.#enrichment.readCached(route.id);
+      if (cached.data && !cached.stale) continue;
+      try {
+        const enrichment = await this.#enrichment.enrichRoute(route);
+        if (!alive()) return;
+        this.routeEnrichments = { ...this.routeEnrichments, [route.id]: enrichment };
+      } catch {
+        // The selection re-tries this route if it is opened; move on.
+      }
+    }
+  }
+
+  /** Stop a running `prefetchEnrichments` (sign-out, teardown). */
+  cancelPrefetch(): void {
+    this.#prefetchGeneration += 1;
   }
 
   /**

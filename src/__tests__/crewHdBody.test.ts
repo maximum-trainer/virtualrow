@@ -74,7 +74,8 @@ describe('HD rower (#672)', () => {
   it.each(CREWED)('%s reaches past the knees to the handles at the catch', (file) => {
     const hand = readGlbWorldBounds(boat(file), (n) => n === 'RightHand');
     const knee = readGlbWorldBounds(boat(file), (n) => n === 'RightKnee');
-    expect(hand!.max[2]).toBeGreaterThan(knee!.max[2]);
+    // Facing the stern (#721), "past the knees" is further toward -Z.
+    expect(hand!.min[2]).toBeLessThan(knee!.min[2]);
   });
 
   it('builds the male broader across the shoulders than the female (AC3)', () => {

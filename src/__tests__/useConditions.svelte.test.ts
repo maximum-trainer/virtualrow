@@ -53,3 +53,20 @@ describe('ConditionsStore', () => {
     expect(localStorage.getItem(CONDITIONS_STORAGE_KEY)).toBeNull();
   });
 });
+
+// #730 VP-12 — the home screen's picker and the ride view read one store, so
+// the choice reaches the engine and a change relights the running scene.
+describe('sharedConditionsStore', () => {
+  it('hands every caller the same store', async () => {
+    const { sharedConditionsStore } = await import('../lib/ui/useConditions.svelte');
+    const a = sharedConditionsStore();
+    const b = sharedConditionsStore();
+    expect(a).toBe(b);
+    const stop = $effect.root(() => {
+      a.setChoice('golden');
+      flushSync();
+      expect(b.conditions).toBe('golden');
+    });
+    stop();
+  });
+});

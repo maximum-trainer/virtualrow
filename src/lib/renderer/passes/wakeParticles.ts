@@ -1,6 +1,7 @@
 /**
- * Hull wake particles pass (#571). Instanced camera-facing billboards —
- * one draw per frame with instance count = `wakeState.size`. The CPU
+ * Hull wake particles pass (#571). Instanced quads lying flat on the
+ * water (#722 VP-04) — one draw per frame with instance count =
+ * `wakeState.size`. The CPU
  * side (`engine/wakeParticles.ts`) runs the particle sim; this file owns
  * the GPU pipeline + storage upload + draw.
  *

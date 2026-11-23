@@ -12,6 +12,7 @@
 
 /// <reference types="@webgpu/types" />
 
+import type { WaterFootprint } from '../plan/waterFootprint';
 import type { FrameContext, Pass } from './frameGraph';
 import type { ShadowAtlas } from './shadowAtlas';
 import { cascadeViewport } from './shadowAtlas';
@@ -105,6 +106,8 @@ export interface ShadowStageOptions {
   bankCurve?: RouteCurve | null;
   /** Same per-progress shore widths the lit bank pass uses. */
   bankEdgesForProgress?: (progress: number) => WaterEdges;
+  /** #742 — the water footprint the lit bank pass gives way to. */
+  bankFootprint?: WaterFootprint | null;
   /**
    * #591-fu P1c GLB-kit depth cast. When provided and the tier allows,
    * the shadow stage iterates each active registered mesh with
@@ -124,6 +127,7 @@ export const createShadowStage = (
   const bank = createBankDepthPipeline(device, {
     curve: opts.bankCurve ?? null,
     edgesForProgress: opts.bankEdgesForProgress,
+    footprint: opts.bankFootprint,
   });
   const scenery = createSceneryDepthPipeline(device);
   const buildings = createBuildingsDepthPipeline(device);
@@ -358,7 +362,7 @@ export const createShadowStage = (
         pass.setBindGroup(0, bankCascadeBindGroups[i]);
         pass.setVertexBuffer(0, bank.positions);
         pass.setVertexBuffer(1, bank.sides);
-        pass.setIndexBuffer(bank.indices, 'uint16');
+        pass.setIndexBuffer(bank.indices, bank.indexFormat);
         pass.drawIndexed(bank.indexCount);
         drawCount += 1;
         triangleCount += bank.indexCount / 3;

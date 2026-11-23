@@ -20,7 +20,7 @@
 // component that renders it cannot drift from it.
 // ============================================================================
 
-export type LoadPhaseKey = 'view' | 'scene' | 'frame' | 'boat';
+export type LoadPhaseKey = 'scene' | 'boat' | 'crew' | 'atlas' | 'scenery-near' | 'frame';
 
 export interface LoadPhase {
   key: LoadPhaseKey;
@@ -31,25 +31,25 @@ export interface LoadPhase {
 }
 
 /**
- * The four waits, and what each is worth.
+ * The waits, in the order the engine settles them, and what each is worth.
  *
- * Weights are the measured shares of a 3,247 ms load, not four equal quarters:
- * view 21%, scene 19%, frame 1%, boat 59%. Two departures from the measurement,
- * both deliberate:
+ * #726 VP-08 FR1: the WebGPU engine reports each phase itself (the bar was
+ * hard-wired complete after the cutover). The old `view` phase, the scene's
+ * code chunk, is gone: the engine is in the page's own bundle.
  *
- *   - the frame gets 5 rather than 1, so the bar visibly moves when it lands
- *     rather than appearing to stall between the scene and the boat;
- *   - the boat is rounded down to 55 to pay for it.
- *
- * `scene` is named for what it is. The geometry *computation* is 0.8 ms; the
- * 604 ms between the chunk arriving and the geometry mark is React mounting the
- * scene, and calling that "building the route" would be a nicer-sounding lie.
+ * The weights are estimates by download size, not a measurement: the crew's
+ * scull GLB (~2 MB) and the kit models within 600 m of the start are the two
+ * big waits; the boat shell and the flora atlas are small; the scene build
+ * and the first frame are worth just enough that the bar visibly moves.
+ * Re-weigh from a measured load when one is taken.
  */
 export const LOAD_PHASES: readonly LoadPhase[] = [
-  { key: 'view', label: 'Fetching the 3D view', weight: 20 },
-  { key: 'scene', label: 'Preparing the scene', weight: 20 },
+  { key: 'scene', label: 'Preparing the scene', weight: 10 },
+  { key: 'boat', label: 'Loading the boat', weight: 10 },
+  { key: 'crew', label: 'Loading the crew', weight: 30 },
+  { key: 'atlas', label: 'Loading the trees', weight: 10 },
+  { key: 'scenery-near', label: 'Placing the scenery', weight: 35 },
   { key: 'frame', label: 'Drawing the first frame', weight: 5 },
-  { key: 'boat', label: 'Loading the boat', weight: 55 },
 ];
 
 export interface LoadProgress {
@@ -97,3 +97,25 @@ export const describeLoadProgress = (
 
 /** What the stage says when the boat could not be fetched. */
 export const BOAT_UNAVAILABLE_MESSAGE = 'The boat could not be loaded — rowing without it.';
+
+const isPhaseKey = (key: string): key is LoadPhaseKey => LOAD_PHASES.some((phase) => phase.key === key);
+
+/**
+ * #726 VP-08 FR1 — the engine reports each phase as it settles
+ * (`onLoadPhase`); this is what the ride page shows for those reports. An
+ * engine that declined has nothing left to load: the bar goes and the
+ * needs-WebGPU screen speaks for itself.
+ */
+export const progressFromReports = (
+  reports: ReadonlyMap<string, 'done' | 'failed'>,
+  declined: boolean,
+): LoadProgress => {
+  if (declined) return describeLoadProgress(new Set(LOAD_PHASES.map((phase) => phase.key)));
+  const finished = new Set<LoadPhaseKey>();
+  const failed = new Set<LoadPhaseKey>();
+  for (const [key, status] of reports) {
+    if (!isPhaseKey(key)) continue;
+    (status === 'done' ? finished : failed).add(key);
+  }
+  return describeLoadProgress(finished, failed);
+};

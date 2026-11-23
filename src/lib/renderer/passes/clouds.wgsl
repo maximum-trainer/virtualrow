@@ -23,6 +23,23 @@ struct Frame {
 };
 @group(0) @binding(0) var<uniform> frame: Frame;
 
+// #730 VP-12 — the rower's conditions (Dawn / Midday / Golden hour /
+// Overcast / Dusk). Mirrors `packFrameLighting` in `engine/uniforms.ts`;
+// `wgsl.test.ts` checks the size. Midday (and no conditions) packs every
+// multiplier as exactly 1 and every shift as 0, so the maths below draws
+// the pre-#730 frame unchanged.
+struct Lighting {
+  sun: vec4<f32>,          // rgb direct-light multiplier, w shadowStrength
+  ambient: vec4<f32>,      // rgb ambient multiplier, w sunDisc
+  zenith: vec4<f32>,       // rgb day zenith, w cloudThresholdShift
+  horizonCool: vec4<f32>,  // rgb, w cloudAlpha
+  horizonWarm: vec4<f32>,  // rgb, w waterSpecular
+  sunDisc: vec4<f32>,      // rgb disc colour, w exposureBias (postFx)
+  cloudTint: vec4<f32>,    // rgb, w cloudCover
+  waterTint: vec4<f32>,    // rgb, w fogDensityScale (CPU-side)
+};
+@group(0) @binding(1) var<uniform> lighting: Lighting;
+
 struct VSOut {
   @builtin(position) pos: vec4<f32>,
   @location(0) ndc: vec2<f32>,
@@ -81,8 +98,10 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   // Soft horizon fade and top fade so clouds live in a band.
   density = density * smoothstep(0.02, 0.35, altitude) * (1.0 - smoothstep(0.75, 0.98, altitude));
   // Threshold so the alpha has gaps rather than a uniform haze.
-  let cover = smoothstep(0.46, 0.72, density);
+  // #730: more cover lowers the threshold (Overcast closes the gaps).
+  let shift = lighting.zenith.w;
+  let cover = smoothstep(0.46 - shift, 0.72 - shift, density);
   let shade = 0.78 + 0.22 * max(normalize(frame.sunDir).y, 0.0);
-  let col = vec3<f32>(shade);
-  return vec4<f32>(col, cover * 0.85);
+  let col = vec3<f32>(shade) * lighting.cloudTint.rgb;
+  return vec4<f32>(col, cover * lighting.horizonCool.w);
 }

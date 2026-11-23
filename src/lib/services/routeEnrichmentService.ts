@@ -7,10 +7,19 @@ import {
   routeTotalDistanceMeters,
 } from '../utils/geoUtils';
 
-export const OPEN_TOPO_DATA_BATCH_LIMIT = 100;
+/** Open-Meteo answers up to 100 coordinates per elevation request. */
+export const ELEVATION_BATCH_LIMIT = 100;
 export const ROUTE_SEGMENT_LENGTH_METERS = 50;
 export const ROUTE_ENRICHMENT_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-export const OPEN_TOPO_DATA_URL = 'https://api.opentopodata.org/v1/srtm30m';
+/** #741 FR5 — which Overpass query an enrichment is waiting on. */
+export type EnrichmentPhase = 'water' | 'scenery';
+
+/**
+ * #741 FR2 / D1 — Open-Meteo's elevation API (Copernicus DEM, 90 m). It sends
+ * CORS headers, so it works from the browser; the public OpenTopoData API
+ * did not, and failed on every route.
+ */
+export const ELEVATION_API_URL = 'https://api.open-meteo.com/v1/elevation';
 import { findCrossings, type Crossing } from '../utils/bridgeCrossings';
 import { mapOsmTagsToSceneryProfile } from '../utils/sceneryFromTags';
 import { SHORE_RAY_LIMIT_METERS, type DetectedSample } from '../utils/shoreDetection';
@@ -21,6 +30,14 @@ import { SCENE_SCALE } from '../utils/worldScale';
 import { waterBodyFromName } from '../utils/waterBodyFromName';
 
 export const OVERPASS_API_URL = 'https://overpass-api.de/api/interpreter';
+/**
+ * #741 FR4 — the public mirror each Overpass query is retried on, once, when
+ * the main instance fails, times out or is rate-limited.
+ */
+export const OVERPASS_MIRROR_URL = 'https://overpass.kumi.systems/api/interpreter';
+/** #741 FR4 — client-side limits per query; the server's own `[timeout:]` is a little under each. */
+export const OVERPASS_WATER_TIMEOUT_MS = 20_000;
+export const OVERPASS_SCENERY_TIMEOUT_MS = 40_000;
 const ROUTE_ENRICHMENT_CACHE_ROOT = 'virtualrow:route-enrichment:';
 /**
  * v2: the water type comes from OSM detection (#493). v3: each segment also
@@ -119,9 +136,24 @@ export interface RouteEnrichmentData {
    * entries cached before this field and on the synthetic fallback.
    */
   elevationSource?: 'network' | 'unavailable';
+  /**
+   * #741 FR1 — what the scene is built from: real OSM data with elevations,
+   * real OSM data on flat terrain, or the synthetic fallback. Read it with
+   * `enrichmentSourceOf`, which also covers entries cached before this field.
+   */
+  enrichmentSource?: EnrichmentSource;
   fetchedAt: number;
   source: 'network' | 'cache' | 'fallback';
 }
+
+export type EnrichmentSource = 'osm' | 'osm-no-elevation' | 'fallback';
+
+/** #741 FR1 — which of the three an enrichment is, whether or not it carries the field. */
+export const enrichmentSourceOf = (data: RouteEnrichmentData): EnrichmentSource => {
+  if (data.enrichmentSource) return data.enrichmentSource;
+  if (data.source === 'fallback') return 'fallback';
+  return data.elevationSource === 'unavailable' ? 'osm-no-elevation' : 'osm';
+};
 
 /** OSM building footprint pulled from Overpass. */
 export interface OsmBuilding {
@@ -191,8 +223,8 @@ interface OverpassResponse {
   elements?: OverpassElement[];
 }
 
-interface OpenTopoDataResponse {
-  results?: Array<{ elevation: number | null }>;
+interface ElevationResponse {
+  elevation?: Array<number | null>;
 }
 
 interface CacheLookupResult {
@@ -286,7 +318,7 @@ const debugLog = (message: string) => {
  * Constrain an upstream elevation payload to exactly one finite number per
  * route coordinate.
  *
- * OpenTopoData is untrusted input: it can return fewer results than requested
+ * The elevation API is untrusted input: it can return fewer results than requested
  * (partial batch), more than requested, or `null` for no-data cells. Any of
  * those would silently misalign `elevations` against `route.coordinates`.
  * Short payloads are padded with the last known value (0 if there is none),
@@ -315,7 +347,7 @@ export const getRouteEnrichmentCacheKey = (routeId: string) =>
 
 export const splitCoordinatesIntoElevationBatches = (
   coordinates: Coordinate[],
-  batchSize: number = OPEN_TOPO_DATA_BATCH_LIMIT,
+  batchSize: number = ELEVATION_BATCH_LIMIT,
 ) => {
   const batches: Coordinate[][] = [];
   for (let index = 0; index < coordinates.length; index += batchSize) {
@@ -484,29 +516,59 @@ export const ISLAND_RELATION_MAX_MEMBERS = 500;
 const bboxString = (bounds: BoundingBox) =>
   `${bounds.minLat},${bounds.minLng},${bounds.maxLat},${bounds.maxLng}`;
 
-export const buildOverpassQuery = (coordinates: Coordinate[]) => {
-  const bbox = bboxString(buildBoundingBox(coordinates));
-  // Only water and land-in-water get the wide box; land use and buildings stay
-  // near the route, where a wide margin would be a city's worth of data.
-  const wide = bboxString(buildBoundingBox(coordinates, SHORE_QUERY_MARGIN_METERS));
+/** #741 FR4 — the building corridor: the route buffered by this, not its bounding box. */
+export const SCENERY_CORRIDOR_METERS = 300;
+const CORRIDOR_SPACING_METERS = 100;
+const CORRIDOR_MAX_POINTS = 200;
 
+/**
+ * The route thinned for an Overpass `around` polyline: a point at least every
+ * `CORRIDOR_SPACING_METERS` (more often on a long route, to stay under
+ * `CORRIDOR_MAX_POINTS`), always keeping both ends. `around` buffers the
+ * segments between the points, so the thinning loses no coverage.
+ */
+export const corridorPolyline = (coordinates: Coordinate[]): string => {
+  if (coordinates.length === 0) return '';
+  let total = 0;
+  for (let i = 1; i < coordinates.length; i += 1) {
+    const a = coordinates[i - 1];
+    const b = coordinates[i];
+    total += distanceBetweenLatLng(a.lat, a.lng, b.lat, b.lng);
+  }
+  const spacing = Math.max(CORRIDOR_SPACING_METERS, total / (CORRIDOR_MAX_POINTS - 2));
+  const kept: Coordinate[] = [coordinates[0]];
+  let since = 0;
+  for (let i = 1; i < coordinates.length; i += 1) {
+    const a = coordinates[i - 1];
+    const b = coordinates[i];
+    since += distanceBetweenLatLng(a.lat, a.lng, b.lat, b.lng);
+    const last = i === coordinates.length - 1;
+    if (since >= spacing || last) {
+      kept.push(b);
+      since = 0;
+    }
+  }
+  const round = (n: number) => Math.round(n * 1e6) / 1e6;
+  return kept.map((c) => `${round(c.lat)},${round(c.lng)}`).join(',');
+};
+
+/** Natural values that are water, or land inside it: what shore detection reads. */
+const WATER_NATURAL_VALUES = '^(water|bay|strait|coastline|bare_rock|shoal)$';
+
+/**
+ * #741 FR4 (a) — the water query: water areas, waterways, the coast, islands
+ * and piers, out to `SHORE_QUERY_MARGIN_METERS` for shore detection (#493).
+ * Small and fast, so the water can be drawn before the rest arrives.
+ */
+export const buildOverpassWaterQuery = (coordinates: Coordinate[]) => {
+  const wide = bboxString(buildBoundingBox(coordinates, SHORE_QUERY_MARGIN_METERS));
   return `
-[out:json][timeout:25];
+[out:json][timeout:15];
 (
-  way["landuse"](${bbox});
-  way["natural"](${wide});
+  way["natural"~"${WATER_NATURAL_VALUES}"](${wide});
+  relation["natural"~"${WATER_NATURAL_VALUES}"](${wide});
   way["waterway"](${wide});
-  way["building"](${bbox});
-  // Bridges over the route, for Tier C placement (#232).
-  way["bridge"](${bbox});
-  way["leisure"](${bbox});
-  relation["landuse"](${bbox});
-  relation["natural"](${wide});
   relation["waterway"](${wide});
-  relation["building"](${bbox});
-  relation["leisure"](${bbox});
-  node["natural"](${bbox});
-  node["waterway"](${bbox});
   // Reservoirs, islands and piers for the water/land mask (#493).
   way["landuse"~"^(reservoir|basin)$"](${wide});
   way["place"~"^(island|islet)$"](${wide});
@@ -517,8 +579,59 @@ export const buildOverpassQuery = (coordinates: Coordinate[]) => {
   node["place"~"^(island|islet)$"](${wide});
   way["man_made"~"^(pier|breakwater|groyne)$"](${wide});
 );
-out geom;
+out geom qt;
 `;
+};
+
+/**
+ * #741 FR4 (b) — the scenery query. Buildings and bridges come from the
+ * corridor `SCENERY_CORRIDOR_METERS` either side of the route rather than its
+ * bounding box: on a lake lap or a looping river the box is mostly town the
+ * rower never sees, and buildings are the bulk of the payload. Land use,
+ * natural and leisure areas stay on the 200 m box, because `around` only
+ * matches an area whose outline comes near the route, and the park or wood
+ * a river runs through is often outlined far from it.
+ */
+export const buildOverpassSceneryQuery = (coordinates: Coordinate[]) => {
+  const bbox = bboxString(buildBoundingBox(coordinates));
+  const corridor = `around:${SCENERY_CORRIDOR_METERS},${corridorPolyline(coordinates)}`;
+  return `
+[out:json][timeout:30];
+(
+  way["building"](${corridor});
+  relation["building"](${corridor});
+  // Bridges over the route, for Tier C placement (#232).
+  way["bridge"](${corridor});
+  way["landuse"](${bbox});
+  relation["landuse"](${bbox});
+  way["natural"](${bbox});
+  relation["natural"](${bbox});
+  way["leisure"](${bbox});
+  relation["leisure"](${bbox});
+  node["natural"](${bbox});
+  node["waterway"](${bbox});
+);
+out geom qt;
+`;
+};
+
+/** Both responses as one element list, each element (by type and id) once. */
+export const mergeOverpassElements = (...lists: OverpassElement[][]): OverpassElement[] => {
+  const seen = new Set<string>();
+  const out: OverpassElement[] = [];
+  for (const list of lists) {
+    for (const element of list) {
+      if (element.id === undefined) {
+        out.push(element);
+        continue;
+      }
+      const key = `${element.type}/${element.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(element);
+    }
+  }
+  return out;
 };
 
 const getElementBounds = (element: OverpassElement): BoundingBox | null => {
@@ -793,6 +906,7 @@ export const createFallbackRouteEnrichment = (
     waterWidthMeters: widthMeters,
     ...getWaterAppearance(waterBodyType),
     fetchedAt: Date.now(),
+    enrichmentSource: 'fallback',
     source: 'fallback',
   };
 };
@@ -1404,22 +1518,19 @@ export class RouteEnrichmentService {
 
     for (const [index, batch] of batches.entries()) {
       debugLog(
-        `[route-enrichment] OpenTopoData batch ${index + 1}/${batches.length} (${batch.length} points)`,
+        `[route-enrichment] elevation batch ${index + 1}/${batches.length} (${batch.length} points)`,
       );
 
-      const locations = batch
-        .map((coordinate) => `${coordinate.lat},${coordinate.lng}`)
-        .join('|');
+      const latitude = batch.map((coordinate) => coordinate.lat).join(',');
+      const longitude = batch.map((coordinate) => coordinate.lng).join(',');
       const response = await this.fetchImpl(
-        `${OPEN_TOPO_DATA_URL}?locations=${encodeURIComponent(locations)}`,
+        `${ELEVATION_API_URL}?latitude=${latitude}&longitude=${longitude}`,
       );
       if (!response.ok) {
-        throw new Error(`OpenTopoData request failed with HTTP ${response.status}`);
+        throw new Error(`Elevation request failed with HTTP ${response.status}`);
       }
-      const payload = (await response.json()) as OpenTopoDataResponse;
-      elevations.push(
-        ...(payload.results ?? []).map((result) => result.elevation),
-      );
+      const payload = (await response.json()) as ElevationResponse;
+      elevations.push(...(payload.elevation ?? []));
     }
 
     debugLog(
@@ -1435,25 +1546,65 @@ export class RouteEnrichmentService {
     return normalizeElevations(elevations, coordinates.length);
   }
 
-  private async fetchOverpassElements(coordinates: Coordinate[]) {
-    const query = buildOverpassQuery(coordinates);
-    const response = await this.fetchImpl(OVERPASS_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
-      },
-      body: `data=${encodeURIComponent(query)}`,
-    });
-
-    if (!response.ok) {
-      throw new Error(`Overpass request failed with HTTP ${response.status}`);
+  /**
+   * #741 FR4 — one Overpass query, on the main instance and then, once, on
+   * the mirror. Each try is cut off after `timeoutMs` whether or not the
+   * fetch honours the abort.
+   */
+  private async postOverpass(query: string, timeoutMs: number): Promise<OverpassElement[]> {
+    let lastError: unknown = null;
+    for (const url of [OVERPASS_API_URL, OVERPASS_MIRROR_URL]) {
+      try {
+        return await this.postOverpassOnce(url, query, timeoutMs);
+      } catch (error) {
+        lastError = error;
+        debugLog(`[route-enrichment] Overpass ${url} failed: ${String(error)}`);
+      }
     }
-
-    const payload = (await response.json()) as OverpassResponse;
-    return payload.elements ?? [];
+    throw lastError;
   }
 
-  async enrichRoute(route: WaterRoute): Promise<RouteEnrichmentData> {
+  private async postOverpassOnce(url: string, query: string, timeoutMs: number) {
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        controller?.abort();
+        reject(new Error(`Overpass request timed out after ${timeoutMs} ms`));
+      }, timeoutMs);
+    });
+    try {
+      const response = await Promise.race([
+        this.fetchImpl(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+          },
+          body: `data=${encodeURIComponent(query)}`,
+          ...(controller ? { signal: controller.signal } : {}),
+        }),
+        timeout,
+      ]);
+      if (!response.ok) {
+        throw new Error(`Overpass request failed with HTTP ${response.status}`);
+      }
+      const payload = (await Promise.race([response.json(), timeout])) as OverpassResponse;
+      return payload.elements ?? [];
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * `onPhase` (#741 FR5) hears which Overpass query is running, so the Row
+   * screen can say "Reading the water…" then "Dressing the banks…". It is
+   * not called for a cached answer, nor for a caller joining a request
+   * already in flight.
+   */
+  async enrichRoute(
+    route: WaterRoute,
+    onPhase?: (phase: EnrichmentPhase) => void,
+  ): Promise<RouteEnrichmentData> {
     const cached = this.readCached(route.id);
     if (cached.data && !cached.stale) {
       return cached.data;
@@ -1489,13 +1640,30 @@ export class RouteEnrichmentService {
         // rendered as the same fallback canal). An Overpass failure still
         // falls through to the catch below: without it there is nothing real
         // to draw.
-        const [elevationResult, elements] = await Promise.all([
-          this.fetchElevations(route.coordinates).then(
-            (values) => ({ ok: true as const, values }),
-            () => ({ ok: false as const, values: normalizeElevations([], route.coordinates.length) }),
-          ),
-          this.fetchOverpassElements(route.coordinates),
-        ]);
+        const elevationRequest = this.fetchElevations(route.coordinates).then(
+          (values) => ({ ok: true as const, values }),
+          () => ({ ok: false as const, values: normalizeElevations([], route.coordinates.length) }),
+        );
+        // #741 FR4 — two Overpass queries, one at a time as its usage policy
+        // asks: the water first (small, and without it there is nothing real
+        // to draw, so its failure still falls back), then the buildings and
+        // land use. A scenery failure keeps the real water, and is not cached
+        // so the next selection asks again.
+        onPhase?.('water');
+        const waterElements = await this.postOverpass(
+          buildOverpassWaterQuery(route.coordinates),
+          OVERPASS_WATER_TIMEOUT_MS,
+        );
+        onPhase?.('scenery');
+        const scenery = await this.postOverpass(
+          buildOverpassSceneryQuery(route.coordinates),
+          OVERPASS_SCENERY_TIMEOUT_MS,
+        ).then(
+          (list) => ({ ok: true as const, list }),
+          () => ({ ok: false as const, list: [] as OverpassElement[] }),
+        );
+        const elevationResult = await elevationRequest;
+        const elements = mergeOverpassElements(waterElements, scenery.list);
         const elevations = elevationResult.values;
         const nearElements = elementsNearRoute(route.coordinates, elements);
         // D3 b then a: what the route is detected on first, then the old
@@ -1544,10 +1712,13 @@ export class RouteEnrichmentService {
             lakeLandSamples(segmentRanges, detection.samples, lakeIds),
           ),
           elevationSource: elevationResult.ok ? 'network' : 'unavailable',
+          enrichmentSource: elevationResult.ok ? 'osm' : 'osm-no-elevation',
           fetchedAt: Date.now(),
           source: 'network',
         };
-        saveCachedRouteEnrichment(route.id, enrichment, this.storage, route.coordinates);
+        if (scenery.ok) {
+          saveCachedRouteEnrichment(route.id, enrichment, this.storage, route.coordinates);
+        }
         return enrichment;
       } catch {
         return staleCachedData ?? getFallback();

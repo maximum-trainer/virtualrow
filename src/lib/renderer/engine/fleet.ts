@@ -27,6 +27,17 @@
  * Deterministic from `(routeId, count)` so the same route always shows
  * the same pack layout — a user looking at their own route sees the
  * same friends every time, and screenshots stay reproducible.
+ *
+ * #728 VP-10 reworked the lanes and the motion:
+ * - FR3: the lane pitch is `GHOST_LANE_OFFSET_M` (7 m), so blade tips
+ *   (~2.9 m off each centreline) clear by 1 m. A lane closer than
+ *   `LANE_BANK_CLEARANCE_M` to its bank is not used, so narrow water
+ *   fields a smaller fleet.
+ * - FR4: respawns land in a hidden band at either end of the window,
+ *   where `fleetFadeFor` is 0, and the ahead edge is beyond 250 m of the
+ *   camera. A boat fades in over the next 60 m instead of popping.
+ * - FR5: each member rows at its own share (±8%) of the player's rolling
+ *   average pace, so some are overtaken and some pull away.
  */
 
 import { GHOST_LANE_OFFSET_M } from '../../../components/rower3d/ghost';
@@ -38,6 +49,25 @@ export const FLEET_WINDOW_AHEAD_M = 300;
 export const NOMINAL_CRUISE_MPS = 4.0;
 /** Upper bound on the fleet size any tier asks for (extra-high = 8). */
 export const FLEET_MAX = 8;
+/** #728 FR3: a lane's centreline stays this far inside its bank. */
+export const LANE_BANK_CLEARANCE_M = 2;
+/** #728 FR5: members row within ±this share of the player's pace. */
+export const FLEET_SPEED_SPREAD = 0.08;
+/**
+ * #728 FR4: the outer band at each end of the window where a member is
+ * fully faded out. Respawns land inside it.
+ */
+const FLEET_HIDDEN_BAND_M = 30;
+/** #728 FR4: the fade from hidden to fully drawn, inside the hidden band. */
+const FLEET_FADE_M = 60;
+/** Time constant of the player's rolling-average pace, in seconds. */
+const PACE_TAU_S = 20;
+/**
+ * A per-frame player speed outside this range is a stop or a seek, not a
+ * pace, and leaves the rolling average where it is.
+ */
+const MIN_PACE_MPS = 0.5;
+const MAX_PACE_MPS = 12;
 
 export type FleetCrew = 'male' | 'female';
 
@@ -98,6 +128,13 @@ export const fleetPaletteIndexForColor = (
   return best;
 };
 
+/**
+ * #713 D4a — the share of a stroke (0..1) a member rows ahead of the
+ * player's shared phase, from its seed, so the pack keeps the player's
+ * rate without rowing in lockstep.
+ */
+export const fleetStrokeOffset = (seed: number): number => hash((seed ^ 0x2c1b3c6d) >>> 0);
+
 /** Pick a hull tint for a fleet member deterministically from its seed. */
 export const fleetHullTintFor = (seed: number, excludeIndex?: number): Float32Array => {
   // Round the seed through the same hash the state module uses so a
@@ -122,12 +159,46 @@ export interface FleetMember {
   crew: FleetCrew;
   /** Stable seed for the member, used by the engine to derive per-member tint. */
   seed: number;
+  /** #728 FR5: share of the player's pace this member rows at. */
+  speedFactor: number;
 }
 
 export interface FleetState {
   readonly members: readonly FleetMember[];
   readonly routeMeters: number;
+  /** #728 FR5: the player's rolling-average speed, m/s. */
+  readonly paceMps: number;
+  /** The player's distance at the last advance, to measure the pace from. */
+  readonly playerMeters: number;
 }
+
+/**
+ * #728 FR4: how much of a member to draw, from its distance relative to
+ * the player. 0 in the hidden band at each end of the window, 1 in the
+ * middle, linear in between.
+ */
+export const fleetFadeFor = (relativeMeters: number): number => {
+  const ahead = (FLEET_WINDOW_AHEAD_M - FLEET_HIDDEN_BAND_M - relativeMeters) / FLEET_FADE_M;
+  const behind = (relativeMeters + FLEET_WINDOW_BEHIND_M - FLEET_HIDDEN_BAND_M) / FLEET_FADE_M;
+  return Math.max(0, Math.min(1, ahead, behind));
+};
+
+/**
+ * #757 VP-33 — whether a member `relativeMeters` from the player is on the
+ * course. On a route that does not loop, a member behind the start or past
+ * the finish has wrapped to the other end of the route (behind the start
+ * line on an out-and-back course), so it is not drawn.
+ */
+export const fleetMemberOnCourse = (
+  relativeMeters: number,
+  playerMeters: number,
+  routeMeters: number,
+  loop: boolean,
+): boolean => {
+  if (loop) return true;
+  const at = playerMeters + relativeMeters;
+  return at >= 0 && at <= routeMeters;
+};
 
 /**
  * Deterministic PRNG for a single uint32. Mirrors the `seededRandom`
@@ -154,30 +225,59 @@ const seedFromRouteId = (routeId: string | null | undefined): number => {
 };
 
 /**
- * D3a lane assignment. The race ghost already sits at
+ * D3a lane assignment, at the #728 FR3 pitch. The race ghost sits at
  * `−GHOST_LANE_OFFSET_M`; the fleet avoids it (D11a) by taking
- * `+GHOST_LANE_OFFSET_M` first, then alternating outer lanes.
- *
- * Returns the lane offsets in draw order:
- *
- *   count=2 → [+GH, +2·GH]
- *   count=4 → [+GH, +2·GH, −2·GH, +3·GH]
- *   count=6 → [+GH, +2·GH, −2·GH, +3·GH, −3·GH, +4·GH]
- *   count=8 → [+GH, +2·GH, −2·GH, +3·GH, −3·GH, +4·GH, −4·GH, +5·GH]
+ * `+GHOST_LANE_OFFSET_M` first, then alternating outer lanes:
+ * `+1, +2, −2, +3, −3, …` × pitch. A lane whose centreline would be
+ * within `LANE_BANK_CLEARANCE_M` of its bank (positive lanes against
+ * the right bank, negative against the left) is skipped, so the fleet
+ * can come back shorter than `count`.
  */
-const laneOffsetsFor = (count: number): number[] => {
+const laneOffsetsFor = (
+  count: number,
+  water: { left: number; right: number } | undefined,
+): number[] => {
+  const pitch = GHOST_LANE_OFFSET_M;
+  const maxRight = water ? water.right - LANE_BANK_CLEARANCE_M : Infinity;
+  const maxLeft = water ? water.left - LANE_BANK_CLEARANCE_M : Infinity;
+  const fits = (k: number): boolean => (k > 0 ? k * pitch <= maxRight : -k * pitch <= maxLeft);
+  const candidates: number[] = [1];
+  // Enough candidates for `count` lanes on one side of wide water.
+  for (let k = 2; candidates.length < 2 * count + 2; k += 1) candidates.push(k, -k);
   const out: number[] = [];
-  const lanes: number[] = [];
-  // Build the candidate lane set: skip 0 (player) and −1·GH (ghost).
-  // Lanes are `+GH, +2·GH, −2·GH, +3·GH, −3·GH, …`.
-  lanes.push(1);
-  for (let k = 2; lanes.length < count; k += 1) {
-    lanes.push(k, -k);
-  }
-  for (let i = 0; i < count; i += 1) {
-    out.push(lanes[i] * GHOST_LANE_OFFSET_M);
+  for (const k of candidates) {
+    if (out.length >= count) break;
+    if (fits(k)) out.push(k * pitch);
   }
   return out;
+};
+
+/**
+ * #728 FR3: the half-width the fleet's lanes are fitted to, per side,
+ * from the route's water edges. Each side takes its 10th percentile over
+ * the course, so a bridge pinch doesn't empty the river but a long narrow
+ * reach does trim the outer lanes. `fallback` stands in for a route with
+ * no edges (or a side with no finite samples): the water strip's default.
+ */
+export const fleetWaterHalfWidth = (
+  edgesForProgress: ((progress: number) => { left: number; right: number }) | undefined,
+  fallback: number,
+  samples = 64,
+): { left: number; right: number } => {
+  if (!edgesForProgress) return { left: fallback, right: fallback };
+  const left: number[] = [];
+  const right: number[] = [];
+  for (let i = 0; i < samples; i += 1) {
+    const e = edgesForProgress((i + 0.5) / samples);
+    if (Number.isFinite(e.left)) left.push(e.left);
+    if (Number.isFinite(e.right)) right.push(e.right);
+  }
+  const p10 = (xs: number[]): number => {
+    if (xs.length === 0) return fallback;
+    xs.sort((a, b) => a - b);
+    return xs[Math.floor(xs.length * 0.1)];
+  };
+  return { left: p10(left), right: p10(right) };
 };
 
 /**
@@ -195,11 +295,16 @@ export const createFleet = (opts: {
   routeMeters: number;
   routeId?: string | null;
   playerStartMeters?: number;
+  /** #728 FR3: the water's half-width on each side of the course. */
+  waterHalfWidth?: { left: number; right: number };
 }): FleetState => {
-  const count = Math.max(0, Math.min(FLEET_MAX, Math.floor(opts.count)));
+  const lanes = laneOffsetsFor(
+    Math.max(0, Math.min(FLEET_MAX, Math.floor(opts.count))),
+    opts.waterHalfWidth,
+  );
+  const count = lanes.length;
   const routeMeters = Math.max(1, opts.routeMeters);
   const base = seedFromRouteId(opts.routeId) >>> 0;
-  const lanes = laneOffsetsFor(count);
   const members: FleetMember[] = [];
   const windowSpan = FLEET_WINDOW_AHEAD_M + FLEET_WINDOW_BEHIND_M;
   const playerStart = opts.playerStartMeters ?? 0;
@@ -216,16 +321,17 @@ export const createFleet = (opts: {
       laneOffsetMeters: lanes[i],
       crew,
       seed,
+      speedFactor: 1 + (hash(seed ^ 0x51ed270b) * 2 - 1) * FLEET_SPEED_SPREAD,
     });
   }
-  return { members, routeMeters };
+  return { members, routeMeters, paceMps: NOMINAL_CRUISE_MPS, playerMeters: playerStart };
 };
 
 /**
- * Advance the fleet by `dt` seconds. Each member drifts at the nominal
- * cruise speed; when its offset from the player leaves the streaming
- * window (D5b), the member respawns to the far edge of the window so
- * the pack always frames the player.
+ * Advance the fleet by `dt` seconds. Each member rows at its own share of
+ * the player's rolling-average pace (#728 FR5); when its offset from the
+ * player leaves the streaming window (D5b), it respawns into the hidden
+ * band at the far end (#728 FR4), out of sight, and fades in from there.
  *
  * Returns a NEW state so callers can diff for tests; the hot path
  * replaces the state reference each frame.
@@ -235,25 +341,33 @@ export const advanceFleet = (
   playerDistanceMeters: number,
   dt: number,
 ): FleetState => {
-  if (state.members.length === 0) return state;
   const routeMeters = state.routeMeters;
-  const step = NOMINAL_CRUISE_MPS * Math.max(0, dt);
-  const windowSpan = FLEET_WINDOW_AHEAD_M + FLEET_WINDOW_BEHIND_M;
+  const step = Math.max(0, dt);
+  let paceMps = state.paceMps;
+  if (step > 0) {
+    const v = signedDelta(playerDistanceMeters, state.playerMeters, routeMeters) / step;
+    if (v >= MIN_PACE_MPS && v <= MAX_PACE_MPS) {
+      paceMps += (v - paceMps) * (1 - Math.exp(-step / PACE_TAU_S));
+    }
+  }
+  if (state.members.length === 0) {
+    return { members: state.members, routeMeters, paceMps, playerMeters: playerDistanceMeters };
+  }
   const members = state.members.map((m) => {
-    let d = wrapRouteDistance(m.distanceMeters + step, routeMeters);
+    let d = wrapRouteDistance(m.distanceMeters + paceMps * m.speedFactor * step, routeMeters);
     const relative = signedDelta(d, playerDistanceMeters, routeMeters);
     if (relative > FLEET_WINDOW_AHEAD_M) {
-      // Fell off the front → respawn at the back, with a jitter so the
-      // whole pack doesn't bunch into a single slot.
-      const jitter = hash(m.seed) * windowSpan * 0.1;
+      // Pulled away off the front → respawn astern, in the hidden band,
+      // with a jitter so the pack doesn't bunch into one slot.
+      const jitter = hash(m.seed) * FLEET_HIDDEN_BAND_M;
       d = wrapRouteDistance(playerDistanceMeters - FLEET_WINDOW_BEHIND_M + jitter, routeMeters);
     } else if (relative < -FLEET_WINDOW_BEHIND_M) {
-      const jitter = hash(m.seed ^ 0x9e3779b9) * windowSpan * 0.1;
+      const jitter = hash(m.seed ^ 0x9e3779b9) * FLEET_HIDDEN_BAND_M;
       d = wrapRouteDistance(playerDistanceMeters + FLEET_WINDOW_AHEAD_M - jitter, routeMeters);
     }
     return { ...m, distanceMeters: d };
   });
-  return { members, routeMeters };
+  return { members, routeMeters, paceMps, playerMeters: playerDistanceMeters };
 };
 
 /** Signed shortest-path distance from `b` to `a` on the route loop. */

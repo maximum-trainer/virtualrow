@@ -96,6 +96,37 @@ export interface RideRendererOptions {
    * in `plan/crewPalette.ts`.
    */
   readonly appearance?: unknown;
+  /**
+   * #733 VP-15 — how far the HUD panels reach into the canvas, in CSS px.
+   * The engine frames the boat in the part they leave clear. Omitted = none.
+   */
+  readonly viewportInsets?: RideViewportInsets;
+  /**
+   * #730 VP-12 — the rower's resolved conditions from the picker
+   * (`useConditions.svelte.ts`): `dawn` | `midday` | `golden` | `overcast` |
+   * `dusk`. A plain string so the seam stays framework-free. Omitted = the
+   * engine default, which is today's Midday frame.
+   */
+  readonly conditions?: string;
+  /**
+   * #728 VP-10 FR2 — the engine reports where the race ghost's marker goes
+   * (CSS px over the canvas, and the gap in metres) whenever it moves, and
+   * null when it hides (ghost within 30 m, off screen, or none).
+   */
+  readonly onGhostMarker?: (marker: RideGhostMarker | null) => void;
+  /**
+   * #726 VP-08 FR1 — each engine load phase as it settles, for the
+   * loading bar.
+   */
+  readonly onLoadPhase?: (phase: string, status: 'done' | 'failed') => void;
+}
+
+/** The marker over a race ghost more than 30 m away (#728 VP-10 FR2). */
+export interface RideGhostMarker {
+  readonly x: number;
+  readonly y: number;
+  readonly meters: number;
+  readonly ahead: boolean;
 }
 
 /** A running renderer. The host calls {@link dispose} when the ride unmounts. */
@@ -109,6 +140,25 @@ export interface RideRenderer {
    * test fake can skip it; the engine's own `attach` always supplies it.
    */
   setAppearance?(palette: unknown): void;
+  /**
+   * #730 VP-12 — relight the running scene for new conditions on the next
+   * frame, with no reattach. Optional so a test fake can skip it.
+   */
+  setConditions?(conditions: string): void;
+  /**
+   * #733 VP-15 — the HUD's covered area changed (resize, fullscreen, the
+   * workout panel showing or hiding). Reframes on the next frame, no
+   * reattach. Optional so a test fake can skip it.
+   */
+  setViewportInsets?(insets: RideViewportInsets): void;
+}
+
+/** CSS px the HUD covers along each edge of the canvas (#733 VP-15). */
+export interface RideViewportInsets {
+  readonly top: number;
+  readonly right: number;
+  readonly bottom: number;
+  readonly left: number;
 }
 
 /**

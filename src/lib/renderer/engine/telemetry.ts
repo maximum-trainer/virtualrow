@@ -49,6 +49,18 @@ export interface Rower3DCamera {
   lookY: number;
   lookZ: number;
   fov: number;
+  /** #724 FR4 — the bridge-deck underside over the camera; null in open sky. */
+  ceiling?: number | null;
+}
+
+/** #724 — a bridge span as placed: model, world spot, turn, fitted scale and headroom. */
+export interface Rower3DSpan {
+  id: string;
+  x: number;
+  z: number;
+  rotationY: number;
+  scale: number;
+  ceiling: number | null;
 }
 
 export interface Rower3DContextState {
@@ -91,11 +103,19 @@ export interface Rower3DRoute {
   totalDistance: number;
   curveLength: number;
   builds?: number;
+  /** #724 — every bridge span the scene placed. */
+  spans?: Rower3DSpan[];
+  /** #742 FR3 — progress ranges lying alongside another part of the route. */
+  selfParallel?: Array<[number, number]>;
+  /** #742 FR3 — scenery and furniture instances not placed because they stood on the route's water. */
+  rejectedOnWater?: number;
 }
 
 export interface Rower3DClearance {
   min: number;
   samples: number;
+  /** #742 FR6 — what lies under the boat's hull this frame. */
+  surface?: 'water' | 'land';
 }
 
 /**
@@ -120,6 +140,17 @@ export interface Rower3DSceneryEntry {
   drawn: number;
 }
 
+/** #726 FR3 — one kit model's fade-in, as the shader runs it. */
+export interface Rower3DSceneryReveal {
+  id: string;
+  /** `scenery.frame` on the frame the model registered. */
+  registeredAtFrame: number;
+  /** `frame.time` (seconds) it registered at. */
+  registeredAt: number;
+  /** Fade progress this frame, 0..1, before the per-instance distance skip. */
+  revealAlpha: number;
+}
+
 export interface Rower3DScenery {
   pools: Rower3DSceneryEntry[];
   dispatchCount: number;
@@ -128,6 +159,19 @@ export interface Rower3DScenery {
   spriteDraws: number;
   solidDraws: number;
   solidTriangles: number;
+  /** #726 FR5 — kit models registered with the mesh pass so far. */
+  registered: number;
+  /** #726 FR6 — kit models whose fetch or decode failed, and which. */
+  failed: number;
+  failedIds: string[];
+  /** #726 FR3 — frames drawn since the scene was built. */
+  frame: number;
+  /** #726 FR3 — models streamed in mid-ride, in registration order. */
+  reveals: Rower3DSceneryReveal[];
+  /** #726 FR1 — models with an instance inside the start window. */
+  nearStartIds: string[];
+  /** #726 FR1 — models registered when the first frame was drawn; null before it. */
+  registeredAtFirstFrame: string[] | null;
 }
 
 /**
@@ -191,6 +235,14 @@ export interface Rower3DBoat {
    *  in #623 Phase 1 so the user-facing path can report `'failed'`
    *  instead of silently drawing the procedural stub — see D4-a). */
   meshSource: 'baked' | 'procedural' | 'failed';
+  /**
+   * #733 VP-15 — the player boat on screen (bow, stern, both blade tips and
+   * the rower's head), in CSS px of the canvas, or null before the first
+   * frame or when part of it is behind the camera.
+   */
+  screenBounds: { left: number; top: number; right: number; bottom: number } | null;
+  /** #733 VP-15 — the canvas area the HUD leaves clear, in CSS px. */
+  clearRect: { left: number; top: number; right: number; bottom: number };
 }
 
 /**
@@ -212,6 +264,35 @@ export interface Rower3DCrew {
 export interface Rower3DGhostMetersHandle {
   value: number;
   active: boolean;
+  /** #728 FR1 — what the ghost is drawn with this frame. */
+  model?: 'scull' | 'placeholder' | 'none';
+  /** #728 FR1 — the ghost's own stroke rate while it rows, else 0. */
+  cadenceSpm?: number;
+  strokePhase?: number;
+  /** #728 FR3 — the ghost's lateral offset, metres (negative = port). */
+  lane?: number;
+  /** #728 FR2 — the marker over a ghost more than 30 m away, or null. */
+  marker?: { x: number; y: number; meters: number; ahead: boolean } | null;
+  /** #728 FR2 — the ghost's CSS-px box on the canvas, or null. */
+  screenBounds?: { left: number; top: number; right: number; bottom: number } | null;
+}
+
+/**
+ * The fleet (#713). Published as `__ROWER3D_FLEET`: what each visible
+ * member is drawn with this frame.
+ */
+export interface Rower3DFleet {
+  model: 'scull' | 'placeholder' | 'none';
+  members: {
+    crew: 'male' | 'female';
+    /** The member's hull colour, linear rgb (D3a). */
+    hullColor: number[];
+    /** Its share of a stroke ahead of the player's phase (D4a). */
+    strokeOffset: number;
+    lane: number;
+    distanceMeters: number;
+    fade: number;
+  }[];
 }
 
 /**
@@ -221,6 +302,27 @@ export interface Rower3DGhostMetersHandle {
  */
 export interface Rower3DSpeedHandle {
   value: number;
+}
+
+/**
+ * Conditions telemetry (#730 VP-12 FR5). Published as
+ * `__ROWER3D_CONDITIONS`: the lighting the engine applied for the rower's
+ * Dawn / Midday / Golden hour / Overcast / Dusk choice, or `default` when
+ * the shell passed none. `updates` counts live switches since attach.
+ */
+export interface Rower3DConditions {
+  name: string;
+  sunElevationDeg: number;
+  sunAzimuthDeg: number;
+  sunDir: number[];
+  sunDisc: number;
+  cloudCover: number;
+  shadowStrength: number;
+  exposureBias: number;
+  fogDensityScale: number;
+  skyZenith: number[];
+  skyHorizon: number[];
+  updates: number;
 }
 
 export interface TelemetryHandles {
@@ -239,8 +341,10 @@ export interface TelemetryHandles {
   boat: Rower3DBoat;
   crew: Rower3DCrew;
   ghostMeters: Rower3DGhostMetersHandle;
+  fleet: Rower3DFleet;
   speed: Rower3DSpeedHandle;
   banner: Rower3DBanner;
+  conditions: Rower3DConditions;
 }
 
 // Keep this a mutable record view of `window`: on `main` these globals carry
@@ -293,6 +397,13 @@ export const createTelemetry = (forceRender: () => void): TelemetryHandles => {
       spriteDraws: 0,
       solidDraws: 0,
       solidTriangles: 0,
+      registered: 0,
+      failed: 0,
+      failedIds: [],
+      frame: 0,
+      reveals: [],
+      nearStartIds: [],
+      registeredAtFirstFrame: null,
     },
     shadows: {
       cascades: 0,
@@ -324,11 +435,28 @@ export const createTelemetry = (forceRender: () => void): TelemetryHandles => {
       finished: false,
       isPlaying: false,
       meshSource: 'procedural',
+      screenBounds: null,
+      clearRect: { left: 0, top: 0, right: 0, bottom: 0 },
     },
     crew: { cadenceSpm: 0, strokePhase: 0, amplitude: 0, rowers: 1 },
     ghostMeters: { value: 0, active: false },
+    fleet: { model: 'none', members: [] },
     speed: { value: 0 },
     banner: { visible: false, message: '', variant: '' },
+    conditions: {
+      name: 'default',
+      sunElevationDeg: 0,
+      sunAzimuthDeg: 0,
+      sunDir: [0, 1, 0],
+      sunDisc: 1,
+      cloudCover: 0,
+      shadowStrength: 1,
+      exposureBias: 0,
+      fogDensityScale: 1,
+      skyZenith: [0, 0, 0],
+      skyHorizon: [0, 0, 0],
+      updates: 0,
+    },
   };
   const w = win();
   if (w) {
@@ -349,6 +477,7 @@ export const createTelemetry = (forceRender: () => void): TelemetryHandles => {
     w['__ROWER3D_BOAT'] = handles.boat;
     w['__ROWER3D_CREW'] = handles.crew;
     w['__ROWER3D_GHOST_METERS'] = handles.ghostMeters;
+    w['__ROWER3D_FLEET'] = handles.fleet;
     // Speed is published as a scalar so the legacy world-scale spec can
     // read it with a simple compare; the engine re-assigns the global each
     // frame via `publishSpeedMps` below.
@@ -357,6 +486,7 @@ export const createTelemetry = (forceRender: () => void): TelemetryHandles => {
     // "lost the graphics context" / "restoring" / "could not get it back"
     // banner. The engine owns the message copy (D2-a).
     w['__ROWER3D_BANNER'] = handles.banner;
+    w['__ROWER3D_CONDITIONS'] = handles.conditions;
   }
   return handles;
 };
@@ -403,8 +533,11 @@ export const releaseTelemetry = (): void => {
     '__ROWER3D_BOAT',
     '__ROWER3D_CREW',
     '__ROWER3D_GHOST_METERS',
+    '__ROWER3D_FLEET',
     '__ROWER3D_SPEED_MPS',
     '__ROWER3D_BANNER',
+    '__ROWER3D_CONDITIONS',
+    '__ROWER3D_SET_CONDITIONS',
   ]) {
     delete w[key];
   }

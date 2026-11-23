@@ -146,6 +146,15 @@
     routes.syncDefaults(auth.user?.id ?? null, auth.isLoading);
   });
 
+  // #741 VP-21 FR6 — once signed in, fetch every route's enrichment in idle
+  // time, one at a time, so a route opened later starts with its real water.
+  // Stops on sign-out.
+  $effect(() => {
+    if (!auth.user?.id || routes.routes.length === 0) return;
+    void routes.prefetchEnrichments();
+    return () => routes.cancelPrefetch();
+  });
+
   // Import a `?rownativeCourseId=` deep link once auth has resolved, then select
   // the course and show the Row screen (App.tsx's deep-link effect, held until
   // auth is ready so a shared link survives a sign-in round trip).
@@ -169,6 +178,7 @@
     if (path === `${base}/row` || path === `${base}/row/`) return 'workout';
     if (path === `${base}/search` || path === `${base}/search/`) return 'route-search';
     if (path === `${base}/challenges` || path === `${base}/challenges/`) return 'challenges';
+    if (path === `${base}/profile` || path === `${base}/profile/`) return 'profile';
     return 'routes';
   });
 
@@ -318,7 +328,7 @@
             ⚙︎
           </button>
         {/if}
-        <AuthButton />
+        <AuthButton profileHref={`${base}/profile`} showProfile={!isWorkoutActive} />
       </div>
     </div>
     {#if !auth.isAuthenticated}

@@ -3,6 +3,7 @@
   "seconds": {
     "default:activity-upload.spec.ts": 86,
     "default:auth.spec.ts": 20,
+    "default:profile-page.spec.ts": 25,
     "default:crash-detection.spec.ts": 31,
     "default:crash-telemetry.spec.ts": 30,
     "default:crew-model-loading.spec.ts": 69,
@@ -17,6 +18,8 @@
     "default:webgpu-crew-appearance.spec.ts": 45,
     "default:webgpu-postfx-smoke.spec.ts": 45,
     "default:webgpu-loop-smoke.spec.ts": 30,
+    "default:webgpu-scenery-reveal.spec.ts": 60,
+    "default:webgpu-dressed-start.spec.ts": 60,
     "default:webgpu-unsupported-row.spec.ts": 20,
     "default:ride-loop.spec.ts": 90,
     "default:intervals-login.spec.ts": 20,

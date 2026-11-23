@@ -97,6 +97,14 @@ const EXTRA_IGNORE = [
   '**/webgpu-ride-ghost.spec.ts',
   '**/webgpu-ride-world-scale.spec.ts',
   '**/webgpu-ride-route-loading.spec.ts',
+  // #722 VP-04 — wake/splash white-blob check, same posture.
+  '**/webgpu-ride-wake-foam.spec.ts',
+  // #730 VP-12 — conditions reach the engine, same posture.
+  '**/webgpu-ride-conditions.spec.ts',
+  // #733 VP-15 — boat clear of the HUD, same posture.
+  '**/webgpu-ride-hud-safe-area.spec.ts',
+  // #728 VP-10 — the ghost on the scull, its contrast and marker, same posture.
+  '**/webgpu-ride-ghost-visibility.spec.ts',
   // #584 AC5 — the four retired WebGL specs ported to the WebGPU engine. Same
   // posture as the ride specs: they drive the real `/row` flow with real
   // WebGPU and only assert their engine behaviour on the GPU runner (the

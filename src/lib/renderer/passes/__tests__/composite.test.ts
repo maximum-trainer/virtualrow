@@ -45,3 +45,10 @@ describe('composite.wgsl (post-fx shape contract)', () => {
     expect(matches.length).toBeGreaterThanOrEqual(4);
   });
 });
+
+describe('composite.wgsl conditions exposure (#730 VP-12)', () => {
+  it('names the slot exposureBias and scales by exp2 only when it is non-zero', () => {
+    expect(SHADER).toMatch(/exposureBias:\s*f32/);
+    expect(SHADER).toMatch(/if \(u\.exposureBias != 0\.0\)\s*\{\s*combined = combined \* exp2\(u\.exposureBias\);/);
+  });
+});

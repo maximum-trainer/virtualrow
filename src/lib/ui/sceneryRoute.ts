@@ -74,6 +74,10 @@ import {
 import { resolveRegion } from '../../components/rower3d/sceneryRegion';
 import type { SceneryProfile } from '../services/routeEnrichmentService';
 import { buildTerrainProfile } from '../services/routeEnrichmentService';
+import {
+  waterDetectionSummaryOf,
+  type WaterDetectionSummary,
+} from '../renderer/engine/waterDetectionSummary';
 
 /**
  * Default navigable water width in metres. Mirrors
@@ -128,6 +132,8 @@ export interface EngineRoute {
    * then applies its symmetric fallback.
    */
   waterEdgesForProgress?: (progress: number) => WaterEdges;
+  /** #741 — the route's water detection, published as `__ROWER3D_WATER_DETECTION`. */
+  waterDetectionSummary?: WaterDetectionSummary;
   /**
    * Dominant biome profile along the route — the first profile the enrichment
    * mentions, or 'fallback' when there is none. The bank pass uses it to pick
@@ -365,6 +371,8 @@ export const toEngineRoute = (
     ...(isClosedLoop ? { isClosedLoop } : {}),
     ...(lakePolygons.length > 0 ? { lakePolygons } : {}),
     ...(crossings && crossings.length > 0 ? { crossings } : {}),
+    // #741 — what the engine publishes as __ROWER3D_WATER_DETECTION.
+    waterDetectionSummary: waterDetectionSummaryOf(enrichment),
     waterEdgesForProgress,
     dominantProfile,
   };

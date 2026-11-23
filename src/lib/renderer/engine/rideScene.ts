@@ -23,12 +23,19 @@ import {
   mat4Identity,
   mat4LookAt,
   mat4Multiply,
-  mat4Perspective,
   mat4FromRotationY,
   type Mat4,
 } from '../math/mat4';
 import { vec3 } from '../math/vec3';
 import { cameraTarget, createRigTarget } from './camera';
+import {
+  NO_INSETS,
+  clearRect,
+  effectiveFovY,
+  projectedBounds,
+  projectionWithInsets,
+  type ViewportInsets,
+} from '../math/projectionWithInsets';
 import { createBankPass } from '../passes/bank';
 import { createBoatPass } from '../passes/boat';
 import { createBuildingsPass } from '../passes/buildings';
@@ -43,6 +50,7 @@ import { createSkyPass } from '../passes/sky';
 import { createWaterPass } from '../passes/water';
 import { createWaterPolygonPass } from '../passes/waterPolygon';
 import { simplifyPolygons } from '../plan/polygonSimplify';
+import { bridgeParallelLegs, islandLand } from '../plan/parallelLegs';
 import { createWaterDebugPass } from '../passes/waterDebug';
 import { isPolygonWaterEnabled } from './polygonWater';
 import {
@@ -57,6 +65,7 @@ import {
   type WaterDetectionSummary,
 } from './waterDetectionSummary';
 import { createSceneryMeshPass } from '../passes/sceneryMesh';
+import { revealAlpha } from '../passes/sceneryReveal';
 import { loadGlb } from '../../scenery/glbLoader';
 import {
   placeFurniture,
@@ -83,7 +92,8 @@ import {
   BOAT_BONE_TORSO,
 } from '../plan/boatMesh';
 import { loadBoatMesh } from '../plan/boatMeshLoader';
-import { crewPartTransform, crewStrokePose, oarSweep } from '../plan/crewStroke';
+import { crewStrokePose, oarSweep } from '../plan/crewStroke';
+import { isFleetTintable, scullBoatTrs, scullPrimitiveTransform } from '../plan/scullInstances';
 import {
   classifyCrewSlot,
   DEFAULT_CREW_PALETTE,
@@ -96,18 +106,27 @@ import {
 import { dominantGrassProfile } from '../plan/grassDensityPlan';
 import { publishBoatSource, publishFallback } from './health';
 import { computeCascades } from './cascadedShadows';
-import { createPlacement, placeBoat, placeGhost, strokePhase, strokeAmplitude } from './characterPlacement';
+import { createPlacement, placeBoat, placeGhost, strokeAmplitude } from './characterPlacement';
+import { createStrokeClock, resetStrokeClock, stepStrokeClock } from './strokeClock';
 import { createDistanceSmoother } from './distanceSmoother';
 import type { RideFrame } from './rideFrame';
 import { RouteCurve } from '../math/curve';
-import { GHOST_LANE_OFFSET_M } from '../../../components/rower3d/ghost';
+import { GHOST_LANE_OFFSET_M, gapMeters, ghostStroke } from '../../../components/rower3d/ghost';
+import { GHOST_SCULL_STYLE, ghostMarker, type GhostMarker } from '../plan/ghostStyle';
+import type { SceneryInstance } from '../passes/sceneryMesh';
 import {
   advanceFleet,
   createFleet,
+  fleetFadeFor,
   fleetHullTintFor,
+  fleetMemberOnCourse,
+  fleetStrokeOffset,
   fleetPaletteIndexForColor,
+  fleetWaterHalfWidth,
   type FleetState,
 } from './fleet';
+import { DEFAULT_WATER_HALF_WIDTH_M, buildWaterStrip } from '../plan/waterStrip';
+import { lakeWater, poolsOffWater, routeWaterFootprint, surfaceAt, withLakes } from '../plan/waterFootprint';
 import { FLEET_INSTANCE_CAPACITY } from '../passes/boat';
 import { assetUrl } from '../../utils/assetUrl';
 import { createSceneryPass } from './sceneryPass';
@@ -129,8 +148,10 @@ const defaultSceneryDecoderOptions = (): GlbDecoderPoolOptions => {
   };
 };
 import {
+  createRegistrationQueue,
   planSceneryStream,
   sceneryModelsToLoad,
+  streamLookaheadMeters,
   type CurveDistanceSample,
 } from './sceneryStreamPlan';
 import {
@@ -139,6 +160,9 @@ import {
   FOLIAGE_VARIANT_COUNT,
 } from '../../scenery/foliageTexture';
 import { buildFoliageMips } from '../../scenery/foliageMips';
+import { mergeSceneryInstances } from '../../scenery/mergeSceneryInstances';
+import { spanCeilingAt, type SpanCeilingSource } from '../../scenery/bridgeSpan';
+import { BRIDGE_SPANS } from '../../scenery/bridgeSpans.generated';
 import { loadFloraAtlas } from './textureLoader';
 import { mipLevelCountFor, textureBytes } from './textures';
 import { createFrameGraph, type FrameGraph, type FrameUniforms, type Pass } from './frameGraph';
@@ -150,8 +174,14 @@ import type { PerformanceMode } from '../../scenery/sceneryPlacement';
 import type { SceneryProfile } from '../../services/routeEnrichmentService';
 import { createShadowStage, type ShadowTelemetry } from './shadowStage';
 import { tierCapsFor } from './tierCaps';
-import { publishSpeedMps, type TelemetryHandles } from './telemetry';
+import { publishSpeedMps, type Rower3DFleet, type TelemetryHandles } from './telemetry';
 import { createPostFx, type PostFxCaps } from './postFx';
+import {
+  conditionsToFrameLighting,
+  isLightingConditions,
+  type FrameLighting,
+  type LightingConditions,
+} from '../plan/conditionsLighting';
 import {
   createFrameUniformBuffer,
   createShadowUniformBuffer,
@@ -159,11 +189,16 @@ import {
   fogDistanceScaleFor,
   FRAME_UNIFORMS_FLOATS,
   packFrameUniforms,
+  createLightingUniformBuffer,
+  packFrameLighting,
   packShadowUniforms,
   packSproutUniforms,
   sproutWindowFor,
   type ShadowUniformsCpu,
 } from './uniforms';
+
+/** #742 FR3 — how far inside the water a GLB must stand to be taken out. */
+const GLB_WATER_MARGIN_METRES = 3;
 
 /**
  * A scenery route shape the engine understands: the UI-side `route` is
@@ -271,6 +306,30 @@ export interface RideSceneOpts {
    */
   appearance?: CrewPalette;
   /**
+   * #730 VP-12 — the rower's resolved conditions (Dawn / Midday / Golden
+   * hour / Overcast / Dusk). Omitted or unknown = the engine default, which
+   * is today's Midday frame. Live changes come through `setConditions`.
+   */
+  conditions?: LightingConditions;
+  /**
+   * #733 VP-15 — CSS px the HUD covers along each canvas edge. The camera
+   * frames the boat in the clear part. Omitted = none (today's framing).
+   * Live changes come through `setViewportInsets`.
+   */
+  viewportInsets?: ViewportInsets;
+  /**
+   * #728 VP-10 FR2 — where to draw the race ghost's marker, called when it
+   * moves (to the whole CSS px) and with null when it should hide: the
+   * ghost is within 30 m, off screen, or gone.
+   */
+  onGhostMarker?: (marker: GhostMarker | null) => void;
+  /**
+   * #726 VP-08 FR1 — called once per load phase as it settles, so the
+   * host's loading bar shows real progress. `frame` comes last: the first
+   * frame is drawn only after the scenery near the start is in.
+   */
+  onLoadPhase?: (phase: EngineLoadPhase, status: 'done' | 'failed') => void;
+  /**
    * #623 Phase 1 — the attach test harness (`attach({testMode: true})`)
    * sets this so the SSR/test boat fallback keeps working: a mocked
    * canvas cannot fetch `shell.bin`, so without this flag the user-
@@ -301,11 +360,45 @@ export interface RideSceneHandle {
    */
   setAppearance(palette: CrewPalette): void;
   /**
+   * #730 VP-12 — relight the running scene for new conditions. Writes the
+   * lighting uniforms, the sun direction (which the shadow cascades follow)
+   * and the fog; the next frame shows it. No device or scene rebuild. An
+   * unknown value is ignored.
+   */
+  setConditions(conditions: unknown): void;
+  /** #733 VP-15 — the HUD's covered area changed; reframe on the next frame. */
+  setViewportInsets(insets: unknown): void;
+  /**
    * Release every GPU resource this scene owns, including the device
    * session that owns the `GPUDevice`. Safe to call more than once.
    */
   dispose(): void;
 }
+
+/**
+ * #733 VP-15 — points on the player boat, in scull space (bow +Z, metres):
+ * bow and stern, both blade tips at the catch and the finish, and the
+ * rower's head. `__ROWER3D_BOAT.screenBounds` is the box around them.
+ */
+const BOAT_FOOTPRINT: readonly (readonly [number, number, number])[] = [
+  [0, 0, 4.1],
+  [0, 0, -4.1],
+  [2.9, 0, 1.4],
+  [-2.9, 0, 1.4],
+  [2.9, 0, -1.4],
+  [-2.9, 0, -1.4],
+  [0, 1.15, 0],
+];
+
+const sanitiseInsets = (v: unknown): ViewportInsets => {
+  if (!v || typeof v !== 'object') return NO_INSETS;
+  const o = v as Record<string, unknown>;
+  const n = (k: string): number => {
+    const x = o[k];
+    return typeof x === 'number' && Number.isFinite(x) && x > 0 ? x : 0;
+  };
+  return { top: n('top'), right: n('right'), bottom: n('bottom'), left: n('left') };
+};
 
 /** Internal clock used by the test harness. */
 const now = (): number =>
@@ -320,6 +413,16 @@ const now = (): number =>
  * `canvas` is reused across device swaps (D1-a of #584); the engine
  * reconfigures its `GPUCanvasContext` for the new device each time.
  */
+/** #726 FR1 — what the engine waits on before the ride is drawn. */
+export type EngineLoadPhase = 'scene' | 'boat' | 'crew' | 'atlas' | 'scenery-near' | 'frame';
+
+/**
+ * #726 FR1 — how long the start waits for the scenery near it. A model that
+ * is still loading after this streams in later with the FR3 fade, so a slow
+ * network costs a fade, not a stuck loading bar.
+ */
+export const START_SCENERY_TIMEOUT_MS = 20_000;
+
 export const createRideScene = async (
   canvas: HTMLCanvasElement,
   device: GPUDevice,
@@ -367,6 +470,7 @@ export const createRideScene = async (
   });
 
   const frameUniforms = createFrameUniformBuffer(device);
+  const lightingUniforms = createLightingUniformBuffer(device);
   const uniformScratch = new Float32Array(FRAME_UNIFORMS_FLOATS);
 
   // #559 P4: shadow atlas + per-tier cascade config. Default tier is medium
@@ -405,18 +509,67 @@ export const createRideScene = async (
   packSproutUniforms(sprout.near, sprout.far, sproutScratch);
   device.queue.writeBuffer(sproutUniforms, 0, sproutScratch as BufferSource);
 
+  // Build the water/bank curve + edges fn FIRST so every geometry pass
+  // that follows the river (water strip, bank strips lit + depth, boat
+  // placement, course furniture, camera) can share one spline.
+  const fallbackCurveSource: Array<[number, number, number]> = [[0, 0, 0], [0, 0, -200]];
+  const waterCurveSource = isSceneryRoute(opts.route) && opts.route.curvePoints && opts.route.curvePoints.length >= 2
+    ? opts.route.curvePoints
+    : fallbackCurveSource;
+  const waterCurve = new RouteCurve(
+    waterCurveSource.map(([x, y, z]) => vec3(x, y, z)),
+    isSceneryRoute(opts.route) ? !!opts.route.isClosedLoop : false,
+  );
+  const waterEdgesForProgress = isSceneryRoute(opts.route) ? opts.route.waterEdgesForProgress : undefined;
+  // #742 VP-22 FR2 — the water and bank strips close the gap between legs
+  // that run beside each other. Fleet lanes and course furniture keep the
+  // measured shores (`waterEdgesForProgress`).
+  const parallelLegs = bridgeParallelLegs(waterCurve, waterEdgesForProgress, {
+    isLand: islandLand(isSceneryRoute(opts.route) ? opts.route.lakePolygons : undefined),
+  });
+  const stripEdgesForProgress = parallelLegs.edgesForProgress;
+  const tierCaps = tierCapsFor(opts.tier);
+  const polygonLakesRaw =
+    isSceneryRoute(opts.route) && opts.route.lakePolygons ? opts.route.lakePolygons : [];
+  // #493 Phase 5 / FR9 / AC7 — decimate each outer ring to the tier's
+  // vertex budget before the pass tessellates. Deterministic + area-
+  // preserving (polygonSimplify.ts); a ring already under the cap is
+  // returned by reference, so a small lake pays nothing.
+  const polygonLakes = simplifyPolygons(polygonLakesRaw, tierCaps.polygonWaterMaxVertices);
+  const useLakePolygonWater = isPolygonWaterEnabled() && polygonLakes.length > 0;
+  // #742 FR3 — the whole route's water: scenery and bank furniture
+  // standing on any part of it are taken out.
+  // A smoke page with no route lays its scenery out around the fallback
+  // ribbon: nothing is taken out there.
+  const hasRouteCurve = waterCurveSource !== fallbackCurveSource;
+  const routeWater = routeWaterFootprint(buildWaterStrip(waterCurve, { edgesForProgress: stripEdgesForProgress }));
+  const rejectOnWater = hasRouteCurve ? routeWater : { contains: () => false };
+  // #742 FR5 — where the lake polygons are drawn, the banks laid along the
+  // racing line give way to them: the lake's own shore is the bank.
+  const bankFootprint = useLakePolygonWater ? withLakes(routeWater, polygonLakes) : routeWater;
+  const surfaceLakes = lakeWater(isSceneryRoute(opts.route) ? opts.route.lakePolygons ?? [] : []);
+  let rejectedOnWater = 0;
+
   // D7-a of #555: wire the scenery pass unconditionally.
-  const sceneryPoolInputs: PoolInput[] = isSceneryRoute(opts.route) ? opts.route.pools : [];
+  const offWater = poolsOffWater(isSceneryRoute(opts.route) ? opts.route.pools : [], rejectOnWater);
+  rejectedOnWater += offWater.rejected;
+  const sceneryPoolInputs: PoolInput[] = offWater.pools;
   // Scenery pool telemetry starts fresh on each scene build so a reattach
   // doesn't double-count pools from the dead device.
   telemetry.scenery.pools = [];
+  telemetry.scenery.registered = 0;
+  telemetry.scenery.failed = 0;
+  telemetry.scenery.failedIds = [];
+  telemetry.scenery.frame = 0;
+  telemetry.scenery.reveals = [];
+  telemetry.scenery.nearStartIds = [];
+  telemetry.scenery.registeredAtFirstFrame = null;
   const scenePools: InstancePool[] = sceneryPoolInputs.map((input) => createInstancePool(device, input));
 
   // #566 P6 — buildings pool. Per D5-b we skip the pool entirely when the
   // route carries no `buildings`, which is what happens for a fallback
   // enrichment. Tier gates then decide whether to build the pass + cast
   // shadows (D8).
-  const tierCaps = tierCapsFor(opts.tier);
   const rawBuildingSpecs: BuildingSpec[] =
     tierCaps.drawBuildings && isSceneryRoute(opts.route) && opts.route.buildings
       ? opts.route.buildings
@@ -546,6 +699,7 @@ export const createRideScene = async (
   const boatMesh = boatMeshHandle.mesh;
   telemetry.boat.meshSource = boatMeshHandle.source;
   publishBoatSource(boatMeshHandle.source === 'baked' ? 'baked' : 'failed');
+  opts.onLoadPhase?.('boat', 'done');
   const boatPass = createBoatPass({ device, format, frameUniforms, mesh: boatMesh });
   const charactersMesh = tierCaps.castCharacterShadows ? boatMesh : null;
 
@@ -557,6 +711,13 @@ export const createRideScene = async (
   // own mesh id so the per-primitive base colours survive.
   const sceneryMeshPass = createSceneryMeshPass({ device, format, frameUniforms });
   const BOAT_SCULL_PREFIX = 'boat-scull';
+  /**
+   * #728 FR1 / #713 D1a — instances of each scull primitive: the player,
+   * the ghost, then up to one per fleet member.
+   */
+  const SCULL_INSTANCES = 2 + (tierCaps.fleetCount > 0 ? FLEET_INSTANCE_CAPACITY : 0);
+  /** #713 D2a — the other crew's scull, drawn only for fleet members. */
+  const BOAT_SCULL_ALT_PREFIX = 'boat-scull-alt';
   const boatScullMeshIds: string[] = [];
   interface BoatScullPrimitive {
     id: string;
@@ -581,6 +742,7 @@ export const createRideScene = async (
     authoredColors?: Float32Array;
   }
   const boatScullPrimitives: BoatScullPrimitive[] = [];
+  const boatScullAltPrimitives: BoatScullPrimitive[] = [];
   let currentAppearance: CrewPalette = opts.appearance ?? DEFAULT_CREW_PALETTE;
   const COURSE_FURNITURE_MODELS: SceneryModelId[] = [
     'a01-buoy-lane-sphere',
@@ -617,15 +779,26 @@ export const createRideScene = async (
     const tier = 'abcdefgl'.includes(prefix) ? prefix : 'a';
     return `tier-${tier}`;
   };
+  /**
+   * Load one crew's scull GLB and register each primitive as a mesh id
+   * under `prefix`. `paint` applies the player's palette to the crew
+   * slots; the fleet's other-crew scull keeps its authored colours.
+   */
+  const loadScull = async (
+    crewName: 'male' | 'female',
+    prefix: string,
+    out: BoatScullPrimitive[],
+    paint: boolean,
+  ): Promise<void> => {
   try {
-    const crewGlb = opts.crew === 'female' ? 'scull-female.glb' : 'scull-male.glb';
+    const crewGlb = crewName === 'female' ? 'scull-female.glb' : 'scull-male.glb';
     const res = await fetch(assetUrl(`/assets/boat/${crewGlb}`));
     if (res.ok) {
       const bytes = new Uint8Array(await res.arrayBuffer());
       const model = await loadGlb(bytes, { preserveNodeTransforms: true });
       for (let i = 0; i < model.primitives.length; i += 1) {
         const prim = model.primitives[i];
-        const id = `${BOAT_SCULL_PREFIX}:${i}`;
+        const id = `${prefix}:${i}`;
         // Each primitive is one GLB material = one picker slot (or none).
         // Prefer the leaf node name (e.g. `Torso_Spine_part`) and fall back
         // to the articulated group (`LeftOar`) when the loader only kept
@@ -649,7 +822,7 @@ export const createRideScene = async (
         }
         // Apply the initial appearance up-front so attach(..., { appearance })
         // skips a first-frame flash of the baked colour.
-        const initialColors = slot
+        const initialColors = slot && paint
           ? tintPrimitiveColors(authoredColors, slot, currentAppearance)
           : authoredColors;
         sceneryMeshPass.register({
@@ -659,9 +832,10 @@ export const createRideScene = async (
           indices: prim.indices,
           baseColor: prim.baseColor,
           colors: initialColors,
-          maxInstances: 1,
+          // #728 FR1 / #713: the player, the race ghost, the fleet.
+          maxInstances: SCULL_INSTANCES,
         });
-        boatScullMeshIds.push(id);
+        if (paint) boatScullMeshIds.push(id);
         const nodeWorld = mat4();
         if (prim.nodeWorldMatrix) {
           for (let k = 0; k < 16; k += 1) nodeWorld[k] = prim.nodeWorldMatrix[k];
@@ -673,7 +847,7 @@ export const createRideScene = async (
           pivotWorld = mat4();
           for (let k = 0; k < 16; k += 1) pivotWorld[k] = prim.pivotWorldMatrix[k];
         }
-        boatScullPrimitives.push({
+        out.push({
           id,
           nodeWorld,
           group: prim.groupName,
@@ -685,6 +859,14 @@ export const createRideScene = async (
       }
     }
   } catch { /* scull GLB load failed — the old baked boat remains as fallback */ }
+  };
+  const playerCrew: 'male' | 'female' = opts.crew === 'female' ? 'female' : 'male';
+  await loadScull(playerCrew, BOAT_SCULL_PREFIX, boatScullPrimitives, true);
+  // #713 D2a — the fleet rows both crews; the player's is already loaded.
+  if (tierCaps.fleetCount > 0 && boatScullPrimitives.length > 0) {
+    await loadScull(playerCrew === 'male' ? 'female' : 'male', BOAT_SCULL_ALT_PREFIX, boatScullAltPrimitives, false);
+  }
+  opts.onLoadPhase?.('crew', boatScullPrimitives.length > 0 ? 'done' : 'failed');
 
   // Scenery GLBs load lazily as the route progresses (see sceneryStreamPlan):
   // this fetches + registers one model on demand, returning whether it
@@ -714,43 +896,33 @@ export const createRideScene = async (
     'a11-bank-railing',
     'a12-regatta-flagpole',
   ]);
-  const loadSceneryModel = async (id: string): Promise<boolean> => {
-    try {
-      const url = assetUrl(`/assets/scenery/${tierFolderFor(id)}/${id}.glb`);
-      const applyVegetationGain = tierFolderFor(id) === 'tier-e';
-      // Decode + merge off-thread. Tier-E vegetation is lifted inside the
-      // worker via `VEGETATION_ALBEDO_GAIN` so the main thread never touches
-      // the raw colour buffer; buildings (tier-D) pass through unchanged.
-      const decoded = await decoderPool.decode(id, url, applyVegetationGain);
-      sceneryMeshPass.register({
-        id,
-        positions: decoded.positions,
-        normals: decoded.normals,
-        indices: decoded.indices,
-        colors: decoded.colors,
-        baseColor: decoded.baseColor,
-        maxInstances: COURSE_FURNITURE_MAX_INSTANCES,
-        castsShadow: !SHADOW_NEUTRAL_MODEL_IDS.has(id),
-      });
-      return true;
-    } catch {
-      // A fetch or decode failure leaves the model unregistered; the pass
-      // silently skips it rather than taking the engine down.
-      return false;
-    }
+  type DecodedScenery = Awaited<ReturnType<typeof decoderPool.decode>>;
+  /**
+   * Fetch and decode one scenery GLB off-thread. Registration (the GPU
+   * buffers) happens later, one model per frame (#726 FR5).
+   */
+  const loadSceneryModel = async (id: string): Promise<DecodedScenery> => {
+    const url = assetUrl(`/assets/scenery/${tierFolderFor(id)}/${id}.glb`);
+    const applyVegetationGain = tierFolderFor(id) === 'tier-e';
+    // Decode + merge off-thread. Tier-E vegetation is lifted inside the
+    // worker via `VEGETATION_ALBEDO_GAIN` so the main thread never touches
+    // the raw colour buffer; buildings (tier-D) pass through unchanged.
+    return decoderPool.decode(id, url, applyVegetationGain);
+  };
+  const registerSceneryModel = (id: string, decoded: DecodedScenery, revealAt?: number): void => {
+    sceneryMeshPass.register({
+      id,
+      positions: decoded.positions,
+      normals: decoded.normals,
+      indices: decoded.indices,
+      colors: decoded.colors,
+      baseColor: decoded.baseColor,
+      maxInstances: COURSE_FURNITURE_MAX_INSTANCES,
+      castsShadow: !SHADOW_NEUTRAL_MODEL_IDS.has(id),
+      ...(revealAt !== undefined ? { revealAt } : {}),
+    });
   };
 
-  // Build the water/bank curve + edges fn FIRST so every geometry pass
-  // that follows the river (water strip, bank strips lit + depth, boat
-  // placement, course furniture, camera) can share one spline.
-  const waterCurveSource = isSceneryRoute(opts.route) && opts.route.curvePoints && opts.route.curvePoints.length >= 2
-    ? opts.route.curvePoints
-    : [[0, 0, 0] as [number, number, number], [0, 0, -200] as [number, number, number]];
-  const waterCurve = new RouteCurve(
-    waterCurveSource.map(([x, y, z]) => vec3(x, y, z)),
-    isSceneryRoute(opts.route) ? !!opts.route.isClosedLoop : false,
-  );
-  const waterEdgesForProgress = isSceneryRoute(opts.route) ? opts.route.waterEdgesForProgress : undefined;
 
   const shadowTelemetry: ShadowTelemetry = telemetry.shadows as ShadowTelemetry;
   const shadowStage = createShadowStage({
@@ -762,7 +934,8 @@ export const createRideScene = async (
     boatPass,
     telemetry: shadowTelemetry,
     bankCurve: waterCurve,
-    bankEdgesForProgress: waterEdgesForProgress,
+    bankEdgesForProgress: stripEdgesForProgress,
+    bankFootprint,
     // #591-fu P1c: tier-gated flora + GLB-scenery shadow casters. Each
     // input stays null below medium so the depth stage adds nothing on
     // basic/low; at medium+ the stage picks up every solid-flora pool
@@ -800,28 +973,23 @@ export const createRideScene = async (
     device,
     format,
     frameUniforms,
+    lightingUniforms,
     shadow: shadowResources,
     curve: waterCurve,
-    edgesForProgress: waterEdgesForProgress,
+    edgesForProgress: stripEdgesForProgress,
+    footprint: bankFootprint,
     grass: { profile: bankGrassProfile, strength: bankGrassStrength },
   });
   // #493 Phase 3b — if the enrichment carried lake polygons AND the kill
   // switch isn't disabled, draw polygon water in place of the strip. The
   // strip stays wired so a route whose enrichment lacks polygons (rivers,
   // offline fallbacks) renders exactly as before.
-  const polygonLakesRaw =
-    isSceneryRoute(opts.route) && opts.route.lakePolygons ? opts.route.lakePolygons : [];
-  // #493 Phase 5 / FR9 / AC7 — decimate each outer ring to the tier's
-  // vertex budget before the pass tessellates. Deterministic + area-
-  // preserving (polygonSimplify.ts); a ring already under the cap is
-  // returned by reference, so a small lake pays nothing.
-  const polygonLakes = simplifyPolygons(polygonLakesRaw, tierCaps.polygonWaterMaxVertices);
-  const useLakePolygonWater = isPolygonWaterEnabled() && polygonLakes.length > 0;
   const polygonWaterPass = useLakePolygonWater
     ? createWaterPolygonPass({
         device,
         format,
         frameUniforms,
+        lightingUniforms,
         shadow: shadowResources,
         polygons: polygonLakes,
       })
@@ -869,9 +1037,10 @@ export const createRideScene = async (
       device,
       format,
       frameUniforms,
+      lightingUniforms,
       shadow: shadowResources,
       curve: waterCurve,
-      edgesForProgress: waterEdgesForProgress,
+      edgesForProgress: stripEdgesForProgress,
     });
   const buildingsPass = createBuildingsPass({
     device,
@@ -882,7 +1051,7 @@ export const createRideScene = async (
     telemetry: telemetry.buildings,
   });
   const cloudsPass = tierCaps.drawClouds
-    ? createCloudsPass({ device, format, frameUniforms })
+    ? createCloudsPass({ device, format, frameUniforms, lightingUniforms })
     : null;
   // #574 rain overlay: on only when the tier allows it AND the dev has
   // flipped `window.__VIRTUALROW_RAIN=true` (so a mobile ride isn't
@@ -933,7 +1102,7 @@ export const createRideScene = async (
 
   const passes: Pass[] = [
     shadowStage,
-    createSkyPass({ device, format, frameUniforms }),
+    createSkyPass({ device, format, frameUniforms, lightingUniforms }),
     ...(cloudsPass ? [cloudsPass] : []),
     bankPass,
     buildingsPass,
@@ -973,8 +1142,40 @@ export const createRideScene = async (
   // fog, and a narrower one pulls the curtain in. Scales both density terms by
   // one factor; medium/undefined leaves the baseline untouched.
   const fogScale = fogDistanceScaleFor(opts.distanceTier ?? opts.tier);
-  frame.fog[0] *= fogScale;
-  frame.fog[1] *= fogScale;
+  const baseFogNear = frame.fog[0];
+  const baseFogFar = frame.fog[1];
+  frame.fog[0] = baseFogNear * fogScale;
+  frame.fog[1] = baseFogFar * fogScale;
+
+  // #730 VP-12 — the rower's conditions. One function writes everything a
+  // condition touches, at attach and on every live switch: the sun (which
+  // the shadow cascades read from `frame.sunDir` each frame, FR3), the fog
+  // density, the lighting block the sky / clouds / water / bank read, the
+  // post-fx exposure, and the `__ROWER3D_CONDITIONS` telemetry (FR5).
+  const lightingScratch = new Float32Array(32);
+  const applyLighting = (l: FrameLighting): void => {
+    frame.sunDir[0] = l.sunDir[0];
+    frame.sunDir[1] = l.sunDir[1];
+    frame.sunDir[2] = l.sunDir[2];
+    frame.fog[0] = baseFogNear * fogScale * l.fogDensityScale;
+    frame.fog[1] = baseFogFar * fogScale * l.fogDensityScale;
+    packFrameLighting(l, lightingScratch);
+    device.queue.writeBuffer(lightingUniforms, 0, lightingScratch as BufferSource);
+    postFx.setExposureBias(l.exposureBias);
+    const t = telemetry.conditions;
+    t.name = l.name;
+    t.sunElevationDeg = l.sunElevationDeg;
+    t.sunAzimuthDeg = l.sunAzimuthDeg;
+    t.sunDir = [...l.sunDir];
+    t.sunDisc = l.sunDisc;
+    t.cloudCover = l.cloudCover;
+    t.shadowStrength = l.shadowStrength;
+    t.exposureBias = l.exposureBias;
+    t.fogDensityScale = l.fogDensityScale;
+    t.skyZenith = [...l.skyZenith];
+    t.skyHorizon = [...l.skyHorizonCool];
+  };
+  applyLighting(conditionsToFrameLighting(opts.conditions));
 
   const routeCurve = waterCurve;
   const curveLength = routeCurve.approximateLength(32);
@@ -985,6 +1186,7 @@ export const createRideScene = async (
   telemetry.route.hasCurve = true;
   telemetry.route.totalDistance = totalDistanceMeters;
   telemetry.route.curveLength = curveLength;
+  telemetry.route.selfParallel = parallelLegs.selfParallel;
 
   // #685 wire-up — compose per-route extras from the three sources
   // (`composePlacementsForRoute`): tier-r llm-cad (fetched from the
@@ -1042,13 +1244,21 @@ export const createRideScene = async (
   for (const model of COURSE_FURNITURE_MODELS) byModel.set(model, []);
   const ASSET_SCALE = 0.001;
   for (const place of furniture) {
+    // #742 FR3 — bank furniture on another leg's water is not placed.
+    // Spans and buoys belong on the water.
+    if (place.kind === 'furniture' && rejectOnWater.contains(place.position[0], place.position[2])) {
+      rejectedOnWater += 1;
+      continue;
+    }
     const trs = mat4();
     const rot = mat4();
     const t = mat4();
     mat4FromRotationY(rot, place.rotationY);
-    rot[0] *= ASSET_SCALE; rot[1] *= ASSET_SCALE; rot[2] *= ASSET_SCALE;
-    rot[4] *= ASSET_SCALE; rot[5] *= ASSET_SCALE; rot[6] *= ASSET_SCALE;
-    rot[8] *= ASSET_SCALE; rot[9] *= ASSET_SCALE; rot[10] *= ASSET_SCALE;
+    // #724 — spans carry the scale that fits them to the river.
+    const k = ASSET_SCALE * (place.scale ?? 1);
+    rot[0] *= k; rot[1] *= k; rot[2] *= k;
+    rot[4] *= k; rot[5] *= k; rot[6] *= k;
+    rot[8] *= k; rot[9] *= k; rot[10] *= k;
     mat4Identity(t);
     t[12] = place.position[0];
     t[13] = place.position[1];
@@ -1057,15 +1267,27 @@ export const createRideScene = async (
     byModel.get(place.id)?.push(trs);
   }
   // Combine course-furniture + GLB-scenery instance transforms into one map,
-  // keyed by model id. The streaming controller calls `setInstances` for a
-  // model only once its GLB has registered.
-  const sceneryInstanceMats = new Map<string, Mat4[]>();
+  // keyed by model id. #723 FR5: when a model id appears in BOTH the
+  // course-furniture output (byModel) and the route's generated groups
+  // (sceneryGlbList), their instances are CONCATENATED rather than
+  // overwritten — before, `.set` here silently wiped the finish tower,
+  // boathouse and distance posts whenever a route group for the same id
+  // came in through `composePlacementsForRoute`.
+  const courseFurnitureInstanceMats = new Map<string, Mat4[]>();
   for (const model of COURSE_FURNITURE_MODELS) {
-    sceneryInstanceMats.set(model, byModel.get(model) ?? []);
+    courseFurnitureInstanceMats.set(model, byModel.get(model) ?? []);
   }
+  const routeGlbInstanceMats = new Map<string, Mat4[]>();
   for (const group of sceneryGlbList) {
     const mats: Mat4[] = [];
+    // #742 FR3 — bridges and buoys belong on the water; any other model
+    // well inside some part of the route's water is not placed.
+    const onWaterByDesign = group.id in BRIDGE_SPANS || group.id.includes('buoy');
     for (const inst of group.instances) {
+      if (!onWaterByDesign && rejectOnWater.contains(inst.position[0], inst.position[2], GLB_WATER_MARGIN_METRES)) {
+        rejectedOnWater += 1;
+        continue;
+      }
       const trs = mat4();
       const rot = mat4();
       const t = mat4();
@@ -1080,14 +1302,50 @@ export const createRideScene = async (
       mat4Multiply(trs, t, rot);
       mats.push(trs);
     }
-    sceneryInstanceMats.set(group.id, mats);
+    routeGlbInstanceMats.set(group.id, mats);
   }
+  // #724 VP-06 FR4 — every bridge span in the scene, so the camera can
+  // stay under its deck: the hand-authored/composed spans with their fitted
+  // headroom, and the route's own bridge GLBs (OSM crossings, landmarks),
+  // whose headroom is read from the opening over the camera.
+  const bridgeSpans: SpanCeilingSource[] = [
+    ...furniture
+      .filter((place) => place.kind === 'span')
+      .map((place) => ({
+        id: place.id,
+        position: place.position,
+        rotationY: place.rotationY,
+        scale: place.scale ?? 1,
+        ceiling: place.ceiling,
+      })),
+    ...sceneryGlbList
+      .filter((group) => group.id in BRIDGE_SPANS)
+      .flatMap((group) => group.instances.map((inst) => ({
+        id: group.id,
+        position: inst.position,
+        rotationY: inst.rotationY,
+        scale: inst.scale / ASSET_SCALE,
+      }))),
+  ];
+  telemetry.route.rejectedOnWater = rejectedOnWater;
+  telemetry.route.spans = bridgeSpans.map((span) => ({
+    id: span.id,
+    x: span.position[0],
+    z: span.position[2],
+    rotationY: span.rotationY,
+    scale: span.scale,
+    ceiling: span.ceiling ?? null,
+  }));
+  const ceilingAt = (x: number, z: number): number => spanCeilingAt(bridgeSpans, x, z);
+  const sceneryInstanceMats = mergeSceneryInstances([
+    courseFurnitureInstanceMats,
+    routeGlbInstanceMats,
+  ]);
 
   // Progressive loading plan: sample the route for along-route distances, work
   // out where each model first appears, and load models as the boat comes
   // within the look-ahead window (driven from the frame loop below).
   const SCENERY_STREAM_SAMPLES = 128;
-  const SCENERY_LOOKAHEAD_M = 400;
   const SCENERY_MAX_PER_TICK = 3;
   const streamSamples: CurveDistanceSample[] = [];
   for (let i = 0; i <= SCENERY_STREAM_SAMPLES; i += 1) {
@@ -1107,12 +1365,15 @@ export const createRideScene = async (
   );
   const sceneryLoaded = new Set<string>();
   const sceneryLoading = new Set<string>();
+  const sceneryRegistrations = createRegistrationQueue<{ id: string; decoded: DecodedScenery }>();
+  // #726 FR2 — the window follows the boat's speed (the previous frame's).
+  let streamSpeedMps = 0;
   const streamScenery = (boatDistanceMeters: number, loop: boolean): void => {
     const pending = sceneryModelsToLoad(
       sceneryPlan,
       new Set<string>([...sceneryLoaded, ...sceneryLoading]),
       boatDistanceMeters,
-      SCENERY_LOOKAHEAD_M,
+      streamLookaheadMeters(streamSpeedMps),
       SCENERY_MAX_PER_TICK,
       // #647 FR6 — looping walks the stream plan torus-style so the first
       // tiles of the route are already loaded when the boat crosses the seam.
@@ -1121,15 +1382,35 @@ export const createRideScene = async (
     for (const id of pending) {
       sceneryLoading.add(id);
       void loadSceneryModel(id)
-        .then((ok) => {
-          sceneryLoading.delete(id);
-          sceneryLoaded.add(id);
-          if (ok) sceneryMeshPass.setInstances(id, sceneryInstanceMats.get(id) ?? []);
+        .then((decoded) => {
+          sceneryRegistrations.push({ id, decoded });
         })
         .catch(() => {
+          // #726 FR6 — a fetch or decode failure leaves the model out and is
+          // reported, rather than swallowed.
           sceneryLoading.delete(id);
+          sceneryLoaded.add(id);
+          if (!telemetry.scenery.failedIds.includes(id)) telemetry.scenery.failedIds.push(id);
+          telemetry.scenery.failed = telemetry.scenery.failedIds.length;
         });
     }
+  };
+  /** #726 FR5 — register at most one decoded model this frame. */
+  const registerNextScenery = (): void => {
+    sceneryRegistrations.drainOne(({ id, decoded }) => {
+      // #726 FR3 — fade it in from this frame rather than pop it in.
+      registerSceneryModel(id, decoded, frame.time);
+      telemetry.scenery.reveals.push({
+        id,
+        registeredAtFrame: telemetry.scenery.frame,
+        registeredAt: frame.time,
+        revealAlpha: 0,
+      });
+      sceneryMeshPass.setInstances(id, sceneryInstanceMats.get(id) ?? []);
+      sceneryLoading.delete(id);
+      sceneryLoaded.add(id);
+      telemetry.scenery.registered = sceneryLoaded.size - telemetry.scenery.failed;
+    });
   };
 
   const cameraRig = createRigTarget();
@@ -1152,11 +1433,41 @@ export const createRideScene = async (
   const fleetBones = Array.from({ length: BOAT_BONE_COUNT }, () => mat4());
   for (let i = 0; i < BOAT_BONE_COUNT; i += 1) mat4Identity(fleetBones[i]);
   let lastFleetTime = -1;
+  // #728 FR3: the lanes are fitted to the river once per scene.
+  const fleetWater = fleetWaterHalfWidth(waterEdgesForProgress, DEFAULT_WATER_HALF_WIDTH_M);
+  // #728 FR4: a per-slot tint so the fade can scale the palette's alpha.
+  const fleetTints = Array.from({ length: FLEET_INSTANCE_CAPACITY }, () => new Float32Array(4));
   // #571 shell paint: when the shell plumbs an athlete id through,
   // the hull tint comes from `boatPaint.boatTintFromAthlete`. Falls
   // back to today's off-white when the id is empty / undefined.
   const BOAT_TINT = boatTintFromAthlete(opts.athleteId);
   const GHOST_TINT = new Float32Array([0.35, 0.85, 1.0, 0.5]);
+  // #728 FR1 — per-primitive instance matrices, kept across frames.
+  const scullPlayerInstances = new Map<string, Mat4>();
+  const scullGhostInstances = new Map<string, Mat4>();
+  const scullGhostTrs = mat4();
+  /** #713 — per-frame instance lists of each scull primitive, both crews. */
+  const scullInstanceLists = new Map<string, SceneryInstance[]>();
+  const fleetScullInstances = new Map<string, Mat4>();
+  const fleetScullTrs = Array.from({ length: FLEET_INSTANCE_CAPACITY }, () => mat4());
+  /**
+   * #713 D3a — a fleet member's style per primitive. The hull takes the
+   * member's palette colour, sun-shaded. On the player's own scull the
+   * crew's vertex colours carry the player's palette, so a member rowing
+   * it wears the authored kit instead (D5 per-member kit is phase 2).
+   */
+  const fleetPrimitiveStyle = (
+    prim: BoatScullPrimitive,
+    hull: Float32Array,
+    sharesPlayerColors: boolean,
+  ): { tint?: readonly [number, number, number, number] } => {
+    if (isFleetTintable(prim.nodeName ?? prim.group)) return { tint: [hull[0], hull[1], hull[2], 1] };
+    if (sharesPlayerColors && prim.slot && prim.authoredColors) {
+      const c = prim.authoredColors;
+      return { tint: [c[0], c[1], c[2], 1] };
+    }
+    return {};
+  };
   // #577 D9a — placeholder fleet uses a desaturated solid hull tint so
   // they read as a pack of other boats rather than semi-transparent
   // race ghosts. Slight variation per member via a seed-driven hue
@@ -1167,6 +1478,7 @@ export const createRideScene = async (
 
   const start = now();
   let disposed = false;
+  let viewportInsets: ViewportInsets = sanitiseInsets(opts.viewportInsets);
 
   const resize = (): void => {
     const w = Math.max(1, Math.floor(canvas.clientWidth || canvas.width || width));
@@ -1209,8 +1521,31 @@ export const createRideScene = async (
   const distanceSmoother = createDistanceSmoother();
   let lastWakeTime = 0; // #571 — seconds since start, matches `frame.time` units
   let lastOarSplashTime = 0; // #571 — seconds since start, for the oar-splash sim
+  // #720 VP-02 — one phase integrator per attach; a cadence wobble only
+  // changes the rate, never jumps the pose.
+  const strokeClock = createStrokeClock();
+  let lastStrokeTime = -1;
+  let strokeWasPlaying = false;
+  // #728 FR1 — the ghost rows on its own clock, at its own cadence.
+  const ghostStrokeClock = createStrokeClock();
+  let ghostMarkerKey = '';
+  // #728 FR2 spec seam (test mode): draw the frame without the ghost, so a
+  // spec can diff the two and read the ghost's silhouette against the very
+  // water behind it.
+  let ghostHidden = false;
+  // …and draw the ghost flat magenta, so a spec can tell its own pixels
+  // from its reflection and shadow on the water, which a with/without
+  // diff also catches.
+  let ghostMask = false;
+  const GHOST_MASK_STYLE = { tint: [1, 0, 1, 1] as const, alpha: 1, rim: 0, flat: 1, haze: 0 };
+  // …and hold the ride still (the same time and ride frame each draw), so
+  // those three frames sample the same pixels of a boat that has not moved.
+  let holdFrame = false;
+  let heldFrame: { time: number; ride: RideFrame | null; smoothed?: RideFrame | null } | null = null;
+  // #724 — test mode: pin the boat at a distance along the route (null rows).
+  let seekMeters: number | null = null;
 
-  const frameOnce = (): void => {
+  const drawFrame = (): void => {
     if (disposed) return;
     // #584 FR3 — cpuMs is the CPU-side encode time. Measured end-to-end so
     // the frame-graph internal work (pass encodes + submit) plus the engine's
@@ -1219,11 +1554,19 @@ export const createRideScene = async (
     // asks for the feature (device.ts) but no pass writes a timestamp yet.
     const cpuStart = now();
     resize();
-    frame.time = (now() - start) / 1000;
+    if (holdFrame && heldFrame) {
+      frame.time = heldFrame.time;
+    } else {
+      frame.time = (now() - start) / 1000;
+    }
+    const rideFrame: RideFrame | null =
+      holdFrame && heldFrame ? heldFrame.ride : opts.getFrame ? opts.getFrame() : null;
+    if (holdFrame && !heldFrame) heldFrame = { time: frame.time, ride: rideFrame };
+    if (!holdFrame) heldFrame = null;
 
-    const rideFrame: RideFrame | null = opts.getFrame ? opts.getFrame() : null;
-
-    const smoothedFrame: RideFrame | null = rideFrame
+    const rowedFrame: RideFrame | null = heldFrame?.smoothed !== undefined
+      ? heldFrame.smoothed
+      : rideFrame
       ? {
           ...rideFrame,
           distanceMeters: distanceSmoother.update(
@@ -1233,6 +1576,11 @@ export const createRideScene = async (
           ),
         }
       : null;
+    // #724 — a spec can pin the boat to a distance to traverse a bridge.
+    const smoothedFrame: RideFrame | null = seekMeters !== null && rowedFrame
+      ? { ...rowedFrame, distanceMeters: seekMeters, holdBoat: false, finished: false }
+      : rowedFrame;
+    if (heldFrame && heldFrame.smoothed === undefined) heldFrame.smoothed = smoothedFrame;
 
     placeBoat(boatPlacement, routeCurve, smoothedFrame, totalDistanceMeters, curveLength, 0);
     // #571 wake foam: run the CPU particle sim before the pass encodes.
@@ -1243,7 +1591,6 @@ export const createRideScene = async (
     updateWake(
       wakeState,
       boatPlacement.world[0],
-      boatPlacement.world[1],
       boatPlacement.world[2],
       boatPlacement.heading,
       wakeMoving,
@@ -1255,6 +1602,11 @@ export const createRideScene = async (
     // Pass the boat's position along the current lap (already wrapped by
     // `placeBoat` when the frame is looping) together with the loop flag so
     // the stream planner wraps its lookahead window around the seam.
+    telemetry.scenery.frame += 1;
+    for (const r of telemetry.scenery.reveals) {
+      if (r.revealAlpha < 1) r.revealAlpha = revealAlpha(frame.time, r.registeredAt, 0);
+    }
+    registerNextScenery();
     streamScenery(boatPlacement.progress * totalDistanceMeters, !!rideFrame?.loop);
     const ghostInfo = placeGhost(
       ghostPlacement,
@@ -1266,7 +1618,33 @@ export const createRideScene = async (
       -GHOST_LANE_OFFSET_M,
     );
 
-    const phase = strokePhase(rideFrame?.cadence ?? 0, frame.time, rideFrame?.isPlaying ?? false);
+    // #720 VP-02 — integrate the stroke phase from (cadence, dt) rather
+    // than recomputing elapsed × spm / 60 each frame. A cadence wobble
+    // then alters the rate and doesn't jump the pose.
+    const isPlayingNow = rideFrame?.isPlaying ?? false;
+    const strokeDt = lastStrokeTime < 0 ? 0 : frame.time - lastStrokeTime;
+    lastStrokeTime = frame.time;
+    // Reset the clock when a new session starts (a transition from
+    // stopped to playing). Stopping mid-row freezes the phase instead.
+    if (isPlayingNow && !strokeWasPlaying && (rideFrame?.elapsedSeconds ?? 0) < 0.25) {
+      resetStrokeClock(strokeClock);
+    }
+    strokeWasPlaying = isPlayingNow;
+    const phase = stepStrokeClock(strokeClock, {
+      cadence: rideFrame?.cadence ?? 0,
+      dtSeconds: strokeDt,
+      isPlaying: isPlayingNow,
+    });
+    const ghostSource = rideFrame?.ghost ?? null;
+    const ghostElapsed = rideFrame?.elapsedSeconds ?? frame.time;
+    const ghostRow = ghostSource ? ghostStroke(ghostSource, ghostElapsed) : { rowing: false, cadence: 0 };
+    if (isPlayingNow && ghostElapsed < 0.25) resetStrokeClock(ghostStrokeClock);
+    const ghostRowing = isPlayingNow && ghostRow.rowing && !!ghostInfo;
+    const ghostPhase = stepStrokeClock(ghostStrokeClock, {
+      cadence: ghostRow.cadence,
+      dtSeconds: strokeDt,
+      isPlaying: ghostRowing,
+    });
     // #571 oar-blade splash: fire a burst at catch (phase 0 crossing) and
     // finish (phase 0.5 crossing). `isMoving` matches the wake-pass gate.
     const oarSplashMoving = !!rideFrame?.isPlaying && !rideFrame.holdBoat && !rideFrame.finished;
@@ -1298,7 +1676,9 @@ export const createRideScene = async (
     }
     const scullLoaded = boatScullMeshIds.length > 0;
     boatPass.boatVisible.value = !scullLoaded;
-    boatPass.ghostVisible.value = ghostInfo !== null;
+    // #728 FR1: with the scull GLB loaded the ghost is drawn from it; the
+    // simplified mesh stays the fallback, as it is for the player.
+    boatPass.ghostVisible.value = ghostInfo !== null && !scullLoaded && !ghostHidden;
 
     if (scullLoaded) {
       const boatTrs = mat4();
@@ -1311,10 +1691,11 @@ export const createRideScene = async (
       scullTrans[14] = boatPlacement.world[2];
       mat4Multiply(boatTrs, scullTrans, scullRot);
 
-      const cadence = rideFrame?.cadence ?? 0;
-      const elapsed = rideFrame?.elapsedSeconds ?? 0;
-      const playing = rideFrame?.isPlaying ?? false;
-      const phaseSweep = strokePhase(cadence, elapsed, playing);
+      // #720 VP-02 — same phase feeds the oar sweep, the splash burst
+      // and the legacy bones (FR2). Before this, the sweep used
+      // `elapsed` while splashes used `frame.time`, so blades entered
+      // the water out of step with the splash.
+      const phaseSweep = phase;
       const ampSweep = strokeAmplitude(rideFrame);
       // #672: the oar swings between the crew's catch (phase 0) and finish
       // (phase 0.5), and the rower's seat, legs, body and arms follow it.
@@ -1322,47 +1703,39 @@ export const createRideScene = async (
       const sweep = oarSweep(crew, phaseSweep, ampSweep);
       const stroke = crewStrokePose(crew, sweep);
 
-      const nodeAfterSwing = mat4();
-      const toPivot = mat4();
-      const fromPivot = mat4();
-      const rotSweep = mat4();
-      const tmp = mat4();
-      const perInstance = mat4();
+      // #728 FR1 — the ghost: the same primitives at its own placement,
+      // with its own sweep and pose, in its own style.
+      let ghostTrs: Mat4 | null = null;
+      let ghostSweep = 0;
+      let ghostPose = stroke;
+      if (ghostInfo && !ghostHidden) {
+        ghostTrs = scullBoatTrs(scullGhostTrs, ghostPlacement.world, ghostPlacement.heading);
+        ghostSweep = oarSweep(crew, ghostPhase, ghostRowing ? 1 : 0);
+        ghostPose = crewStrokePose(crew, ghostSweep);
+      }
 
       for (const prim of boatScullPrimitives) {
-        if (prim.group && prim.pivotWorld) {
-          const sign = prim.group === 'RightOar' ? -1 : 1;
-          mat4FromRotationY(rotSweep, sweep * sign);
-
-          const px = prim.pivotWorld[12];
-          const py = prim.pivotWorld[13];
-          const pz = prim.pivotWorld[14];
-          mat4Identity(toPivot);
-          toPivot[12] = -px;
-          toPivot[13] = -py;
-          toPivot[14] = -pz;
-          mat4Identity(fromPivot);
-          fromPivot[12] = px;
-          fromPivot[13] = py;
-          fromPivot[14] = pz;
-
-          mat4Multiply(tmp, toPivot, prim.nodeWorld);
-          mat4Multiply(nodeAfterSwing, rotSweep, tmp);
-          mat4Multiply(tmp, fromPivot, nodeAfterSwing);
-          mat4Multiply(perInstance, boatTrs, tmp);
-        } else {
-          const part = crewPartTransform(prim.nodeName, stroke);
-          if (part) {
-            mat4Multiply(tmp, part, prim.nodeWorld);
-            mat4Multiply(perInstance, boatTrs, tmp);
-          } else {
-            mat4Multiply(perInstance, boatTrs, prim.nodeWorld);
+        const instances = scullInstanceLists.get(prim.id) ?? [];
+        scullInstanceLists.set(prim.id, instances);
+        instances.length = 0;
+        if (isCrewNodeVisible(prim.nodeName, currentAppearance)) {
+          const player = scullPlayerInstances.get(prim.id) ?? mat4();
+          scullPlayerInstances.set(prim.id, player);
+          instances.push(scullPrimitiveTransform(player, prim, { boatTrs, sweep, stroke }));
+          if (ghostTrs) {
+            const ghost = scullGhostInstances.get(prim.id) ?? mat4();
+            scullGhostInstances.set(prim.id, ghost);
+            instances.push({
+              model: scullPrimitiveTransform(ghost, prim, { boatTrs: ghostTrs, sweep: ghostSweep, stroke: ghostPose }),
+              ...(ghostMask ? GHOST_MASK_STYLE : GHOST_SCULL_STYLE),
+            });
           }
         }
-        sceneryMeshPass.setInstances(
-          prim.id,
-          isCrewNodeVisible(prim.nodeName, currentAppearance) ? [perInstance] : [],
-        );
+      }
+      for (const prim of boatScullAltPrimitives) {
+        const instances = scullInstanceLists.get(prim.id) ?? [];
+        scullInstanceLists.set(prim.id, instances);
+        instances.length = 0;
       }
     }
     boatPass.boat.write(device, {
@@ -1391,6 +1764,7 @@ export const createRideScene = async (
         routeMeters: totalDistanceMeters,
         routeId: opts.routeId,
         playerStartMeters: boatPlacement.distanceMeters,
+        waterHalfWidth: fleetWater,
       });
       lastFleetTime = frame.time;
     }
@@ -1401,13 +1775,31 @@ export const createRideScene = async (
       fleetDt,
     );
     lastFleetTime = frame.time;
-    const visibleFleet = Math.min(FLEET_INSTANCE_CAPACITY, fleetState.current.members.length);
+    const fleetMembers = fleetState.current.members;
     // #577 D6b — compute the "avoid this palette entry" index once per
     // frame from the player's current unisuit top, so no fleet member
     // wears the same top colour as the player.
     const fleetExcludeIndex = fleetPaletteIndexForColor(currentAppearance.top);
-    for (let i = 0; i < visibleFleet; i += 1) {
-      const member = fleetState.current.members[i];
+    // #728 FR4 — members in the window's hidden bands are not drawn at
+    // all (nor cast shadows); the rest pack into the first slots, faded
+    // by their distance from the player.
+    let visibleFleet = 0;
+    const fleetTelemetry: Rower3DFleet['members'] = [];
+    const fleetPhase = phase;
+    const fleetAmp = strokeAmplitude(rideFrame);
+    for (let i = 0; i < fleetMembers.length && visibleFleet < FLEET_INSTANCE_CAPACITY; i += 1) {
+      const member = fleetMembers[i];
+      let relative = member.distanceMeters - boatPlacement.distanceMeters;
+      const half = totalDistanceMeters / 2;
+      if (relative > half) relative -= totalDistanceMeters;
+      else if (relative < -half) relative += totalDistanceMeters;
+      const fade = fleetFadeFor(relative);
+      if (fade <= 0) continue;
+      // #757 VP-33 — not behind the start or past the finish of a route
+      // that does not loop.
+      if (!fleetMemberOnCourse(relative, boatPlacement.distanceMeters, totalDistanceMeters, !!rideFrame?.loop)) continue;
+      const slot = visibleFleet;
+      visibleFleet += 1;
       const syntheticFrame: RideFrame = {
         paceSPer500: 0,
         distanceMeters: member.distanceMeters,
@@ -1420,26 +1812,69 @@ export const createRideScene = async (
         ghost: null,
       };
       placeBoat(
-        fleetPlacements[i],
+        fleetPlacements[slot],
         routeCurve,
         syntheticFrame,
         totalDistanceMeters,
         curveLength,
         member.laneOffsetMeters,
       );
-      boatPass.fleet[i].write(device, {
-        model: fleetPlacements[i].modelMatrix,
+      const tint = fleetTints[slot];
+      tint.set(fleetHullTintFor(member.seed, fleetExcludeIndex));
+      const strokeOffset = fleetStrokeOffset(member.seed);
+      fleetTelemetry.push({
+        crew: member.crew,
+        hullColor: [tint[0], tint[1], tint[2]],
+        strokeOffset,
+        lane: member.laneOffsetMeters,
+        distanceMeters: member.distanceMeters,
+        fade,
+      });
+      if (scullLoaded) {
+        // #713 — the member rows the scull of its own crew (D2a): the
+        // player's when it matches, else the other one, if that loaded.
+        const ownCrew = member.crew === playerCrew || boatScullAltPrimitives.length === 0;
+        const prims = ownCrew ? boatScullPrimitives : boatScullAltPrimitives;
+        const memberCrew = ownCrew ? playerCrew : member.crew;
+        const place = fleetPlacements[slot];
+        const trs = scullBoatTrs(fleetScullTrs[slot], place.world, place.heading);
+        // D4a — the player's stroke, shifted by the member's own offset.
+        const memberSweep = oarSweep(memberCrew, (fleetPhase + strokeOffset) % 1, fleetAmp);
+        const memberPose = crewStrokePose(memberCrew, memberSweep);
+        for (const prim of prims) {
+          if (!isCrewNodeVisible(prim.nodeName, DEFAULT_CREW_PALETTE)) continue;
+          const key = `${prim.id}#${slot}`;
+          const m = fleetScullInstances.get(key) ?? mat4();
+          fleetScullInstances.set(key, m);
+          scullPrimitiveTransform(m, prim, { boatTrs: trs, sweep: memberSweep, stroke: memberPose });
+          const style = fleetPrimitiveStyle(prim, tint, prims === boatScullPrimitives);
+          scullInstanceLists.get(prim.id)?.push({ model: m, alpha: fade, ...style });
+        }
+      }
+      tint[3] *= fade;
+      boatPass.fleet[slot].write(device, {
+        model: fleetPlacements[slot].modelMatrix,
         bones: fleetBones,
-        tintRGBA: fleetHullTintFor(member.seed, fleetExcludeIndex),
+        tintRGBA: tint,
         ghost: false,
         visible: true,
       });
     }
-    boatPass.fleetVisibleCount.value = visibleFleet;
+    // #713 FR1 — with the scull loaded the placeholder fleet is only the
+    // fallback, as it is for the player and the ghost.
+    boatPass.fleetVisibleCount.value = scullLoaded ? 0 : visibleFleet;
+    telemetry.fleet.model = visibleFleet === 0 ? 'none' : scullLoaded ? 'scull' : 'placeholder';
+    telemetry.fleet.members = fleetTelemetry;
+    if (scullLoaded) {
+      for (const prim of boatScullPrimitives) sceneryMeshPass.setInstances(prim.id, scullInstanceLists.get(prim.id) ?? []);
+      for (const prim of boatScullAltPrimitives) sceneryMeshPass.setInstances(prim.id, scullInstanceLists.get(prim.id) ?? []);
+    }
 
     telemetry.boat.x = boatPlacement.world[0];
     telemetry.boat.y = boatPlacement.world[1];
     telemetry.boat.z = boatPlacement.world[2];
+    // #742 FR6 — the surface under the hull, every frame.
+    telemetry.clearance.surface = surfaceAt(routeWater, surfaceLakes, boatPlacement.world[0], boatPlacement.world[2]);
     telemetry.boat.heading = boatPlacement.heading;
     telemetry.boat.distanceMeters = boatPlacement.distanceMeters;
     telemetry.boat.progress = boatPlacement.progress;
@@ -1458,6 +1893,7 @@ export const createRideScene = async (
     lastDistanceMeters = telemetry.boat.distanceMeters;
     lastSpeedTime = frame.time;
     publishSpeedMps(telemetry, speedMps);
+    streamSpeedMps = speedMps;
     telemetry.pos.x = boatPlacement.world[0];
     telemetry.pos.y = boatPlacement.world[1];
     telemetry.pos.z = boatPlacement.world[2];
@@ -1473,6 +1909,11 @@ export const createRideScene = async (
       telemetry.ghostMeters.value = 0;
       telemetry.ghostMeters.active = false;
     }
+    // #728 FR1 telemetry: what the ghost is drawn with, and its stroke.
+    telemetry.ghostMeters.model = !ghostInfo ? 'none' : boatScullMeshIds.length > 0 ? 'scull' : 'placeholder';
+    telemetry.ghostMeters.cadenceSpm = ghostRowing ? ghostRow.cadence : 0;
+    telemetry.ghostMeters.strokePhase = ghostPhase;
+    telemetry.ghostMeters.lane = -GHOST_LANE_OFFSET_M;
 
     const camBoat = vec3(boatPlacement.world[0], boatPlacement.world[1], boatPlacement.world[2]);
     const camTangent = vec3();
@@ -1487,6 +1928,7 @@ export const createRideScene = async (
         velocityMps: speedMps,
         view: rideFrame?.view ?? 'chase',
         bendSign: 0,
+        ceilingAt,
       },
       cameraRig,
     );
@@ -1494,8 +1936,54 @@ export const createRideScene = async (
     const target = cameraRig.lookAt;
     const up = vec3(0, 1, 0);
     mat4LookAt(frame.view, eye, target, up);
-    mat4Perspective(frame.proj, (cameraRig.fov * Math.PI) / 180, width / height, CAMERA_NEAR_M, CAMERA_FAR_M);
+    const fovY = (cameraRig.fov * Math.PI) / 180;
+    projectionWithInsets(frame.proj, fovY, width, height, viewportInsets, CAMERA_NEAR_M, CAMERA_FAR_M);
     mat4Multiply(frame.viewProj, frame.proj, frame.view);
+    // #733 VP-15 FR3 telemetry: where the player boat lands on screen, and
+    // the area the HUD leaves clear, so a spec can check one is inside the
+    // other in every camera view.
+    {
+      const c = Math.cos(boatPlacement.heading);
+      const sn = Math.sin(boatPlacement.heading);
+      const bx = boatPlacement.world[0];
+      const by = boatPlacement.world[1];
+      const bz = boatPlacement.world[2];
+      const pts = BOAT_FOOTPRINT.map(
+        ([x, y, z]) => [bx + c * x + sn * z, by + y, bz - sn * x + c * z] as [number, number, number],
+      );
+      telemetry.boat.screenBounds = projectedBounds(frame.viewProj, pts, width, height);
+      telemetry.boat.clearRect = clearRect(width, height, viewportInsets);
+    }
+    // #728 FR2 — the ghost's marker past 30 m, for the host to draw.
+    {
+      const marker: GhostMarker | null = ghostInfo
+        ? ghostMarker({
+            ghostWorld: [ghostPlacement.world[0], ghostPlacement.world[1], ghostPlacement.world[2]],
+            gapMeters: gapMeters(boatPlacement.distanceMeters, ghostInfo.metres),
+            viewProj: frame.viewProj,
+            width,
+            height,
+          })
+        : null;
+      telemetry.ghostMeters.marker = marker;
+      // FR2 spec seam: the ghost's box on screen, as for the player boat.
+      if (ghostInfo) {
+        const c = Math.cos(ghostPlacement.heading);
+        const sn = Math.sin(ghostPlacement.heading);
+        const [gx, gy, gz] = [ghostPlacement.world[0], ghostPlacement.world[1], ghostPlacement.world[2]];
+        const pts = BOAT_FOOTPRINT.map(
+          ([x, y, z]) => [gx + c * x + sn * z, gy + y, gz - sn * x + c * z] as [number, number, number],
+        );
+        telemetry.ghostMeters.screenBounds = projectedBounds(frame.viewProj, pts, width, height);
+      } else {
+        telemetry.ghostMeters.screenBounds = null;
+      }
+      const key = marker ? `${Math.round(marker.x)},${Math.round(marker.y)},${marker.meters},${marker.ahead}` : '';
+      if (key !== ghostMarkerKey) {
+        ghostMarkerKey = key;
+        opts.onGhostMarker?.(marker);
+      }
+    }
     frame.camPos[0] = eye[0];
     frame.camPos[1] = eye[1];
     frame.camPos[2] = eye[2];
@@ -1507,7 +1995,8 @@ export const createRideScene = async (
       cascades: atlas.cascades,
       near: 0.5,
       far: 400,
-      fovY: (58 * Math.PI) / 180,
+      // #733: cover the whole canvas, including what shows through the HUD.
+      fovY: effectiveFovY((58 * Math.PI) / 180, height, viewportInsets),
       aspect: width / height,
       camPos: eye,
       camForward: vec3(target[0] - eye[0], target[1] - eye[1], target[2] - eye[2]),
@@ -1579,6 +2068,10 @@ export const createRideScene = async (
     telemetry.camera.lookX = target[0];
     telemetry.camera.lookY = target[1];
     telemetry.camera.lookZ = target[2];
+    {
+      const ceiling = ceilingAt(eye[0], eye[2]);
+      telemetry.camera.ceiling = Number.isFinite(ceiling) ? ceiling : null;
+    }
   };
 
   // Lazy flora atlas load (#562 FR2 / FR3). The decoder lives in its own
@@ -1598,6 +2091,7 @@ export const createRideScene = async (
         return;
       }
       atlasHandle = handle;
+      opts.onLoadPhase?.('atlas', 'done');
       telemetry.textures.atlasKind = handle.kind;
       telemetry.textures.transcodedMs = handle.transcodedMs;
       telemetry.textures.mipsGenerated = handle.texture.mipLevelCount;
@@ -1611,6 +2105,7 @@ export const createRideScene = async (
     })
     .catch(() => {
       telemetry.textures.atlasKind = 'placeholder';
+      if (!disposed) opts.onLoadPhase?.('atlas', 'failed');
     });
 
   const setAppearance = (palette: CrewPalette): void => {
@@ -1631,13 +2126,100 @@ export const createRideScene = async (
   try {
     (globalThis as unknown as Record<string, unknown>)[SET_APPEARANCE_KEY] = setAppearance;
   } catch { /* non-browser (SSR) — the shell never calls it there anyway */ }
+
+  const setViewportInsets = (insets: unknown): void => {
+    if (disposed) return;
+    viewportInsets = sanitiseInsets(insets);
+  };
+
+  const setConditions = (conditions: unknown): void => {
+    if (disposed || !isLightingConditions(conditions)) return;
+    applyLighting(conditionsToFrameLighting(conditions));
+    telemetry.conditions.updates += 1;
+  };
+  // #730 — the same seam for specs that switch conditions mid-row. The
+  // shell goes through `RideRenderer.setConditions`; this is for tests.
+  const SET_CONDITIONS_KEY = '__ROWER3D_SET_CONDITIONS' as const;
+  const HIDE_GHOST_KEY = '__ROWER3D_HIDE_GHOST' as const;
+  const GHOST_MASK_KEY = '__ROWER3D_GHOST_MASK' as const;
+  const HOLD_FRAME_KEY = '__ROWER3D_HOLD_FRAME' as const;
+  const SEEK_METERS_KEY = '__ROWER3D_SEEK_METERS' as const;
+  if (opts.testMode) {
+    try {
+      (globalThis as unknown as Record<string, unknown>)[SET_CONDITIONS_KEY] = setConditions;
+      (globalThis as unknown as Record<string, unknown>)[HIDE_GHOST_KEY] = (hidden: boolean) => {
+        ghostHidden = !!hidden;
+      };
+      (globalThis as unknown as Record<string, unknown>)[GHOST_MASK_KEY] = (on: boolean) => {
+        ghostMask = !!on;
+      };
+      (globalThis as unknown as Record<string, unknown>)[HOLD_FRAME_KEY] = (on: boolean) => {
+        holdFrame = !!on;
+      };
+      (globalThis as unknown as Record<string, unknown>)[SEEK_METERS_KEY] = (metres: number | null) => {
+        seekMeters = typeof metres === 'number' && Number.isFinite(metres) ? Math.max(0, metres) : null;
+      };
+    } catch { /* non-browser */ }
+  }
   // Reference so a build-time dead-code pass doesn't drop the helper:
   void flatPrimitiveColors;
+
+  // #726 FR1 — the first frame the player sees already holds every model
+  // with an instance within the start window, so nothing arrives on screen
+  // in the opening seconds. They register here, all at once and without a
+  // fade: the loading bar is still up. One still loading after
+  // START_SCENERY_TIMEOUT_MS joins the stream queue and fades in (FR3).
+  let firstFrameDrawn = false;
+  const frameOnce = (): void => {
+    drawFrame();
+    if (firstFrameDrawn || disposed) return;
+    firstFrameDrawn = true;
+    const failed = new Set(telemetry.scenery.failedIds);
+    telemetry.scenery.registeredAtFirstFrame = [...sceneryLoaded].filter((id) => !failed.has(id));
+    opts.onLoadPhase?.('frame', 'done');
+  };
+  opts.onLoadPhase?.('scene', 'done');
+  const nearStartIds = sceneryModelsToLoad(sceneryPlan, new Set(), 0, streamLookaheadMeters(0), Infinity);
+  telemetry.scenery.nearStartIds = nearStartIds;
+  const nearStart = Promise.all(
+    nearStartIds.map(async (id) => {
+      sceneryLoading.add(id);
+      try {
+        const decoded = await loadSceneryModel(id);
+        if (disposed) return;
+        if (firstFrameDrawn) {
+          sceneryRegistrations.push({ id, decoded });
+          return;
+        }
+        registerSceneryModel(id, decoded);
+        sceneryMeshPass.setInstances(id, sceneryInstanceMats.get(id) ?? []);
+        sceneryLoading.delete(id);
+        sceneryLoaded.add(id);
+        telemetry.scenery.registered = sceneryLoaded.size - telemetry.scenery.failed;
+      } catch {
+        sceneryLoading.delete(id);
+        sceneryLoaded.add(id);
+        if (!telemetry.scenery.failedIds.includes(id)) telemetry.scenery.failedIds.push(id);
+        telemetry.scenery.failed = telemetry.scenery.failedIds.length;
+      }
+    }),
+  ).then(() => 'done' as const);
+  let startTimer: ReturnType<typeof setTimeout> | undefined;
+  const nearStatus = await Promise.race([
+    nearStart,
+    new Promise<'failed'>((resolve) => {
+      startTimer = setTimeout(() => resolve('failed'), START_SCENERY_TIMEOUT_MS);
+    }),
+  ]);
+  clearTimeout(startTimer);
+  opts.onLoadPhase?.('scenery-near', nearStatus);
 
   return {
     device,
     frameOnce,
     setAppearance,
+    setConditions,
+    setViewportInsets,
     dispose() {
       if (disposed) return;
       disposed = true;
@@ -1650,12 +2232,18 @@ export const createRideScene = async (
       sceneTexture.destroy();
       depthTexture.destroy();
       frameUniforms.destroy();
+      lightingUniforms.destroy();
       shadowUniformsBuf.destroy();
       sproutUniforms.destroy();
       atlasHandle?.texture.dispose();
       atlas.dispose();
       try {
         delete (globalThis as unknown as Record<string, unknown>)[SET_APPEARANCE_KEY];
+        delete (globalThis as unknown as Record<string, unknown>)[SET_CONDITIONS_KEY];
+        delete (globalThis as unknown as Record<string, unknown>)[HIDE_GHOST_KEY];
+        delete (globalThis as unknown as Record<string, unknown>)[GHOST_MASK_KEY];
+        delete (globalThis as unknown as Record<string, unknown>)[HOLD_FRAME_KEY];
+        delete (globalThis as unknown as Record<string, unknown>)[SEEK_METERS_KEY];
       } catch { /* non-browser */ }
       clearPolygonWaterTelemetry();
       session.dispose();

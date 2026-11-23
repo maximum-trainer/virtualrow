@@ -7,6 +7,12 @@
       "resourceType": 0
     },
     {
+      "group": 0,
+      "binding": 1,
+      "name": "lighting",
+      "resourceType": 0
+    },
+    {
       "group": 2,
       "binding": 0,
       "name": "grass",
@@ -182,6 +188,12 @@
       "group": 0,
       "binding": 0,
       "name": "frame",
+      "resourceType": 0
+    },
+    {
+      "group": 0,
+      "binding": 1,
+      "name": "lighting",
       "resourceType": 0
     }
   ],
@@ -381,6 +393,12 @@
       "binding": 1,
       "name": "instances",
       "resourceType": 1
+    },
+    {
+      "group": 1,
+      "binding": 2,
+      "name": "reveal",
+      "resourceType": 0
     }
   ],
   "sceneryMeshDepth.wgsl": [
@@ -402,6 +420,12 @@
       "group": 0,
       "binding": 0,
       "name": "frame",
+      "resourceType": 0
+    },
+    {
+      "group": 0,
+      "binding": 1,
+      "name": "lighting",
       "resourceType": 0
     }
   ],
@@ -444,6 +468,12 @@
       "group": 0,
       "binding": 0,
       "name": "frame",
+      "resourceType": 0
+    },
+    {
+      "group": 0,
+      "binding": 1,
+      "name": "lighting",
       "resourceType": 0
     }
   ],

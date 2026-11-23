@@ -15,6 +15,9 @@
 import { RouteCurve } from '../math/curve';
 import { vec3, vec3Normalize, type Vec3 } from '../math/vec3';
 
+/** Half-width of the water when a route carries no edges. */
+export const DEFAULT_WATER_HALF_WIDTH_M = 20;
+
 /** Scene Y of the water surface, matching the React port's constant. */
 export const WATER_SURFACE_Y = -0.1;
 
@@ -45,20 +48,27 @@ export interface BuildWaterStripOptions {
 
 const UP: Vec3 = vec3(0, 1, 0);
 
+/**
+ * Columns along the water strip when none are asked for: one per ≈10 m of
+ * route (128 to 16 000), or 128 for the straight fallback ribbon.
+ */
+export const defaultStripDivisions = (curve: RouteCurve | null): number => (
+  curve && curve.length >= 2
+    ? Math.max(128, Math.min(16000, Math.ceil(curve.approximateLength(64) / 10)))
+    : 128
+);
+
 export const buildWaterStrip = (
   curve: RouteCurve | null,
   options: BuildWaterStripOptions = {},
 ): WaterStripGeometry => {
-  const halfWidth = options.halfWidth ?? 20;
+  const halfWidth = options.halfWidth ?? DEFAULT_WATER_HALF_WIDTH_M;
   const length = options.length ?? 400;
   // Default divisions scale with the route's chord length so each strip
   // quad represents ≈10 m of route. Low division counts (the old 128) let a
   // sharp bend between two columns pull the straight-line strip quad off
   // the curve centre and read the boat as drifting onto the bank.
-  const defaultDivisions = curve && curve.length >= 2
-    ? Math.max(128, Math.min(16000, Math.ceil(curve.approximateLength(64) / 10)))
-    : 128;
-  const divisions = Math.max(2, options.divisions ?? defaultDivisions);
+  const divisions = Math.max(2, options.divisions ?? defaultStripDivisions(curve));
   const edgesForProgress = options.edgesForProgress
     ?? ((_t: number): WaterEdges => ({ left: halfWidth, right: halfWidth }));
 

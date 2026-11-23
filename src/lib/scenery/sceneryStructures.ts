@@ -22,6 +22,14 @@ import type { SceneryModelId } from '../../components/rower3d/sceneryAssets';
 import { bridgeModelFor } from '../../components/rower3d/sceneryCrossings';
 import { ASSET_SCALE, type Placement } from './sceneryPlacement';
 import { courseFurniture } from './courseFurniture';
+import { waterHalfWidthAt } from './waterHalfWidth';
+import { placeSpan } from './bridgeSpan';
+import { keepClearHalfWidth } from './laneClearance';
+import {
+  BUILT_IN_FOOTPRINT_LOOKUP,
+  footprintRadiusFor,
+  type FootprintLookup,
+} from './sceneryFootprints';
 
 export type StructureKind = 'bridge' | 'furniture' | 'landmark' | 'buoy';
 
@@ -45,7 +53,8 @@ const KIND_FLOATS: Record<StructureKind, boolean> = {
 };
 
 const KIND_SCALE: Record<StructureKind, number> = {
-  bridge: ASSET_SCALE * 1.6, furniture: ASSET_SCALE, landmark: ASSET_SCALE * 1.6, buoy: ASSET_SCALE,
+  // #724: a bridge's scale is fitted to the river by `placeSpan`.
+  bridge: ASSET_SCALE, furniture: ASSET_SCALE, landmark: ASSET_SCALE * 1.6, buoy: ASSET_SCALE,
 };
 
 export const COURSE_FURNITURE: { start: SceneryModelId[]; finish: SceneryModelId[] } = {
@@ -72,31 +81,9 @@ export const LIVERIED_LANDMARKS: LiveriedLandmark[] = [
 ];
 
 const LANDMARK_RADIUS_METERS = 1500;
-const SCENERY_WATER_MARGIN_METRES = 2;
-const DEFAULT_WATER_WIDTH_METERS = 20;
-
-const nearestBankOffset = (halfWidth: number): number => halfWidth + SCENERY_WATER_MARGIN_METRES;
-
-const waterHalfWidthAt = (
-  enrichment: RouteEnrichmentData | null | undefined,
-  progress: number,
-  side: 'left' | 'right',
-): number => {
-  const profiles = enrichment?.segmentProfiles;
-  if (!profiles || profiles.length === 0) {
-    return (enrichment?.waterWidthMeters ?? DEFAULT_WATER_WIDTH_METERS) / 2;
-  }
-  const clamped = Math.max(0, Math.min(1, progress));
-  const lastIndex = profiles.length - 1;
-  const scaled = clamped * lastIndex;
-  const lower = profiles[Math.floor(scaled)];
-  const upper = profiles[Math.min(lastIndex, Math.floor(scaled) + 1)];
-  const blend = scaled - Math.floor(scaled);
-  const lo = (side === 'left' ? lower.leftShoreMeters : lower.rightShoreMeters) ?? 0;
-  const hi = (side === 'left' ? upper.leftShoreMeters : upper.rightShoreMeters) ?? 0;
-  const meters = lo + (hi - lo) * blend;
-  return Number.isFinite(meters) && meters > 0 ? meters : DEFAULT_WATER_WIDTH_METERS / 2;
-};
+/** FR3: every bank footing stands this far clear of the waterline after
+ *  accounting for its own footprint radius. */
+const BANK_FOOTING_MARGIN_METRES = 1;
 
 export const courseStructures = (routeMeters?: number): StructureRequest[] => [
   ...COURSE_FURNITURE.start.map((id, i) => ({
@@ -154,10 +141,13 @@ export const computeStructurePlacements = (
   structures: StructureRequest[],
   terrain?: TerrainProfile | null,
   enrichment?: RouteEnrichmentData | null,
+  footprintLookup: FootprintLookup | null = BUILT_IN_FOOTPRINT_LOOKUP,
 ): Placement[] => {
   if (!curve) return [];
   const sample = { position: vec3(), tangent: vec3(0, 0, -1), angle: 0 };
-  return structures.map(({ id, progress, kind, side = 'right' }) => {
+  const corridor = keepClearHalfWidth();
+  const out: Placement[] = [];
+  for (const { id, progress, kind, side = 'right' } of structures) {
     const t = Math.max(0, Math.min(0.999, progress));
     curve.sample(t, sample);
     // tangent × up with up=(0,1,0) → (−tz, 0, tx).
@@ -167,26 +157,58 @@ export const computeStructurePlacements = (
     const px = perpX / perpLen;
     const pz = perpZ / perpLen;
     const spans = KIND_SPANS_WATER[kind];
+    if (spans) {
+      // #724 VP-06 FR5 — OSM crossings and landmark bridges are fitted
+      // across the river exactly like the hand-authored spans: long axis
+      // across the tangent, an opening on the racing line, scaled to the
+      // banks, swapped or dropped when the model cannot do that.
+      const span = placeSpan({
+        id,
+        centre: [sample.position[0], sample.position[2]],
+        tangent: [sample.tangent[0], sample.tangent[2]],
+        leftHalfWidth: waterHalfWidthAt(enrichment, t, 'left'),
+        rightHalfWidth: waterHalfWidthAt(enrichment, t, 'right'),
+      });
+      if (!span) continue;
+      out.push({
+        id: span.id as SceneryModelId,
+        position: span.position,
+        rotationY: span.rotationY,
+        scale: ASSET_SCALE * span.scale,
+        progress: t,
+        footing: 'water' as const,
+      });
+      continue;
+    }
     const floats = KIND_FLOATS[kind];
-    const onWater = spans || floats;
     const halfWidth = waterHalfWidthAt(enrichment, t, side);
-    const distance = spans
-      ? KIND_OFFSET[kind]
-      : floats
-        ? Math.min(KIND_OFFSET[kind], halfWidth * 0.8)
-        : Math.max(KIND_OFFSET[kind], nearestBankOffset(halfWidth));
+    const radius = footprintRadiusFor(id, footprintLookup);
+    // FR3 — a bank structure's near edge sits past the waterline by
+    // `BANK_FOOTING_MARGIN_METRES`; FR1's corridor also applies when the
+    // river is narrower than the structure's own footprint + margin.
+    const bankClearDistance = Math.max(
+      KIND_OFFSET[kind],
+      halfWidth + BANK_FOOTING_MARGIN_METRES + radius,
+      corridor + radius,
+    );
+    const distance = floats
+      ? Math.min(KIND_OFFSET[kind], Math.max(0, halfWidth - radius - 0.5))
+      : bankClearDistance;
+    // FR1 — a floating structure (buoy) is small enough to live inside
+    // the lane, so it stays as-is.
     const sign = side === 'left' ? -1 : 1;
     const offset = sign * distance;
-    const y = onWater ? 0 : getTerrainReliefForProgress(terrain, t);
-    return {
+    const y = floats ? 0 : getTerrainReliefForProgress(terrain, t);
+    out.push({
       id,
       position: [sample.position[0] + px * offset, y, sample.position[2] + pz * offset] as [number, number, number],
-      rotationY: Math.atan2(sample.tangent[0], sample.tangent[2]) + (spans ? 0 : (sign * Math.PI) / 2),
+      rotationY: Math.atan2(sample.tangent[0], sample.tangent[2]) + (sign * Math.PI) / 2,
       scale: KIND_SCALE[kind],
       progress: t,
-      footing: onWater ? ('water' as const) : ('bank' as const),
-    };
-  });
+      footing: floats ? ('water' as const) : ('bank' as const),
+    });
+  }
+  return out;
 };
 
 export interface RouteStructuresInput {

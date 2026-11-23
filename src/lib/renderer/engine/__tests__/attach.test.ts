@@ -100,6 +100,204 @@ describe('attach', () => {
     renderer.dispose();
   });
 
+  // #742 VP-22 FR2/FR3 — an out-and-back whose legs run 60 m apart: the
+  // gap between them is water, and a tree planted in it is not drawn.
+  it('flags the parallel legs and takes scenery off the water between them', async () => {
+    const curvePoints: [number, number, number][] = [];
+    for (let z = 0; z >= -1000; z -= 50) curvePoints.push([0, 0, z]);
+    for (let k = 1; k < 8; k += 1) {
+      const a = (k / 8) * Math.PI;
+      curvePoints.push([30 - 30 * Math.cos(a), 0, -1000 - 30 * Math.sin(a)]);
+    }
+    for (let z = -1000; z <= 0; z += 50) curvePoints.push([60, 0, z]);
+    const pools = [{
+      kind: 'foliage' as const,
+      speciesIndex: 0,
+      chunkIndex: 0,
+      // In the gap between the legs, then well outside both.
+      positions: new Float32Array([30, 0, -500, -100, 0, -500]),
+      bounds: { cx: 0, cy: 0, cz: -500, radius: 200 },
+    }];
+    const renderer = (await attach(makeMockCanvas(), {
+      testMode: true,
+      route: { pools, curvePoints, waterEdgesForProgress: () => ({ left: 10, right: 10 }) },
+    })) as unknown as WithTest & {
+      _telemetry: {
+        route: { selfParallel?: [number, number][]; rejectedOnWater?: number };
+        clearance: { surface?: string };
+      };
+    };
+    renderer._frameOnce();
+    expect(renderer._telemetry.clearance.surface, 'the surface under the boat (FR6)').toBe('water');
+    expect(renderer._telemetry.route.selfParallel?.length ?? 0).toBeGreaterThan(0);
+    expect(renderer._telemetry.route.rejectedOnWater).toBe(1);
+    expect(renderer._telemetry.foliage.trees).toBe(1);
+    renderer.dispose();
+  });
+
+  // #726 VP-08 FR6 — a model that fails to load is reported, not swallowed.
+  it('reports scenery models whose fetch fails on __ROWER3D_SCENERY', async () => {
+    const original = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(null, { status: 404 })) as typeof fetch;
+    try {
+      const renderer = (await attach(makeMockCanvas(), {
+        testMode: true,
+        route: {
+          pools: [],
+          sceneryGlbs: [{ id: 'a09-gazebo-hexagonal', instances: [{ position: [40, 0, -50], rotationY: 0, scale: 1 }] }],
+        },
+      })) as unknown as WithTest & {
+        _telemetry: { scenery: { failed: number; failedIds: string[]; registered: number } };
+      };
+      for (let i = 0; i < 20 && renderer._telemetry.scenery.failed === 0; i += 1) {
+        renderer._frameOnce();
+        await new Promise((r) => setTimeout(r, 5));
+      }
+      expect(renderer._telemetry.scenery.failedIds).toContain('a09-gazebo-hexagonal');
+      expect(renderer._telemetry.scenery.failed).toBe(renderer._telemetry.scenery.failedIds.length);
+      renderer.dispose();
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  // #726 VP-08 FR3 — a model streamed in mid-ride starts its fade on the
+  // frame it registers (reveal alpha 0) and is fully drawn 1.5 s later.
+  it('reports each streamed model\'s reveal on __ROWER3D_SCENERY', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { resolve } = await import('node:path');
+    const bytes = readFileSync(resolve(process.cwd(), 'public/assets/scenery/tier-a/a01-buoy-lane-sphere.glb'));
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url;
+      if (url.endsWith('/b04-boat-rack-outdoor.glb')) return new Response(bytes);
+      return new Response(null, { status: 404 });
+    }) as typeof fetch;
+    try {
+      const renderer = (await attach(makeMockCanvas(), {
+        testMode: true,
+        // Far past the 600 m start window, so it streams in once the boat
+        // has rowed there rather than before the first frame (FR1).
+        route: {
+          pools: [],
+          curvePoints: [[0, 0, 0], [0, 0, -3000]],
+          totalDistanceMeters: 3000,
+          sceneryGlbs: [{ id: 'b04-boat-rack-outdoor', instances: [{ position: [30, 0, -2000], rotationY: 0, scale: 1 }] }],
+        },
+        getFrame: () => ({
+          paceSPer500: 120,
+          distanceMeters: 1900,
+          cadence: 20,
+          isPlaying: true,
+          holdBoat: false,
+          finished: false,
+          intensityFactor: 1,
+          elapsedSeconds: 10,
+          ghost: null,
+        }),
+      })) as unknown as WithTest & {
+        _telemetry: {
+          scenery: {
+            frame: number;
+            registered: number;
+            reveals: { id: string; registeredAtFrame: number; registeredAt: number; revealAlpha: number }[];
+          };
+        };
+      };
+      const scenery = renderer._telemetry.scenery;
+      for (let i = 0; i < 40 && scenery.reveals.length === 0; i += 1) {
+        renderer._frameOnce();
+        await new Promise((r) => setTimeout(r, 5));
+      }
+      expect(scenery.reveals.map((r) => r.id)).toEqual(['b04-boat-rack-outdoor']);
+      const reveal = scenery.reveals[0];
+      expect(reveal.registeredAtFrame).toBe(scenery.frame);
+      expect(reveal.revealAlpha).toBe(0);
+      expect(scenery.registered).toBeGreaterThanOrEqual(1);
+      renderer.dispose();
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  // #726 VP-08 FR1 — the first frame already holds every model with an
+  // instance within 600 m of the start, and the load reports its phases.
+  describe('a fully dressed start (#726 FR1)', () => {
+    const serve = async () => {
+      const { readFileSync } = await import('node:fs');
+      const { resolve } = await import('node:path');
+      const bytes = readFileSync(resolve(process.cwd(), 'public/assets/scenery/tier-a/a01-buoy-lane-sphere.glb'));
+      return (async (input: RequestInfo | URL) => {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url;
+        if (url.includes('/assets/scenery/')) return new Response(bytes);
+        return new Response(null, { status: 404 });
+      }) as typeof fetch;
+    };
+    const route = {
+      pools: [],
+      curvePoints: [[0, 0, 0], [0, 0, -3000]] as [number, number, number][],
+      totalDistanceMeters: 3000,
+      sceneryGlbs: [
+        // Nearest instance 300 m in: inside the start window.
+        { id: 'b04-boat-rack-outdoor', instances: [{ position: [30, 0, -2000], rotationY: 0, scale: 1 }, { position: [30, 0, -300], rotationY: 0, scale: 1 }] },
+        { id: 'b05-quay-wall-stone', instances: [{ position: [-30, 0, -580], rotationY: 0, scale: 1 }] },
+        // 1.5 km in: streams in later.
+        { id: 'b02-boathouse-uk-victorian', instances: [{ position: [-30, 0, -1500], rotationY: 0, scale: 1 }] },
+      ],
+    };
+    type Scenery = {
+      nearStartIds: string[];
+      registeredAtFirstFrame: string[] | null;
+      reveals: { id: string }[];
+    };
+
+    it('registers every model near the start before the first frame, without a fade', async () => {
+      const original = globalThis.fetch;
+      globalThis.fetch = await serve();
+      try {
+        const renderer = (await attach(makeMockCanvas(), { testMode: true, route })) as unknown as WithTest & {
+          _telemetry: { scenery: Scenery };
+        };
+        const scenery = renderer._telemetry.scenery;
+        // The engine's own course furniture at the start is in the window too.
+        expect(scenery.nearStartIds).toContain('b04-boat-rack-outdoor');
+        expect(scenery.nearStartIds).toContain('b05-quay-wall-stone');
+        expect(scenery.nearStartIds).not.toContain('b02-boathouse-uk-victorian');
+        expect([...(scenery.registeredAtFirstFrame ?? [])].sort()).toEqual([...scenery.nearStartIds].sort());
+        expect(scenery.reveals, 'models placed before the start do not fade').toEqual([]);
+        renderer.dispose();
+      } finally {
+        globalThis.fetch = original;
+      }
+    });
+
+    it('reports each load phase once, the first frame last', async () => {
+      const original = globalThis.fetch;
+      globalThis.fetch = await serve();
+      const reported: [string, string][] = [];
+      try {
+        const renderer = (await attach(makeMockCanvas(), {
+          testMode: true,
+          route,
+          onLoadPhase: (phase: string, status: string) => reported.push([phase, status]),
+        })) as unknown as WithTest;
+        for (let i = 0; i < 20 && !reported.some(([p]) => p === 'atlas'); i += 1) {
+          await new Promise((r) => setTimeout(r, 5));
+        }
+        const phases = reported.map(([p]) => p);
+        expect([...phases].sort()).toEqual(['atlas', 'boat', 'crew', 'frame', 'scene', 'scenery-near']);
+        expect(phases.indexOf('frame')).toBeGreaterThan(phases.indexOf('scenery-near'));
+        expect(phases.indexOf('scenery-near')).toBeGreaterThan(phases.indexOf('scene'));
+        expect(reported.find(([p]) => p === 'scenery-near')?.[1]).toBe('done');
+        renderer._frameOnce();
+        expect(reported.filter(([p]) => p === 'frame')).toHaveLength(1);
+        renderer.dispose();
+      } finally {
+        globalThis.fetch = original;
+      }
+    });
+  });
+
   it('isSceneryRoute recognises the shape', () => {
     expect(isSceneryRoute({ pools: [] })).toBe(true);
     expect(isSceneryRoute(null)).toBe(false);
@@ -169,5 +367,417 @@ describe('attach', () => {
         captured.restore();
       }
     });
+  });
+});
+
+describe('conditions (#730 VP-12)', () => {
+  type Cond = { name: string; sunElevationDeg: number; sunDisc: number; cloudCover: number; updates: number };
+  const published = (): Cond | undefined =>
+    (globalThis as unknown as { window?: Record<string, unknown> }).window?.['__ROWER3D_CONDITIONS'] as Cond | undefined;
+
+  it('publishes the default lighting when no conditions are passed (FR5, FR6)', async () => {
+    const renderer = (await attach(makeMockCanvas(), { testMode: true })) as unknown as WithTest;
+    expect(published()?.name).toBe('default');
+    expect(published()?.sunDisc).toBe(1);
+    renderer.dispose();
+    expect(published()).toBeUndefined();
+  });
+
+  it('applies the conditions passed at attach (FR1)', async () => {
+    const renderer = (await attach(makeMockCanvas(), { testMode: true, conditions: 'dusk' })) as unknown as WithTest;
+    expect(published()?.name).toBe('dusk');
+    expect(published()?.sunElevationDeg).toBe(4);
+    renderer.dispose();
+  });
+
+  it('switches live without a new device or scene (FR1, "switching mid-row")', async () => {
+    let devices = 0;
+    const gpu = makeMockGPU(makeMockAdapter());
+    const adapter = (await gpu.requestAdapter()) as GPUAdapter;
+    const original = adapter.requestDevice.bind(adapter);
+    gpu.requestAdapter = async () =>
+      ({
+        ...adapter,
+        requestDevice: async (d?: GPUDeviceDescriptor) => {
+          devices += 1;
+          return original(d);
+        },
+      }) as unknown as GPUAdapter;
+    installGPUStub(gpu);
+    const renderer = (await attach(makeMockCanvas(), { testMode: true, conditions: 'midday' })) as unknown as WithTest & {
+      setConditions(c: unknown): void;
+    };
+    expect(devices).toBe(1);
+    expect(published()?.name).toBe('midday');
+    renderer.setConditions('overcast');
+    renderer._frameOnce();
+    expect(published()?.name).toBe('overcast');
+    expect(published()?.sunDisc).toBe(0);
+    expect(published()?.cloudCover).toBeGreaterThanOrEqual(0.8);
+    expect(devices).toBe(1);
+    // An unknown value is ignored rather than resetting the sky.
+    renderer.setConditions('noon');
+    expect(published()?.name).toBe('overcast');
+    renderer.dispose();
+  });
+});
+
+describe('viewport insets (#733 VP-15)', () => {
+  type Rect = { left: number; top: number; right: number; bottom: number };
+  type Boat = { screenBounds: Rect | null; clearRect: Rect };
+  const boat = (): Boat =>
+    (globalThis as unknown as { window: Record<string, unknown> }).window['__ROWER3D_BOAT'] as Boat;
+  const inside = (b: Rect, r: Rect): boolean =>
+    b.left >= r.left - 0.5 && b.right <= r.right + 0.5 && b.top >= r.top - 0.5 && b.bottom <= r.bottom + 0.5;
+
+  it('publishes the whole canvas as clear when no insets are passed', async () => {
+    const renderer = (await attach(makeMockCanvas(), { testMode: true })) as unknown as WithTest;
+    renderer._frameOnce();
+    expect(boat().clearRect).toEqual({ left: 0, top: 0, right: 320, bottom: 240 });
+    expect(boat().screenBounds).not.toBeNull();
+    renderer.dispose();
+  });
+
+  it('frames the boat inside the clear area at attach and after a live change (FR1-FR3)', async () => {
+    const renderer = (await attach(makeMockCanvas(), {
+      testMode: true,
+      viewportInsets: { top: 0, right: 0, bottom: 96, left: 0 },
+    })) as unknown as WithTest & { setViewportInsets(i: unknown): void };
+    renderer._frameOnce();
+    expect(boat().clearRect.bottom).toBe(240 - 96);
+    expect(inside(boat().screenBounds as Rect, boat().clearRect)).toBe(true);
+
+    renderer.setViewportInsets({ top: 30, right: 0, bottom: 60, left: 0 });
+    renderer._frameOnce();
+    expect(boat().clearRect).toEqual({ left: 0, top: 30, right: 320, bottom: 180 });
+    expect(inside(boat().screenBounds as Rect, boat().clearRect)).toBe(true);
+    renderer.dispose();
+  });
+});
+
+describe('the boat is never behind the HUD (#733 FR3)', () => {
+  type Rect = { left: number; top: number; right: number; bottom: number };
+  const VIEWPORTS: [number, number][] = [
+    [1280, 720],
+    [1456, 840],
+    [1920, 1080],
+    [768, 1024],
+    [844, 390],
+  ];
+  const VIEWS = ['chase', 'side', 'bow', 'high'] as const;
+
+  for (const [w, h] of VIEWPORTS) {
+    for (const view of VIEWS) {
+      it(`${w}x${h} ${view}`, async () => {
+        const canvas = makeMockCanvas();
+        Object.assign(canvas, { width: w, height: h, clientWidth: w, clientHeight: h });
+        // A full HUD on tall stages, the compact one (FR4, <= 28%) below 800 px.
+        const bottom = Math.round(h * (h < 800 ? 0.28 : 0.4));
+        const renderer = (await attach(canvas, {
+          testMode: true,
+          viewportInsets: { top: 0, right: 0, bottom, left: 0 },
+          getFrame: () => ({
+            paceSPer500: 120,
+            distanceMeters: 40,
+            cadence: 24,
+            isPlaying: true,
+            holdBoat: false,
+            finished: false,
+            intensityFactor: 1,
+            elapsedSeconds: 10,
+            ghost: null,
+            view,
+          }),
+        })) as unknown as WithTest;
+        for (let i = 0; i < 90; i++) renderer._frameOnce();
+        const boat = (globalThis as unknown as { window: Record<string, unknown> }).window['__ROWER3D_BOAT'] as {
+          screenBounds: Rect | null;
+          clearRect: Rect;
+        };
+        const b = boat.screenBounds as Rect;
+        const r = boat.clearRect;
+        if (view === 'bow') {
+          // The bow view is a point-of-view shot from ahead of the bow,
+          // looking down the course: the boat is behind the camera by
+          // design, so there is nothing for the HUD to cover.
+          expect(b).toBeNull();
+          renderer.dispose();
+          return;
+        }
+        expect(b, 'boat on screen').not.toBeNull();
+        expect(b.left, 'left').toBeGreaterThanOrEqual(r.left);
+        expect(b.right, 'right').toBeLessThanOrEqual(r.right);
+        expect(b.top, 'top').toBeGreaterThanOrEqual(r.top);
+        expect(b.bottom, 'bottom').toBeLessThanOrEqual(r.bottom);
+        renderer.dispose();
+      });
+    }
+  }
+});
+
+// #728 VP-10 FR1/FR3 — with the scull GLB loaded, the race ghost is drawn
+// from it (not the placeholder), a full 7 m lane to port, rowing at its
+// own pace-derived rate.
+describe('the race ghost rows the scull GLB (#728)', () => {
+  it('draws the ghost from the scull at its own cadence, 7 m to port', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { resolve } = await import('node:path');
+    const bytes = readFileSync(resolve(process.cwd(), 'public/assets/boat/scull-male.glb'));
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url;
+      if (url.endsWith('/scull-male.glb')) return new Response(bytes);
+      return new Response(null, { status: 404 });
+    }) as typeof fetch;
+    try {
+      const canvas = makeMockCanvas();
+      const renderer = (await attach(canvas, {
+        testMode: true,
+        getFrame: () => ({
+          paceSPer500: 120,
+          distanceMeters: 40,
+          cadence: 20,
+          isPlaying: true,
+          holdBoat: false,
+          finished: false,
+          intensityFactor: 1,
+          elapsedSeconds: 10,
+          ghost: { kind: 'pace', paceSPer500: 105 },
+        }),
+      })) as unknown as WithTest;
+      for (let i = 0; i < 10; i++) renderer._frameOnce();
+      const g = (globalThis as unknown as { window: Record<string, unknown> }).window['__ROWER3D_GHOST_METERS'] as {
+        active: boolean;
+        model: string;
+        cadenceSpm: number;
+        lane: number;
+      };
+      expect(g.active).toBe(true);
+      expect(g.model).toBe('scull');
+      expect(g.cadenceSpm).toBeCloseTo(28, 6);
+      expect(g.lane).toBe(-7);
+      // FR2 spec seam: in test mode the ghost can be left out of a frame,
+      // so a spec can diff it against the water behind it.
+      const hide = (globalThis as unknown as Record<string, unknown>)['__ROWER3D_HIDE_GHOST'] as (h: boolean) => void;
+      expect(hide).toBeTypeOf('function');
+      hide(true);
+      renderer._frameOnce();
+      expect(g.active, 'still raced, only not drawn').toBe(true);
+      hide(false);
+      const mask = (globalThis as unknown as Record<string, unknown>)['__ROWER3D_GHOST_MASK'] as (on: boolean) => void;
+      expect(mask).toBeTypeOf('function');
+      mask(true);
+      renderer._frameOnce();
+      mask(false);
+      renderer.dispose();
+      expect((globalThis as unknown as Record<string, unknown>)['__ROWER3D_HIDE_GHOST']).toBeUndefined();
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+  // FR2 spec seam: the contrast check compares three frames (normal, mask,
+  // ghost hidden) of the same pixels, so the ride must stand still between
+  // them, or the oars and the hull's edge sample the water.
+  it('holds the ride still across frames while __ROWER3D_HOLD_FRAME is on', async () => {
+    const canvas = makeMockCanvas();
+    let calls = 0;
+    const renderer = (await attach(canvas, {
+      testMode: true,
+      getFrame: () => {
+        calls += 1;
+        return {
+          paceSPer500: 120,
+          distanceMeters: 40 + calls,
+          cadence: 20,
+          isPlaying: true,
+          holdBoat: false,
+          finished: false,
+          intensityFactor: 1,
+          elapsedSeconds: 10 + calls * 0.5,
+          ghost: { kind: 'pace', paceSPer500: 105 },
+        };
+      },
+    })) as unknown as WithTest;
+    for (let i = 0; i < 5; i++) renderer._frameOnce();
+    const read = () => {
+      const g = (globalThis as unknown as { window: Record<string, unknown> }).window['__ROWER3D_GHOST_METERS'] as {
+        value: number;
+        strokePhase: number;
+      };
+      return { meters: g.value, phase: g.strokePhase };
+    };
+    const hold = (globalThis as unknown as Record<string, unknown>)['__ROWER3D_HOLD_FRAME'] as (on: boolean) => void;
+    expect(hold).toBeTypeOf('function');
+    hold(true);
+    renderer._frameOnce();
+    const held = read();
+    for (let i = 0; i < 3; i++) renderer._frameOnce();
+    expect(read()).toEqual(held);
+    hold(false);
+    renderer._frameOnce();
+    expect(read().meters).not.toBe(held.meters);
+    renderer.dispose();
+    expect((globalThis as unknown as Record<string, unknown>)['__ROWER3D_HOLD_FRAME']).toBeUndefined();
+  });
+
+  // #724 VP-06 — the Willowbrook arches cross the river, and the high
+  // camera stays under the deck while it is beneath one.
+  it('fits the Willowbrook bridges and keeps the high camera under their decks', async () => {
+    const canvas = makeMockCanvas();
+    const routeMeters = 6000;
+    const renderer = (await attach(canvas, {
+      testMode: true,
+      routeId: '1',
+      route: { pools: [], totalDistanceMeters: routeMeters },
+      getFrame: () => ({
+        paceSPer500: 120,
+        distanceMeters: 0,
+        cadence: 20,
+        isPlaying: true,
+        holdBoat: false,
+        finished: false,
+        intensityFactor: 1,
+        elapsedSeconds: 10,
+        ghost: null,
+        view: 'high',
+      }),
+    })) as unknown as WithTest;
+    renderer._frameOnce();
+    const w = (globalThis as unknown as { window: Record<string, unknown> }).window;
+    const route = w['__ROWER3D_ROUTE'] as {
+      spans?: Array<{ id: string; x: number; z: number; scale: number; ceiling: number | null }>;
+    };
+    const arches = (route.spans ?? []).filter((s) => s.id === 'c01-bridge-arch-masonry');
+    expect(arches).toHaveLength(2);
+    for (const arch of arches) {
+      expect(arch.scale).toBeGreaterThan(1);
+      expect(arch.ceiling).toBeGreaterThanOrEqual(4.5);
+    }
+    const seek = (globalThis as unknown as Record<string, unknown>)['__ROWER3D_SEEK_METERS'] as (m: number | null) => void;
+    expect(seek).toBeTypeOf('function');
+    const camera = () => w['__ROWER3D_CAMERA'] as { x: number; y: number; z: number; ceiling?: number | null };
+    // Open water: the high view keeps its height.
+    seek(0.4 * routeMeters);
+    renderer._frameOnce();
+    expect(camera().ceiling).toBeNull();
+    const openY = camera().y;
+    // The camera, 18 m of curve behind the boat, passes under the first
+    // arch (progress 0.15 of the test's 200 m curve).
+    let ducked = 0;
+    for (let p = 0.1; p <= 0.3; p += 0.002) {
+      seek(p * routeMeters);
+      renderer._frameOnce();
+      const c = camera();
+      if (c.ceiling !== null && c.ceiling !== undefined) {
+        ducked += 1;
+        expect(c.y).toBeLessThanOrEqual(c.ceiling - 1 + 1e-6);
+      }
+    }
+    expect(ducked).toBeGreaterThan(0);
+    expect(openY).toBeGreaterThan(6);
+    seek(null);
+    renderer.dispose();
+    expect((globalThis as unknown as Record<string, unknown>)['__ROWER3D_SEEK_METERS']).toBeUndefined();
+  });
+});
+
+// #713 — the fleet rows the same scull GLB as the player (D1a): each
+// member's hull in its own palette colour (D3a), a male or female crew
+// from its seed (D2a), oars on the shared stroke with its own offset (D4a).
+describe('the fleet rows the scull GLB (#713)', () => {
+  it('draws every visible member from a scull with its own hull colour, crew and stroke offset', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { resolve } = await import('node:path');
+    const { FLEET_HULL_PALETTE } = await import('../fleet');
+    const glbs: Record<string, Buffer> = {
+      'scull-male.glb': readFileSync(resolve(process.cwd(), 'public/assets/boat/scull-male.glb')),
+      'scull-female.glb': readFileSync(resolve(process.cwd(), 'public/assets/boat/scull-female.glb')),
+    };
+    const fetched: string[] = [];
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url;
+      const name = url.split('/').pop() ?? '';
+      if (glbs[name]) {
+        fetched.push(name);
+        return new Response(new Uint8Array(glbs[name]));
+      }
+      return new Response(null, { status: 404 });
+    }) as typeof fetch;
+    try {
+      const canvas = makeMockCanvas();
+      const renderer = (await attach(canvas, {
+        testMode: true,
+        tier: 'extra-high',
+        getFrame: () => ({
+          paceSPer500: 120,
+          distanceMeters: 40,
+          cadence: 24,
+          isPlaying: true,
+          holdBoat: false,
+          finished: false,
+          intensityFactor: 1,
+          elapsedSeconds: 10,
+          ghost: null,
+        }),
+      })) as unknown as WithTest;
+      for (let i = 0; i < 10; i++) renderer._frameOnce();
+      // Both crews are loaded once each, whatever the player rows.
+      expect(new Set(fetched)).toEqual(new Set(['scull-male.glb', 'scull-female.glb']));
+      const fleet = (globalThis as unknown as { window: Record<string, unknown> }).window['__ROWER3D_FLEET'] as {
+        model: string;
+        members: { crew: string; hullColor: number[]; strokeOffset: number }[];
+      };
+      expect(fleet.model).toBe('scull');
+      expect(fleet.members.length).toBeGreaterThan(0);
+      const palette = FLEET_HULL_PALETTE.map((c) => Array.from(c.slice(0, 3)).map((v) => v.toFixed(3)).join());
+      for (const m of fleet.members) {
+        expect(['male', 'female']).toContain(m.crew);
+        expect(palette, 'a palette colour, not the grey fallback').toContain(m.hullColor.map((v) => v.toFixed(3)).join());
+        expect(m.strokeOffset).toBeGreaterThanOrEqual(0);
+        expect(m.strokeOffset).toBeLessThan(1);
+      }
+      if (fleet.members.length > 1) {
+        expect(new Set(fleet.members.map((m) => m.strokeOffset)).size, 'not in lockstep').toBeGreaterThan(1);
+      }
+      renderer.dispose();
+      expect((globalThis as unknown as Record<string, unknown>)['__ROWER3D_FLEET']).toBeUndefined();
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+});
+
+// #757 VP-33 — at the start of a route that does not loop, no fleet boat
+// is drawn behind the start line (wrapped round to the finish).
+describe('nothing stranded behind the start (#757)', () => {
+  it('draws no fleet member behind the player at the start', async () => {
+    const canvas = makeMockCanvas();
+    const renderer = (await attach(canvas, {
+      testMode: true,
+      tier: 'extra-high',
+      // A 4 km course that does not loop.
+      route: { pools: [], totalDistanceMeters: 4000 },
+      getFrame: () => ({
+        paceSPer500: 120,
+        distanceMeters: 0,
+        cadence: 0,
+        isPlaying: false,
+        holdBoat: true,
+        finished: false,
+        intensityFactor: 1,
+        elapsedSeconds: 0,
+        ghost: null,
+      }),
+    })) as unknown as WithTest;
+    for (let i = 0; i < 5; i++) renderer._frameOnce();
+    const fleet = (globalThis as unknown as { window: Record<string, unknown> }).window['__ROWER3D_FLEET'] as {
+      members: { distanceMeters: number }[];
+    };
+    for (const m of fleet.members) {
+      expect(m.distanceMeters, 'ahead of the start, not wrapped to the finish').toBeLessThanOrEqual(400);
+    }
+    expect(fleet.members.length).toBeGreaterThan(0);
+    renderer.dispose();
   });
 });

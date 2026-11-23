@@ -61,6 +61,7 @@ const opts = (device: GPUDevice) => ({
   device,
   format: 'bgra8unorm' as GPUTextureFormat,
   frameUniforms: {} as GPUBuffer,
+  lightingUniforms: {} as GPUBuffer,
   shadow: { uniforms: {} as GPUBuffer, atlasView: {} as GPUTextureView, cmpSampler: {} as GPUSampler },
 });
 

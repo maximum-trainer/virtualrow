@@ -41,7 +41,7 @@ A `Services` aggregate interface gathers all nine ports. The `ServicesProvider` 
 | FTMS BLE | `ftmsBluetoothService` | Standard FTMS 0x1826 rower; parses bitfield Rower Data into the same `PM5Data` shape |
 | Heart rate BLE | `heartRateBluetoothService` | HR Service 0x180D; ring buffer of 1200 samples; exposes `simulateSample()` for test injection |
 | Route catalogue | `routeService` | In-memory `WaterRoute[]`; imports from GPX/GeoJSON/KML/rownative; calculates polyline distance |
-| Route enrichment | `routeEnrichmentService` | Fetches elevations (OpenTopoData) and land-use (Overpass); builds 50m segment profiles; caches in localStorage with 7-day TTL |
+| Route enrichment | `routeEnrichmentService` | Fetches elevations (Open-Meteo) and land-use (Overpass), each settled on its own (#741 FR1); builds 50m segment profiles; caches in localStorage with 7-day TTL |
 | Rownative courses | `rownativeService` + `rownativeGeometry` | Fetches from GitHub mirror; resolves geometry via precedence chain (track → polygon-path → osm-derived → gate-chain); validates against gate centroids. The `track` slot takes an upstream `path` field (rownative/courses#23, in the mirror since 2026-09-14) or a rower-attached track. `osm-derived` walks OSM waterway centrelines between the gates (`osmWaterwayPathProvider`, on by default since #743, skipped for lakes); the gate chain has its turns rounded by `utils/courseCorners` |
 | Workout sessions | `workoutService` + `activitySampler` | Session lifecycle, PM5 data accumulation, 500m splits, HR samples, the 1 Hz activity stream, CSV/JSON export |
 | FIT encoding | `fitEncoderService` | Hand-written binary FIT Activity encoder; pure `encodeSession(session)`, reached by dynamic `import()` so it stays out of the main chunk |
@@ -91,8 +91,8 @@ No external state library. State lives in:
 |---|---|---|
 | rownative.icu courses | GitHub mirror (`raw.githubusercontent.com/rownative/courses/`) | CORS-locked live API; mirror is the sole data path. Mirror, `/api/courses` and `/courses` all serve the same 169 courses with identical ids (measured 2026-09-03). Ids run to 277 with gaps — that maximum is where the old "277 live courses, ~60% mirror coverage" figure came from |
 | intervals.icu | OAuth PKCE via CORS proxy | Token exchange, profile, planned workout calendar, and activity upload (`POST /api/v1/athlete/0/activities`, multipart FIT). The proxy forwards multipart `POST` unchanged — verified, see MaximumTrainer_Redux#359 |
-| OpenTopoData | `api.opentopodata.org/v1/srtm30m` | Batched in groups of 100 coordinates |
-| Overpass API | `overpass-api.de/api/interpreter` | Land-use, waterway, building queries by bounding box |
+| Open-Meteo elevation | `api.open-meteo.com/v1/elevation` | #741 D1: chosen because it sends CORS headers (the public OpenTopoData API did not, and failed from every browser). `latitude`/`longitude` lists, batched in groups of 100 coordinates. Copernicus DEM, 90 m. A failure keeps the OSM data (`enrichmentSource: 'osm-no-elevation'`) |
+| Overpass API | `overpass-api.de/api/interpreter`, retried once on `overpass.kumi.systems/api/interpreter` | Two queries, one at a time (#741): water, waterways, coast and islands in the 650 m shore box first; then buildings and bridges within 300 m of the route (an `around` polyline) and land use in the 200 m box. `out geom qt`, 20 s / 40 s client timeouts. A scenery failure keeps the water and is not cached |
 
 ---
 

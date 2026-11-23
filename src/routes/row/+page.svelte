@@ -19,7 +19,7 @@
   import { resolvePerformanceMode } from '../../components/rower3d/constants';
   import { getGraphicsStore } from '$lib/ui/graphicsContext';
   import { toEngineRoute } from '$lib/ui/sceneryRoute';
-  import { describeLoadProgress, LOAD_PHASES } from '$lib/utils/loadingProgress';
+  import { progressFromReports } from '$lib/utils/loadingProgress';
   import { getSessionStore } from '$lib/ui/sessionContext';
   import { getRideSession } from '$lib/ui/rideSessionContext';
   import { getRoutesStore } from '$lib/ui/routesContext';
@@ -27,6 +27,9 @@
   import { CrewPreferenceStore } from '$lib/ui/useCrewPreference.svelte';
   import { resolveCrew } from '../../components/rower3d/crewModel';
   import { RowerAppearanceStore } from '$lib/ui/useRowerAppearance.svelte';
+  import { sharedConditionsStore } from '$lib/ui/useConditions.svelte';
+  import { observeHudInsets } from '$lib/ui/hudInsets';
+  import { isCompactHud, type HudInsets } from '$lib/ui/rowHudPlan';
   import { paletteFromPreference } from '$lib/renderer/plan/crewPalette';
   import { FullscreenStore } from '$lib/ui/fullscreen.svelte';
   import { CameraViewStore } from '$lib/ui/cameraView.svelte';
@@ -59,18 +62,40 @@
     palette: paletteFromPreference(rowerAppearance.appearance),
   });
 
+  // #730 VP-12 — the rower's Dawn / Midday / Golden hour / Overcast / Dusk
+  // choice from the home screen's picker, resolved against the clock. The
+  // host passes it at attach and relights the scene when it changes.
+  const conditions = sharedConditionsStore();
+
   const testMode = typeof window !== 'undefined' && !!window.__PLAYWRIGHT_TESTING;
 
-  // The load bar watched the three/R3F scene load in App; the WebGPU engine owns
-  // its own load now, so until it reports phases the bar is complete (and so
-  // renders nothing). Real phases land with the engine's load telemetry.
-  const routeLoadProgress = describeLoadProgress(new Set(LOAD_PHASES.map((p) => p.key)));
+  // #726 VP-08 FR1 — the engine reports each load phase as it settles (the
+  // boat, the crew, the flora atlas, the scenery near the start, the first
+  // frame), and the bar shows them. An engine that declined has nothing to
+  // load, so the bar goes and the needs-WebGPU screen shows alone.
+  let loadReports = $state(new Map<string, 'done' | 'failed'>());
 
   // Put the stage on the whole screen (#335). The control reads its element back
   // from the browser's own fullscreenchange, so hand it the stage once mounted.
   const fullscreen = new FullscreenStore();
   let stageEl = $state<HTMLDivElement | undefined>(undefined);
   $effect(() => fullscreen.bind(stageEl ?? null));
+
+  // #733 VP-15 — the HUD panels cover the bottom of the stage. Measure what
+  // they cover (on resize, fullscreen, the workout panel showing or hiding)
+  // and hand it to the engine, which frames the boat in the clear part. On a
+  // short stage the HUD also compacts (FR4).
+  let hudInsets = $state<HudInsets | undefined>(undefined);
+  let stageHeight = $state(0);
+  $effect(() => {
+    const el = stageEl;
+    if (!el) return;
+    return observeHudInsets(el, (insets, height) => {
+      hudInsets = insets;
+      stageHeight = height;
+    });
+  });
+  const compactHud = $derived(isCompactHud(stageHeight));
 
   // Camera view, cycled on V (#328). The store owns persistence; the page owns
   // the window listener so it leaves with the ride view.
@@ -110,6 +135,7 @@
   // throw) the ride view swaps the stage for the "needs WebGPU" screen; the
   // rest of the site stays reachable through the Routes link.
   let canvasBackend = $state<CanvasBackend>('stub');
+  const routeLoadProgress = $derived(progressFromReports(loadReports, canvasBackend === 'unavailable'));
 
   // #584 FR1 — on a device loss the engine publishes a user-facing banner on
   // `window.__ROWER3D_BANNER`. We poll it at 250 ms so a reader sees the
@@ -154,7 +180,7 @@
   {#if session.sessionActive && ride.currentSession}
     <div class="view-container activity-view{fullscreen.active && !fullscreen.supported ? ' activity-view--fullscreen' : ''}">
       <div class="activity-screen">
-        <div class="activity-route-stage" bind:this={stageEl}>
+        <div class="activity-route-stage{compactHud ? ' activity-route-stage--compact-hud' : ''}" bind:this={stageEl}>
           <!-- #542 AC11: when the engine declines (no WebGPU, software adapter,
                attach throw) we show the "needs WebGPU" screen as an overlay.
                The stage below stays mounted so specs that assert around
@@ -195,8 +221,11 @@
             crew={resolvedCrew}
             appearance={initialPalette}
             {appearancePatch}
+            conditions={conditions.conditions}
+            viewportInsets={hudInsets}
             rebuildOnRouteChange={!testMode}
             onBackend={(b) => (canvasBackend = b)}
+            onLoadPhase={(phase, status) => (loadReports = new Map(loadReports).set(phase, status))}
           />
 
           {#if workout.current && workout.progress}

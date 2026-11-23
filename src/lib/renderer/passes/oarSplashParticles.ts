@@ -1,7 +1,7 @@
 /**
- * Oar-blade splash particles pass (#571). Same instanced-billboard shape
- * as `wakeParticles.ts`; the fragment shader paints a short-lived spray
- * droplet arcing out from the blade.
+ * Oar-blade splash particles pass (#571, #722 VP-04). One instanced draw
+ * over the splash pool: small drops in a low arc at the blade plus a flat
+ * ring spreading on the water.
  */
 
 /// <reference types="@webgpu/types" />

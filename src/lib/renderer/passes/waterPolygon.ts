@@ -35,6 +35,8 @@ export interface WaterPolygonPassOptions {
   device: GPUDevice;
   format: GPUTextureFormat;
   frameUniforms: GPUBuffer;
+  /** #730 VP-12 — the conditions lighting block (`packFrameLighting`). */
+  lightingUniforms: GPUBuffer;
   shadow: ShadowResources;
   /** Polygons in scene XZ, already projected and tier-simplified. */
   polygons: PolygonWithHoles[];
@@ -103,6 +105,7 @@ export const createWaterPolygonPass = ({
   device,
   format,
   frameUniforms,
+  lightingUniforms,
   shadow,
   polygons,
   discCentre,
@@ -136,7 +139,10 @@ export const createWaterPolygonPass = ({
   });
   const bindGroup = device.createBindGroup({
     layout: pipeline.getBindGroupLayout(0),
-    entries: [{ binding: 0, resource: { buffer: frameUniforms } }],
+    entries: [
+      { binding: 0, resource: { buffer: frameUniforms } },
+      { binding: 1, resource: { buffer: lightingUniforms } },
+    ],
   });
   const shadowBindGroup = device.createBindGroup({
     label: 'water-polygon-shadow',

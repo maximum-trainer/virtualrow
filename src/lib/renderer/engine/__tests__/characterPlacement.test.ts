@@ -6,7 +6,6 @@ import {
   placeBoat,
   placeGhost,
   strokeAmplitude,
-  strokePhase,
 } from '../characterPlacement';
 import type { RideFrame } from '../rideFrame';
 import { paceGhost, recordedGhost } from '../../../../components/rower3d/ghost';
@@ -161,17 +160,8 @@ describe('characterPlacement', () => {
     expect(placeGhost(out, curve, null, 60, 1000, 200, -2.5)).toBeNull();
   });
 
-  it('strokePhase returns zero when not playing', () => {
-    expect(strokePhase(24, 100, false)).toBe(0);
-  });
-
-  it('strokePhase cycles with cadence', () => {
-    const spm = 30; // 0.5 Hz
-    // One full cycle at 2 s should wrap back to ~0.
-    expect(strokePhase(spm, 2, true)).toBeCloseTo(0, 5);
-    // Half a cycle at 1 s should be ~0.5.
-    expect(strokePhase(spm, 1, true)).toBeCloseTo(0.5, 5);
-  });
+  // strokePhase was replaced by the stateful `strokeClock` module in
+  // #720 VP-02. See strokeClock.test.ts for integrated-phase coverage.
 
   it('strokeAmplitude clamps intensityFactor into [0, 1]', () => {
     expect(strokeAmplitude(null)).toBe(0);

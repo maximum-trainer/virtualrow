@@ -4,11 +4,11 @@
   row. Finding a different route lives on the Routes screen (#219 R2).
 
   The sidebar holds the device panels (rower + heart-rate); the main panel shows
-  the selected route's map and details with the ghost / conditions / sound /
-  crew / appearance pickers and the start controls. Device connection, the
-  loaded workout and the ghost choice are cross-view, so they come from the
-  shared SessionStore; the per-row picker state (conditions / crew / appearance)
-  is page-local and persisted to localStorage. Class names, data-testids and
+  the selected route's map and details with the ghost / conditions / sound
+  pickers and the start controls; the rower's appearance lives on the Profile
+  screen (#777). Device connection, the loaded workout and the ghost choice are
+  cross-view, so they come from the shared SessionStore; the conditions choice
+  is persisted to localStorage. Class names, data-testids and
   copy are kept verbatim so the Row Playwright specs keep passing. Starting a
   session navigates to the workout route via the shell's session bridge.
 -->
@@ -27,10 +27,9 @@
   import { getRoutesStore } from '$lib/ui/routesContext';
   import { getSessionStore } from '$lib/ui/sessionContext';
   import { getDeepLink } from '$lib/ui/deepLinkContext';
-  import { routeGeometrySource } from '$lib/ui/routesStore.svelte';
-  import { ConditionsStore } from '$lib/ui/useConditions.svelte';
-  import { CrewPreferenceStore } from '$lib/ui/useCrewPreference.svelte';
-  import { RowerAppearanceStore } from '$lib/ui/useRowerAppearance.svelte';
+  import { enrichmentStatusCopy, routeGeometrySource } from '$lib/ui/routesStore.svelte';
+  import { StartGate } from '$lib/ui/startGate.svelte';
+  import { sharedConditionsStore } from '$lib/ui/useConditions.svelte';
   import { debugPreferencesStore } from '$lib/services/debugPreferencesStore';
   import BluetoothDevice from '$lib/ui/BluetoothDevice.svelte';
   import FTMSDevice from '$lib/ui/FTMSDevice.svelte';
@@ -39,7 +38,6 @@
   import GhostPicker from '$lib/ui/GhostPicker.svelte';
   import ConditionsPicker from '$lib/ui/ConditionsPicker.svelte';
   import SoundPicker from '$lib/ui/SoundPicker.svelte';
-  import RowerAppearancePicker from '$lib/ui/RowerAppearancePicker.svelte';
   import LoadTodaysWorkoutButton from '$lib/ui/LoadTodaysWorkoutButton.svelte';
   import LoopConfigPanel from '$lib/ui/LoopConfigPanel.svelte';
   import { getRideSession } from '$lib/ui/rideSessionContext';
@@ -48,6 +46,18 @@
   const auth = getAuth();
   const services = getServices();
   const routes = getRoutesStore();
+
+  // #741 VP-21 FR5 — Start and the demo row wait for the route's map data,
+  // with a "start now with simple scenery" escape. A change of route drops
+  // a held start.
+  const startGate = new StartGate();
+  $effect(() => {
+    startGate.update(routes.selectedRouteEnrichmentLoading);
+  });
+  $effect(() => {
+    void routes.selectedRoute?.id;
+    return () => startGate.cancel();
+  });
   const session = getSessionStore();
   const ride = getRideSession();
   const deepLink = getDeepLink();
@@ -73,11 +83,10 @@
     }
   });
 
-  // Per-row mood controls (#346 / #443 / #474): local to this screen and
-  // persisted, so they survive a navigation without being session state.
-  const conditions = new ConditionsStore();
-  const crew = new CrewPreferenceStore();
-  const rowerAppearance = new RowerAppearanceStore();
+  // Per-row mood control (#346): persisted, so it survives a navigation
+  // without being session state. #730: shared with the ride view, which hands
+  // it to the engine.
+  const conditions = sharedConditionsStore();
 
   const testMode = typeof window !== 'undefined' && !!window.__PLAYWRIGHT_TESTING;
   // Guests are not recorded as a real workout (App.tsx line 138).
@@ -203,7 +212,21 @@
           </div>
 
           {#if routes.selectedRouteEnrichmentLoading}
-            <p class="route-enrichment-status">Loading route data…</p>
+            <p class="route-enrichment-status" role="status">
+              {enrichmentStatusCopy(routes.routeEnrichmentPhase[route.id])}
+            </p>
+            {#if startGate.pending}
+              <p class="route-enrichment-wait">
+                Your row starts as soon as the map data is in.
+                <button
+                  type="button"
+                  class="btn btn-start-now-simple"
+                  onclick={() => startGate.startNow()}
+                >
+                  Start now with simple scenery
+                </button>
+              </p>
+            {/if}
           {/if}
 
           <!-- Decided before the row, not during it (#338). -->
@@ -238,7 +261,10 @@
 
           <button
             class="btn btn-start-workout"
-            onclick={() => session.startWorkout(routes.selectedRoute, isGuestSession)}
+            onclick={() =>
+              startGate.request('workout', routes.selectedRouteEnrichmentLoading, () =>
+                session.startWorkout(routes.selectedRoute, isGuestSession),
+              )}
             disabled={!session.selectedRowerConnected || !session.hrConnected}
           >
             {#if session.selectedRowerConnected && session.hrConnected}
@@ -265,7 +291,10 @@
             <div class="demo-row-cta">
               <button
                 class="btn btn-try-demo"
-                onclick={() => session.startDemo(routes.selectedRoute, isGuestSession, demoCtaVisible)}
+                onclick={() =>
+                  startGate.request('demo', routes.selectedRouteEnrichmentLoading, () =>
+                    session.startDemo(routes.selectedRoute, isGuestSession, demoCtaVisible),
+                  )}
                 type="button"
               >
                 ▶ Try a demo row — no rowing machine needed
@@ -290,16 +319,6 @@
             volume={session.soundVolume}
             onToggle={(enabled) => session.setSoundEnabled(enabled)}
             onVolume={(volume) => session.setSoundVolume(volume)}
-          />
-
-          <!-- Rower (Male / Female / Auto) and clothing / hair picker. Shown to
-               everyone: an explicit rower choice overrides the intervals.icu
-               profile's sex, Auto follows it (#672, reverses #443). -->
-          <RowerAppearancePicker
-            appearance={rowerAppearance.appearance}
-            onChange={rowerAppearance.setSlot.bind(rowerAppearance)}
-            crew={crew.preference}
-            onCrewChange={(preference) => crew.setPreference(preference)}
           />
         </div>
       </div>

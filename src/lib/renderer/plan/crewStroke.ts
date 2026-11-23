@@ -8,9 +8,13 @@
  * The oar's sweep is the single input, so the body can never drift out of
  * time with the oars.
  *
- * Everything is in scull space (the GLB's own frame: +Y up, +Z toward the
- * rower's feet). The engine multiplies the returned part matrix between
- * the boat transform and each primitive's node matrix.
+ * The maths runs in rig space, the frame `crew_body.py` / `build_crew.py`
+ * author in: +Y up, +Z toward the rower's feet. The shipped GLB is turned
+ * half a turn about +Y (#721 VP-03) so the rower faces the stern and the bow
+ * is +Z, the direction the boat travels; that is scull space.
+ * `scullPartTransform` hands the engine a part matrix in scull space, which
+ * it multiplies between the boat transform and each primitive's node matrix.
+ * The oars need no conversion: a sweep about +Y commutes with the turn.
  *
  * The joint tables mirror `skeleton()` in `scripts/crew_body.py`, and the oar
  * numbers mirror `OARLOCK` / `GATE_OFFSET` / `OAR_DROOP_DEG` in
@@ -309,11 +313,26 @@ export const crewStrokePose = (crew: Crew, sweep: number): CrewStrokePose => {
   return { slide, leanDeg, torso, seat, left: limb('left'), right: limb('right') };
 };
 
+/** Rig space to scull space: half a turn about +Y (#721 VP-03). */
+export const rigToScull = (p: Vec3): Vec3 => [-p[0], p[1], -p[2]];
+
+/** R * m * R for R = diag(-1, 1, -1, 1), its own inverse. */
+const conjugateHalfTurnY = (m: Float32Array): Float32Array => {
+  const out = new Float32Array(16);
+  const sign = [-1, 1, -1, 1];
+  for (let col = 0; col < 4; col += 1) {
+    for (let row = 0; row < 4; row += 1) {
+      out[col * 4 + row] = sign[row] * m[col * 4 + row] * sign[col];
+    }
+  }
+  return out;
+};
+
 const LIMB_PART = /^(Left|Right)(Arm_Upper|Arm_Fore|Hand|Thigh|Knee|Shin)$/;
 const TORSO_PART = /^(Torso_|Neck$|Head|Hair_|Hat_)/;
 
 /**
- * The scull-space matrix that moves a GLB node for this pose, or `undefined`
+ * The rig-space matrix that moves a GLB node for this pose, or `undefined`
  * for nodes that stay where the GLB put them (hull, oars, feet, rails).
  */
 export const crewPartTransform = (
@@ -334,4 +353,13 @@ export const crewPartTransform = (
     case 'Knee': return limb.kneeCap;
     default: return limb.shin;
   }
+};
+
+/** `crewPartTransform` in scull space, the GLB's frame since #721 VP-03. */
+export const scullPartTransform = (
+  nodeName: string | undefined,
+  pose: CrewStrokePose,
+): Float32Array | undefined => {
+  const m = crewPartTransform(nodeName, pose);
+  return m ? conjugateHalfTurnY(m) : undefined;
 };
