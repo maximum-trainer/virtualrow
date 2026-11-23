@@ -68,6 +68,9 @@ export class RoutesStore {
   #enrichment: Services['routeEnrichmentService'];
   #defaultPref: Services['defaultRoutePreferenceStore'];
 
+  /** Whether an athlete is signed in: only they need a route's map data. */
+  #signedIn = false;
+
   /** #741 FR6 — bumped to stop a running prefetch. */
   #prefetchGeneration = 0;
 
@@ -141,6 +144,7 @@ export class RoutesStore {
       this.routes.map((r) => r.id),
     );
     this.defaultRouteId = resolved;
+    this.setAthlete(userId);
 
     if (this.#hasPreselected || authLoading) return;
     this.#select(
@@ -149,6 +153,23 @@ export class RoutesStore {
         this.routes[0],
     );
     this.#hasPreselected = true;
+  }
+
+  /**
+   * Follow sign-in. Dan, 2026-11-23: the demo route and a guest need no
+   * external map data, so only a signed-in athlete's non-demo routes ask
+   * Overpass and Open-Meteo. Signing in brings the selected route's data in.
+   */
+  setAthlete(userId: string | null): void {
+    const signedIn = !!userId;
+    if (signedIn === this.#signedIn) return;
+    this.#signedIn = signedIn;
+    if (signedIn && this.selectedRoute) this.#enrich(this.selectedRoute);
+  }
+
+  /** Whether `route` is dressed from OSM: signed in, and not the demo route. */
+  #needsMapData(route: WaterRoute): boolean {
+    return this.#signedIn && route.id !== DEMO_ROUTE_ID;
   }
 
   /** Star / un-star a route as this athlete's default (App.tsx AC6.5/AC6.6). */
@@ -209,6 +230,7 @@ export class RoutesStore {
   }
 
   #enrich(route: WaterRoute): void {
+    if (!this.#needsMapData(route)) return;
     const cached = this.#enrichment.readCached(route.id);
     if (cached.data) {
       this.routeEnrichments = { ...this.routeEnrichments, [route.id]: cached.data };
@@ -247,7 +269,7 @@ export class RoutesStore {
         await idle();
         if (!alive()) return;
       } while (Object.values(this.routeEnrichmentLoading).some(Boolean));
-      if (this.routeEnrichments[route.id]) continue;
+      if (route.id === DEMO_ROUTE_ID || this.routeEnrichments[route.id]) continue;
       const cached = this.#enrichment.readCached(route.id);
       if (cached.data && !cached.stale) continue;
       try {
