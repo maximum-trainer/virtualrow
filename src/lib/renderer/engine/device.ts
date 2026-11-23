@@ -84,6 +84,79 @@ export interface RequestDeviceOptions {
 }
 
 /**
+ * Opt in to BC compressed-texture support when the adapter has it (D4-b of
+ * #562, AC8). The KTX2 → BC7 path in `textureLoader` only runs on `high`+
+ * tiers, and the loader itself falls through to the uncompressed PNG when the
+ * feature is absent; requesting it is cheap and keeps the device capable of
+ * sampling the BC7 flora atlas on hardware that supports it.
+ *
+ * Also opt in to `timestamp-query` when the adapter has it (#584 FR3 / D6-c):
+ * the engine's frame-stats shim then writes `gpuMs` into
+ * `__ROWER3D_FRAME_STATS`. Without the feature `gpuMs` stays `0` and the
+ * engine uses `cpuMs` instead — both match the Rower3DFrameStats shape.
+ */
+const wantedFeatures = (adapter: GPUAdapter): GPUFeatureName[] => {
+  const features: GPUFeatureName[] = [];
+  if (adapter.features.has('texture-compression-bc')) features.push('texture-compression-bc');
+  if (adapter.features.has('timestamp-query')) features.push('timestamp-query');
+  return features;
+};
+
+interface EarlyDevice {
+  adapter: GPUAdapter;
+  device: GPUDevice;
+  lost: boolean;
+}
+
+let prewarm: Promise<EarlyDevice | null> | null = null;
+
+/**
+ * #729 (Dan's choice, 2026-11-23): Chrome runs most of
+ * `requestAdapter` / `requestDevice` synchronously on the main thread
+ * (275-300 ms on a Windows laptop), which was the last long task between the
+ * start click and the first frame. The start buttons call this on hover or
+ * focus, so that work happens while the hand is still moving; `requestDevice`
+ * then takes the device instead of asking for one. Idempotent until taken.
+ * A software adapter, a failure or no WebGPU leave nothing to take, and the
+ * attach asks as it always did.
+ */
+export const prewarmDevice = (nav: { gpu?: GPU } | undefined): void => {
+  if (prewarm || !nav?.gpu) return;
+  const gpu = nav.gpu;
+  prewarm = (async () => {
+    try {
+      const adapter = await gpu.requestAdapter({ powerPreference: 'high-performance' });
+      if (!adapter || isSoftwareAdapter(adapter)) return null;
+      const device = await adapter.requestDevice({ requiredFeatures: wantedFeatures(adapter) });
+      const early: EarlyDevice = { adapter, device, lost: false };
+      void device.lost.then(() => {
+        early.lost = true;
+      });
+      return early;
+    } catch {
+      return null;
+    }
+  })();
+};
+
+/** The device `prewarmDevice` made, once; null if there is none or it was lost. */
+const takePrewarmedDevice = async (): Promise<EarlyDevice | null> => {
+  const pending = prewarm;
+  if (!pending) return null;
+  prewarm = null;
+  const early = await pending;
+  // `lost` settles in a microtask; let it run before trusting the device.
+  await Promise.resolve();
+  if (!early || early.lost) return null;
+  return early;
+};
+
+/** Tests only: forget any device made ahead of time. */
+export const resetPrewarmForTests = (): void => {
+  prewarm = null;
+};
+
+/**
  * Request a device and manage its lifecycle. The function resolves with
  * either `ready` or `unavailable`; `pending` is only observable from an
  * external poll before the promise settles.
@@ -97,12 +170,21 @@ export const requestDevice = async (
     return makeUnavailable('webgpu-unsupported');
   }
 
+  // #729: a device requested ahead of time (start-button hover or focus)
+  // is taken once, by the first attach. A retry after a device loss always
+  // asks afresh.
+  const early = opts.isRetry ? null : await takePrewarmedDevice();
+
   let adapter: GPUAdapter | null;
-  try {
-    adapter = await nav.gpu.requestAdapter({ powerPreference: 'high-performance' });
-  } catch {
-    publishFallback('adapter-request-failed');
-    return makeUnavailable('adapter-request-failed');
+  if (early) {
+    adapter = early.adapter;
+  } else {
+    try {
+      adapter = await nav.gpu.requestAdapter({ powerPreference: 'high-performance' });
+    } catch {
+      publishFallback('adapter-request-failed');
+      return makeUnavailable('adapter-request-failed');
+    }
   }
   if (!adapter) {
     publishFallback('adapter-request-failed');
@@ -117,28 +199,15 @@ export const requestDevice = async (
   }
 
   let device: GPUDevice;
-  try {
-    // Opt in to BC compressed-texture support when the adapter has it (D4-b of
-    // #562, AC8). The KTX2 → BC7 path in `textureLoader` only runs on `high`+
-    // tiers, and the loader itself falls through to the uncompressed PNG when
-    // the feature is absent; requesting it is cheap and keeps the device
-    // capable of sampling the BC7 flora atlas on hardware that supports it.
-    //
-    // Also opt in to `timestamp-query` when the adapter has it (#584 FR3 /
-    // D6-c): the engine's frame-stats shim then writes `gpuMs` into
-    // `__ROWER3D_FRAME_STATS`. Without the feature `gpuMs` stays `0` and the
-    // engine uses `cpuMs` instead — both match the Rower3DFrameStats shape.
-    const requiredFeatures: GPUFeatureName[] = [];
-    if (adapter.features.has('texture-compression-bc')) {
-      requiredFeatures.push('texture-compression-bc');
+  if (early) {
+    device = early.device;
+  } else {
+    try {
+      device = await adapter.requestDevice({ requiredFeatures: wantedFeatures(adapter) });
+    } catch {
+      publishFallback('device-request-failed');
+      return makeUnavailable('device-request-failed');
     }
-    if (adapter.features.has('timestamp-query')) {
-      requiredFeatures.push('timestamp-query');
-    }
-    device = await adapter.requestDevice({ requiredFeatures });
-  } catch {
-    publishFallback('device-request-failed');
-    return makeUnavailable('device-request-failed');
   }
 
   let disposed = false;

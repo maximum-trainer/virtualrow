@@ -15,6 +15,7 @@
 <script lang="ts">
   import { base } from '$app/paths';
   import { goto } from '$app/navigation';
+  import { prewarmGpuOnIntent } from '$lib/ui/prewarmGpuOnIntent';
   import {
     externalDistanceNote,
     formatRouteDistanceKm,
@@ -261,6 +262,7 @@
 
           <button
             class="btn btn-start-workout"
+            use:prewarmGpuOnIntent
             onclick={() =>
               startGate.request('workout', routes.selectedRouteEnrichmentLoading, () =>
                 session.startWorkout(routes.selectedRoute, isGuestSession),
@@ -291,6 +293,7 @@
             <div class="demo-row-cta">
               <button
                 class="btn btn-try-demo"
+                use:prewarmGpuOnIntent
                 onclick={() =>
                   startGate.request('demo', routes.selectedRouteEnrichmentLoading, () =>
                     session.startDemo(routes.selectedRoute, isGuestSession, demoCtaVisible),

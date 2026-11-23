@@ -54,7 +54,15 @@ test('starting a demo row has no main-thread task over 50 ms (#729 FR6)', async 
     );
   });
 
-  await startDemoRide(page);
+  // #729: the start buttons ask for the GPU device on hover or focus, as a
+  // rower's pointer reaches them. Model that: hover, then click about half a
+  // second later, as a hand would.
+  await startDemoRide(page, {
+    beforeClick: async (p) => {
+      await p.hover('.btn-try-demo');
+      await p.waitForTimeout(500);
+    },
+  });
   if ((await waitForRideOutcome(page, 60_000)) !== 'ready') {
     await assertWellFormedDecline(page);
     return;
