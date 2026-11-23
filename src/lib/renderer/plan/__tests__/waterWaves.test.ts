@@ -7,6 +7,7 @@ import {
   detailWeight,
   fresnel,
   waterColour,
+  WATER_BODY_COLOUR,
   waterSlope,
   waterSlopeWgsl,
   type WaterShadeInput,
@@ -117,5 +118,27 @@ describe('Scenario: no lattice (#734 AC1, CPU twin)', () => {
       return waterColour(waterSlope(x, z, t, dist), { ...s, specular: 0 });
     });
     expect(peakShare(grid)).toBeLessThanOrEqual(0.08);
+  });
+});
+
+describe('water body brightness (#734 vs #732 FR4)', () => {
+  it('matches the mean of the old ripple palette, so the frame mean and auto-exposure do not shift', () => {
+    // The pre-#734 fragment: mix(deep, shallow, clamp(ripple*0.85 + secondary*0.3 - 0.15)).
+    const deep = [0.07, 0.22, 0.36];
+    const shallow = [0.22, 0.52, 0.58];
+    const mean = [0, 0, 0];
+    let n = 0;
+    for (let x = 0; x < 200; x += 0.37) {
+      for (let z = 0; z < 200; z += 0.41) {
+        const ripple = 0.5 + 0.5 * Math.sin(x * 0.6) * Math.cos(z * 0.5);
+        const secondary = 0.5 + 0.5 * Math.sin(x * 0.11) * Math.cos(z * 0.09);
+        const t = Math.min(1, Math.max(0, ripple * 0.85 + secondary * 0.3 - 0.15));
+        for (let i = 0; i < 3; i += 1) mean[i] += deep[i] + (shallow[i] - deep[i]) * t;
+        n += 1;
+      }
+    }
+    const luma = (c: readonly number[]) => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+    const old = luma(mean.map((v) => v / n));
+    expect(Math.abs(luma(WATER_BODY_COLOUR) / old - 1)).toBeLessThan(0.05);
   });
 });

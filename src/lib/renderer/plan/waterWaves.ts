@@ -128,6 +128,16 @@ ${trainWgsl(WATER_DETAIL_OCTAVE, 'detail')}
 }
 `;
 
+/**
+ * Light scattered up out of the water, before the sky reflection and sun
+ * lobe are added. Chosen so a calm surface seen from the chase camera is as
+ * bright on average as the old ripple palette, whose mean was
+ * `OLD_WATER_MEAN` (#732 FR4 laptop bisect: a darker body pulled the frame
+ * mean down 6 % at medium, and `high`'s auto-exposure then lifted the whole
+ * frame, flattening its highlights below medium's sharpness).
+ */
+export const WATER_BODY_COLOUR: readonly [number, number, number] = [0.13, 0.35, 0.45];
+
 /** Schlick's Fresnel for water (F0 = 0.02): the share of light reflected. */
 export const WATER_F0 = 0.02;
 /** Blinn-Phong exponent of the sun lobe on the water. */
