@@ -10,6 +10,9 @@
  * legacy harness (`drawCalls`) has always read it.
  */
 
+import type { PerformanceMode } from '../../../components/rower3d/constants';
+import type { RenderStats } from '../renderStats';
+import type { FramePacingSummary } from './framePacing';
 import type { Rower3DRenderGroup, Rower3DRenderGroups, Rower3DRenderStats } from './telemetry';
 
 /** Two crossed quads per sprite tree (`scenery.wgsl`). */
@@ -75,4 +78,47 @@ export const assembleRenderStats = (
   stats.shadowDraws = g.shadows.draws;
   stats.shadowTriangles = g.shadows.triangles;
   stats.shadowAtlasBytes = input.shadowAtlasBytes;
+};
+
+/* -------------------------------------------------------- debug panel --- */
+
+const TIERS: readonly PerformanceMode[] = ['basic', 'low', 'medium', 'high', 'extra-high'];
+
+/** A panel sample to update in place each frame (the panel polls it). */
+export const emptyPanelStats = (): RenderStats => ({
+  backend: 'webgpu',
+  performanceMode: 'medium',
+  drawing: 'webgpu',
+  drawCalls: 0,
+  triangles: 0,
+  sampledAt: 0,
+});
+
+export interface PanelStatsInput {
+  stats: Omit<Rower3DRenderStats, 'drawCalls'>;
+  pacing: FramePacingSummary;
+  tier: string | undefined;
+  /** Passes that ran this frame outside the grouped ones (sky, water, bank, boat, …): one draw each. */
+  otherPasses: number;
+  now: number;
+}
+
+/**
+ * #737 FR3 — the debug panel's frame cost (`renderStats` seam): real draw
+ * calls and triangles, and fps / p95 from the frame-pacing window, so its
+ * `overBudget` flag holds the frame to `RENDER_BUDGET[tier].p95Ms`.
+ */
+export const writePanelStats = (out: RenderStats, input: PanelStatsInput): void => {
+  const g = input.stats.groups;
+  out.backend = 'webgpu';
+  out.drawing = 'webgpu';
+  out.performanceMode = (TIERS as readonly string[]).includes(input.tier ?? '')
+    ? (input.tier as PerformanceMode)
+    : 'medium';
+  out.drawCalls = input.otherPasses + g.scene.draws + g.shadows.draws;
+  out.triangles = input.stats.triangles;
+  const measured = input.pacing.samples > 0 && input.pacing.p50 > 0;
+  out.fps = measured ? 1000 / input.pacing.p50 : undefined;
+  out.p95Ms = measured ? input.pacing.p95 : undefined;
+  out.sampledAt = input.now;
 };

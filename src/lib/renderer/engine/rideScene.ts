@@ -132,7 +132,11 @@ import { FLEET_INSTANCE_CAPACITY } from '../passes/boat';
 import { assetUrl } from '../../utils/assetUrl';
 import { createSceneryPass } from './sceneryPass';
 import { recordClearance } from './clearance';
-import { assembleRenderStats } from './frameRenderStats';
+import { assembleRenderStats, emptyPanelStats, writePanelStats } from './frameRenderStats';
+import { clearRenderStats, recordRenderStats } from '../renderStats';
+
+/** #737 FR3 — passes whose draws `renderStats.groups` already counts one by one. */
+const GROUPED_PASSES = new Set(['scenery', 'sceneryMesh', 'buildings']);
 import {
   createGlbDecoderPool,
   type GlbDecoderPool,
@@ -1570,6 +1574,7 @@ export const createRideScene = async (
   let lastDrawMs = -1;
   let resumePending = false;
   const pacing = createFramePacing();
+  const panelStats = emptyPanelStats();
 
   const drawFrame = (): void => {
     if (disposed) return;
@@ -2099,11 +2104,13 @@ export const createRideScene = async (
     // timer's bracket passes. Stays 0 when the adapter has no `timestamp-query`.
     telemetry.frameStats.gpuMs = gpuTimer?.gpuMs ?? 0;
     let draws = 0;
+    let otherPasses = 0;
     for (const p of graph.passes) {
       if (p.name.startsWith('shadow')) continue;
       if (p.name === 'postfx') continue;
       if (p.name === 'boat' && !boatPass.boatVisible.value && !boatPass.ghostVisible.value) continue;
       draws += 1;
+      if (!GROUPED_PASSES.has(p.name)) otherPasses += 1;
     }
     // #737 FR2 — this frame's counts, by group; cumulative ones in total*.
     assembleRenderStats(telemetry.renderStats, {
@@ -2115,6 +2122,15 @@ export const createRideScene = async (
       shadows: telemetry.shadows,
       shadowAtlasBytes: telemetry.shadows.atlasBytes,
     });
+    // #737 FR3 — the debug panel's frame cost and pacing, against the tier's budget.
+    writePanelStats(panelStats, {
+      stats: telemetry.renderStats,
+      pacing: telemetry.framePacing,
+      tier: opts.tier,
+      otherPasses,
+      now: Date.now(),
+    });
+    recordRenderStats(panelStats);
     let trees = 0;
     let meshes = 0;
     let treesDrawn = 0;
@@ -2321,6 +2337,7 @@ export const createRideScene = async (
         delete (globalThis as unknown as Record<string, unknown>)[SEEK_METERS_KEY];
       } catch { /* non-browser */ }
       clearPolygonWaterTelemetry();
+      clearRenderStats();
       session.dispose();
     },
   };
