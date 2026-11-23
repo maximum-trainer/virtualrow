@@ -25,6 +25,9 @@ const basic = {
   maxBuildingsPerSegment: 0,
   fleetCount: 0,
   castFleetShadows: false,
+  maxPixelRatio: 1.0,
+  maxBackingPixels: 2_100_000,
+  antialias: 'fxaa',
 };
 const low = {
   drawBuildings: true,
@@ -48,6 +51,9 @@ const low = {
   maxBuildingsPerSegment: 8,
   fleetCount: 2,
   castFleetShadows: false,
+  maxPixelRatio: 1.0,
+  maxBackingPixels: 2_100_000,
+  antialias: 'fxaa',
 };
 const medium = {
   drawBuildings: true,
@@ -71,6 +77,9 @@ const medium = {
   maxBuildingsPerSegment: 16,
   fleetCount: 4,
   castFleetShadows: true,
+  maxPixelRatio: 1.5,
+  maxBackingPixels: 2_100_000,
+  antialias: 'fxaa',
 };
 const high = {
   drawBuildings: true,
@@ -94,6 +103,9 @@ const high = {
   maxBuildingsPerSegment: 32,
   fleetCount: 6,
   castFleetShadows: true,
+  maxPixelRatio: 2.0,
+  maxBackingPixels: 3_700_000,
+  antialias: 'fxaa',
 };
 const extraHigh = {
   drawBuildings: true,
@@ -117,6 +129,9 @@ const extraHigh = {
   maxBuildingsPerSegment: 64,
   fleetCount: 8,
   castFleetShadows: true,
+  maxPixelRatio: 2.0,
+  maxBackingPixels: 8_300_000,
+  antialias: 'fxaa',
 };
 
 describe('tierCaps (P6 D8 + P7 D9 + P8 D8)', () => {

@@ -172,6 +172,7 @@ import { mergeSceneryInstances } from '../../scenery/mergeSceneryInstances';
 import { spanCeilingAt, type SpanCeilingSource } from '../../scenery/bridgeSpan';
 import { BRIDGE_SPANS } from '../../scenery/bridgeSpans.generated';
 import { emptySceneryClearance, measureSceneryClearance } from './sceneryClearance';
+import { backingSizeFor, backingSizeForObserved, observeCanvasSize, type ObservedCanvasSize } from './surface';
 import { loadFloraAtlas } from './textureLoader';
 import { mipLevelCountFor, textureBytes } from './textures';
 import { createFrameGraph, type FrameGraph, type FrameUniforms, type Pass } from './frameGraph';
@@ -519,15 +520,31 @@ export const createRideScene = async (
   // target configs inside PostFxPass.
   const format: GPUTextureFormat = 'rgba16float';
 
+  // #731 VP-13 — `width`/`height` are the canvas's CSS size (camera framing,
+  // HUD insets, screen-space telemetry); `pixelWidth`/`pixelHeight` are its
+  // backing store, CSS size x the tier-capped device pixel ratio, which the
+  // render targets and the frame graph use.
+  const surfaceCaps = tierCapsFor(opts.tier);
+  let observedSize: ObservedCanvasSize | null = null;
+  const stopObserving = observeCanvasSize(canvas, (size) => {
+    observedSize = size;
+  });
+  const devicePixelRatioNow = (): number => {
+    const r = (globalThis as { devicePixelRatio?: number }).devicePixelRatio;
+    return typeof r === 'number' && Number.isFinite(r) && r > 0 ? r : 1;
+  };
   let width = Math.max(1, Math.floor(canvas.clientWidth || canvas.width || 320));
   let height = Math.max(1, Math.floor(canvas.clientHeight || canvas.height || 240));
-  canvas.width = width;
-  canvas.height = height;
+  const initialBacking = backingSizeFor(width, height, devicePixelRatioNow(), surfaceCaps);
+  let pixelWidth = initialBacking.width;
+  let pixelHeight = initialBacking.height;
+  canvas.width = pixelWidth;
+  canvas.height = pixelHeight;
 
   // Scene HDR colour target (#573 FR1 / D1-a).
   let sceneTexture = device.createTexture({
     label: 'scene-hdr',
-    size: { width, height },
+    size: { width: pixelWidth, height: pixelHeight },
     format,
     usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
   });
@@ -535,7 +552,7 @@ export const createRideScene = async (
   // Depth is `depth32float` from P8 so SSAO + DOF can sample it (#573 FR9).
   let depthTexture = device.createTexture({
     label: 'depth',
-    size: { width, height },
+    size: { width: pixelWidth, height: pixelHeight },
     format: 'depth32float',
     usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
   });
@@ -1219,9 +1236,16 @@ export const createRideScene = async (
     sceneView: sceneTexture.createView(),
     sceneTexture,
     depthView: depthTexture.createView(),
-    width,
-    height,
+    width: pixelWidth,
+    height: pixelHeight,
   });
+  telemetry.surface.cssWidth = width;
+  telemetry.surface.cssHeight = height;
+  telemetry.surface.devicePixelRatio = devicePixelRatioNow();
+  telemetry.surface.scale = initialBacking.scale;
+  telemetry.surface.width = pixelWidth;
+  telemetry.surface.height = pixelHeight;
+  telemetry.surface.antialias = surfaceCaps.antialias;
 
   const passes: Pass[] = [
     shadowStage,
@@ -1626,12 +1650,29 @@ export const createRideScene = async (
   let disposed = false;
   let viewportInsets: ViewportInsets = sanitiseInsets(opts.viewportInsets);
 
+  // #731 FR2 — read once a frame: the ResizeObserver's last report where
+  // there is one, the element's client size otherwise. Targets are rebuilt
+  // only when the backing size changes, so at most once a frame.
   const resize = (): void => {
-    const w = Math.max(1, Math.floor(canvas.clientWidth || canvas.width || width));
-    const h = Math.max(1, Math.floor(canvas.clientHeight || canvas.height || height));
-    if (w === width && h === height) return;
-    width = w;
-    height = h;
+    const dpr = devicePixelRatioNow();
+    const cssW = Math.max(1, Math.floor(observedSize?.cssWidth || canvas.clientWidth || width));
+    const cssH = Math.max(1, Math.floor(observedSize?.cssHeight || canvas.clientHeight || height));
+    const backing = observedSize
+      ? backingSizeForObserved({ ...observedSize, cssWidth: cssW, cssHeight: cssH }, dpr, surfaceCaps)
+      : backingSizeFor(cssW, cssH, dpr, surfaceCaps);
+    width = cssW;
+    height = cssH;
+    telemetry.surface.cssWidth = cssW;
+    telemetry.surface.cssHeight = cssH;
+    telemetry.surface.devicePixelRatio = dpr;
+    telemetry.surface.scale = backing.scale;
+    const w = backing.width;
+    const h = backing.height;
+    if (w === pixelWidth && h === pixelHeight) return;
+    pixelWidth = w;
+    pixelHeight = h;
+    telemetry.surface.width = w;
+    telemetry.surface.height = h;
     canvas.width = w;
     canvas.height = h;
     depthTexture.destroy();
@@ -2265,7 +2306,7 @@ export const createRideScene = async (
     const outputView = outputTexture.createView();
     const sceneView = sceneTexture.createView();
     const depthView = depthTexture.createView();
-    graph.run(device, sceneView, depthView, width, height, frame, outputView);
+    graph.run(device, sceneView, depthView, pixelWidth, pixelHeight, frame, outputView);
     if (pixelProbe?.pending) pixelProbe.capture(outputTexture);
 
     telemetry.frameStats.frame += 1;
@@ -2502,6 +2543,7 @@ export const createRideScene = async (
     dispose() {
       if (disposed) return;
       disposed = true;
+      stopObserving();
       graph.dispose();
       gpuTimer?.dispose();
       decoderPool.dispose();
