@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { describeAdapter, isSoftwareAdapter, requestDevice } from '../device';
+import { describeAdapter, isSoftwareAdapter, requestDevice, softwareAttachRequested } from '../device';
 import { resetWebGPUHealth, readWebGPUHealth } from '../health';
 import {
   installGPUStub,
@@ -41,6 +41,30 @@ describe('device', () => {
       gpu: makeMockGPU(makeMockAdapter({ software: true })),
     });
     expect(session.state).toEqual({ kind: 'unavailable', reason: 'software-adapter' });
+  });
+
+  // #737 VP-19 FR5 — an opt-in switch lets visual checks render on a
+  // software adapter; health still says it is one.
+  it('attaches on a software adapter only when asked to, and still reports it', async () => {
+    const session = await requestDevice(
+      { gpu: makeMockGPU(makeMockAdapter({ software: true })) },
+      { allowSoftware: true },
+    );
+    expect(session.state.kind).toBe('ready');
+    expect(session.state.kind === 'ready' && session.state.software).toBe(true);
+    expect(readWebGPUHealth()?.isSoftware).toBe(true);
+    session.dispose();
+  });
+
+  it('reads the software switch from ?review=1 or __VIRTUALROW_ALLOW_SOFTWARE, and nothing else', () => {
+    const at = (search: string, flag?: unknown) =>
+      ({ location: { search }, __VIRTUALROW_ALLOW_SOFTWARE: flag }) as unknown as Window;
+    expect(softwareAttachRequested(undefined)).toBe(false);
+    expect(softwareAttachRequested(at(''))).toBe(false);
+    expect(softwareAttachRequested(at('?review=0'))).toBe(false);
+    expect(softwareAttachRequested(at('?tier=low&review=1'))).toBe(true);
+    expect(softwareAttachRequested(at('', true))).toBe(true);
+    expect(softwareAttachRequested(at('', 'yes'))).toBe(false);
   });
 
   it('falls back on a device request failure', async () => {

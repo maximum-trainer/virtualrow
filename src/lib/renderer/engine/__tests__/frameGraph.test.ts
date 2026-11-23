@@ -65,6 +65,20 @@ describe('frameGraph', () => {
     expect(device.__log.submits).toBe(1);
   });
 
+  it('tells each pass once the frame is submitted (#737 FR4)', () => {
+    const device = makeMockDevice();
+    const calls: string[] = [];
+    const reading: Pass = {
+      name: 'scenery',
+      encode: () => calls.push('encode'),
+      afterSubmit: () => calls.push(`afterSubmit@${device.__log.submits}`),
+      dispose: () => undefined,
+    };
+    const graph = createFrameGraph([makePass('sky', calls), reading]);
+    graph.run(device, {} as GPUTextureView, {} as GPUTextureView, 10, 10, frame());
+    expect(calls).toEqual(['sky', 'encode', 'afterSubmit@1']);
+  });
+
   it('ignores runs after dispose', () => {
     const device = makeMockDevice();
     const calls: string[] = [];

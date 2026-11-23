@@ -170,6 +170,29 @@ describe('createSceneryMeshPass', () => {
     expect(end).toHaveBeenCalled();
   });
 
+  it('publishes this frame\'s draws, instances and triangles, reset every frame (#737 FR2)', () => {
+    const { device } = makeDevice();
+    const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+    p.register(makeInput({ id: 'buoy', maxInstances: 4, indices: new Uint16Array([0, 1, 2, 0, 2, 1]) }));
+    p.register(makeInput({ id: 'post', maxInstances: 4 }));
+    p.setInstances('buoy', [mat4Identity(mat4()), { model: mat4Identity(mat4()), alpha: 0.5 }]);
+    p.setInstances('post', [mat4Identity(mat4())]);
+    const ctx = () => ({
+      encoder: { beginRenderPass: vi.fn(() => makePass().pass) },
+      swapView: {},
+      depthView: {},
+    }) as unknown as Parameters<typeof p.encode>[0];
+    p.encode(ctx());
+    // buoy: one opaque run + one translucent run; post: one draw.
+    expect(p.stats).toEqual({ draws: 3, instances: 3, triangles: 2 * 2 + 1 });
+    p.encode(ctx());
+    expect(p.stats).toEqual({ draws: 3, instances: 3, triangles: 5 });
+    p.setInstances('buoy', []);
+    p.setInstances('post', []);
+    p.encode(ctx());
+    expect(p.stats).toEqual({ draws: 0, instances: 0, triangles: 0 });
+  });
+
   it('pads an odd-length uint16 index upload to 4 bytes but still draws the real count (#672)', () => {
     // WebGPU rejects a writeBuffer whose size is not a multiple of 4, and the
     // index buffer then stays zero-filled: every triangle collapses onto

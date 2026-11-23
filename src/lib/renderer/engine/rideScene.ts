@@ -131,6 +131,12 @@ import { lakeWater, poolsOffWater, routeWaterFootprint, surfaceAt, withLakes } f
 import { FLEET_INSTANCE_CAPACITY } from '../passes/boat';
 import { assetUrl } from '../../utils/assetUrl';
 import { createSceneryPass } from './sceneryPass';
+import { recordClearance } from './clearance';
+import { assembleRenderStats, emptyPanelStats, writePanelStats } from './frameRenderStats';
+import { clearRenderStats, recordRenderStats } from '../renderStats';
+
+/** #737 FR3 — passes whose draws `renderStats.groups` already counts one by one. */
+const GROUPED_PASSES = new Set(['scenery', 'sceneryMesh', 'buildings']);
 import {
   createGlbDecoderPool,
   type GlbDecoderPool,
@@ -1568,6 +1574,7 @@ export const createRideScene = async (
   let lastDrawMs = -1;
   let resumePending = false;
   const pacing = createFramePacing();
+  const panelStats = emptyPanelStats();
 
   const drawFrame = (): void => {
     if (disposed) return;
@@ -1914,6 +1921,8 @@ export const createRideScene = async (
     telemetry.boat.z = boatPlacement.world[2];
     // #742 FR6 — the surface under the hull, every frame.
     telemetry.clearance.surface = surfaceAt(routeWater, surfaceLakes, boatPlacement.world[0], boatPlacement.world[2]);
+    // #737 FR4 — blade clearance against the ribbon's nearer shore.
+    recordClearance(telemetry.clearance, routeWater.shoreDistance(boatPlacement.world[0], boatPlacement.world[2]));
     telemetry.boat.heading = boatPlacement.heading;
     telemetry.boat.distanceMeters = boatPlacement.distanceMeters;
     telemetry.boat.progress = boatPlacement.progress;
@@ -2095,31 +2104,51 @@ export const createRideScene = async (
     // timer's bracket passes. Stays 0 when the adapter has no `timestamp-query`.
     telemetry.frameStats.gpuMs = gpuTimer?.gpuMs ?? 0;
     let draws = 0;
+    let otherPasses = 0;
     for (const p of graph.passes) {
       if (p.name.startsWith('shadow')) continue;
       if (p.name === 'postfx') continue;
       if (p.name === 'boat' && !boatPass.boatVisible.value && !boatPass.ghostVisible.value) continue;
       draws += 1;
+      if (!GROUPED_PASSES.has(p.name)) otherPasses += 1;
     }
-    telemetry.renderStats.draws = draws;
-    telemetry.renderStats.sceneryDraws = telemetry.scenery.drawCount;
-    telemetry.renderStats.sceneryDispatch = telemetry.scenery.dispatchCount;
-    telemetry.renderStats.sceneryTriangles =
-      telemetry.scenery.spriteDraws * 4 /* two crossed quads per instance */
-      + telemetry.scenery.solidTriangles;
-    telemetry.renderStats.shadowDraws = telemetry.shadows.draws;
-    telemetry.renderStats.shadowTriangles = telemetry.shadows.triangles;
-    telemetry.renderStats.shadowAtlasBytes = telemetry.shadows.atlasBytes;
+    // #737 FR2 — this frame's counts, by group; cumulative ones in total*.
+    assembleRenderStats(telemetry.renderStats, {
+      passes: draws,
+      sceneryDispatch: telemetry.scenery.dispatchCount,
+      sceneryMesh: sceneryMeshPass.stats,
+      sprites: { draws: telemetry.scenery.spriteDraws, pools: telemetry.scenery.pools },
+      buildings: telemetry.buildings,
+      shadows: telemetry.shadows,
+      shadowAtlasBytes: telemetry.shadows.atlasBytes,
+    });
+    // #737 FR3 — the debug panel's frame cost and pacing, against the tier's budget.
+    writePanelStats(panelStats, {
+      stats: telemetry.renderStats,
+      pacing: telemetry.framePacing,
+      tier: opts.tier,
+      otherPasses,
+      now: Date.now(),
+    });
+    recordRenderStats(panelStats);
     let trees = 0;
     let meshes = 0;
+    let treesDrawn = 0;
+    let treesRead = false;
     for (const p of telemetry.scenery.pools) {
       if (p.kind !== 'foliage') continue;
       trees += p.instanceCount;
       meshes += 1;
+      if (p.drawn >= 0) {
+        treesDrawn += p.drawn;
+        treesRead = true;
+      }
     }
     telemetry.foliage.trees = trees;
     telemetry.foliage.meshes = meshes;
-    telemetry.foliage.drawn = trees;
+    // #737 FR4 — what the GPU cull kept, read back every few frames; −1
+    // until the first read lands.
+    telemetry.foliage.drawn = treesRead ? treesDrawn : meshes === 0 ? 0 : -1;
     telemetry.camera.x = eye[0];
     telemetry.camera.y = eye[1];
     telemetry.camera.z = eye[2];
@@ -2308,6 +2337,7 @@ export const createRideScene = async (
         delete (globalThis as unknown as Record<string, unknown>)[SEEK_METERS_KEY];
       } catch { /* non-browser */ }
       clearPolygonWaterTelemetry();
+      clearRenderStats();
       session.dispose();
     },
   };

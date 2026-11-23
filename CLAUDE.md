@@ -26,6 +26,12 @@ npm run test:e2e         # Playwright E2E. Builds the app and serves it at the
 npm run test:e2e:ci      # The same, with CI settings and retries
 npm run test:e2e:endurance # The long route traverses (#272), their own CI job
 npm run test:e2e:stress  # The heavy stress traverse (#301), scheduled only
+npx playwright test --config=playwright/playwright.config.ts --project=default playwright/tests/webgpu-frame-pacing.spec.ts
+                         # Frame pacing per tier (#737 FR7): 90 s rows held to
+                         #   RENDER_BUDGET[tier].p95Ms, no frame > 50 ms, stalls < 100 ms.
+                         #   Needs a hardware GPU (declines elsewhere). Telemetry
+                         #   is per frame; cumulative counts are the total* fields.
+                         #   `?review=1` lets the engine render on SwiftShader.
 npm run test:visual      # Visual baselines (#340). Compares one frozen frame per
                          #   tier/viewport with a committed PNG. Baselines are
                          #   recorded on Linux/SwiftShader in CI, never from a local

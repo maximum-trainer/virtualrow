@@ -37,6 +37,19 @@ describe('routeWaterFootprint', () => {
     const none = routeWaterFootprint({ positions: new Float32Array(6) });
     expect(none.quads).toBe(0);
     expect(none.contains(0, 0)).toBe(false);
+    expect(none.shoreDistance(0, 0)).toBeNull();
+  });
+
+  // #737 VP-19 FR4 — how far a point on the water is from the nearer shore.
+  it('measures the distance to the nearer shoreline', () => {
+    expect(footprint.shoreDistance(0, -100)).toBeCloseTo(10, 6);
+    expect(footprint.shoreDistance(7, -100)).toBeCloseTo(3, 6);
+    expect(footprint.shoreDistance(-9.5, -55)).toBeCloseTo(0.5, 6);
+  });
+
+  it('has no shore distance off the water', () => {
+    expect(footprint.shoreDistance(12, -100)).toBeNull();
+    expect(footprint.shoreDistance(0, 50)).toBeNull();
   });
 });
 
@@ -120,6 +133,12 @@ describe('withLakes', () => {
     expect(water.contains(50, -100)).toBe(false);
     expect(water.contains(80, -190)).toBe(false);
     expect(water.quads).toBe(footprint.quads);
+  });
+
+  it('keeps the ribbon\'s shore distance and has none for open lake water (#737 FR4)', () => {
+    const water = withLakes(footprint, [lake]);
+    expect(water.shoreDistance(0, -100)).toBeCloseTo(10, 6);
+    expect(water.shoreDistance(80, -50)).toBeNull();
   });
 
   it('is the route\'s own footprint when there are no lakes', () => {

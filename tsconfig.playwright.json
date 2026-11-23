@@ -21,6 +21,7 @@
     "src/lib/utils/crashEvidence.ts",
     "src/lib/utils/sceneTelemetryLog.ts",
     "src/lib/utils/worldScale.ts",
+    "src/lib/renderer/renderBudget.ts",
     "src/components/rower3d/constants.ts"
   ]
 }
