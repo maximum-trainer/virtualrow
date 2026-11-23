@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import RowHud from '../lib/ui/RowHud.svelte';
 import type { FullscreenControl } from '../lib/ui/fullscreenControl';
+import { CameraViewStore, CAMERA_VIEW_STORAGE_KEY } from '../lib/ui/cameraView.svelte';
 
 const fullscreen = (over: Partial<FullscreenControl> = {}): FullscreenControl => ({
   active: false,
@@ -158,4 +159,53 @@ describe('RowHud.svelte', () => {
     expect(levelGap.getAttribute('data-lead')).toBe('level');
     expect(levelGap.querySelector('.row-hud-gap-value')?.textContent).toBe('level');
   });
+
+  // #815 — the on-screen camera-angle button (D1a corner, D2a click cycles,
+  // D3b icon + view name with the V hint, D4a same button on touch).
+  describe('camera-angle button (#815)', () => {
+    beforeEach(() => {
+      localStorage.removeItem(CAMERA_VIEW_STORAGE_KEY);
+    });
+
+    const cameraButton = (container: HTMLElement) =>
+      container.querySelector('.row-hud-actions .btn-hud-camera') as HTMLButtonElement | null;
+
+    it('sits in the corner beside fullscreen, naming the view and the V key', () => {
+      const camera = new CameraViewStore();
+      const { container } = render(RowHud, props({ camera }));
+      const button = cameraButton(container);
+      expect(button).not.toBeNull();
+      expect(button!.textContent).toContain('Chase');
+      expect(button!.getAttribute('aria-label')).toBe('Camera: chase (press V to cycle)');
+      expect(button!.title).toBe('Camera: chase (V)');
+      expect(button!.tabIndex).not.toBe(-1);
+    });
+
+    it('cycles the store on click, and remembers the view', async () => {
+      const camera = new CameraViewStore();
+      const { container } = render(RowHud, props({ camera }));
+      await fireEvent.click(cameraButton(container)!);
+      expect(camera.view).toBe('side');
+      expect(cameraButton(container)!.textContent).toContain('Side');
+      expect(localStorage.getItem(CAMERA_VIEW_STORAGE_KEY)).toBe('side');
+    });
+
+    it('follows the V key, since both drive the same store', async () => {
+      const camera = new CameraViewStore();
+      const unbind = camera.bindKeyboard();
+      const { container } = render(RowHud, props({ camera }));
+      await fireEvent.keyDown(window, { key: 'v' });
+      expect(cameraButton(container)!.getAttribute('aria-label')).toBe('Camera: side (press V to cycle)');
+      await fireEvent.click(cameraButton(container)!);
+      await fireEvent.keyDown(window, { key: 'V' });
+      expect(cameraButton(container)!.textContent).toContain('High');
+      unbind();
+    });
+
+    it('is absent when no camera is passed', () => {
+      const { container } = render(RowHud, props());
+      expect(cameraButton(container)).toBeNull();
+    });
+  });
 });
+
