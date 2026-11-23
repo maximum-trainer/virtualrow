@@ -48,6 +48,8 @@ export interface BankPassOptions {
   edgesForProgress?: (progress: number) => WaterEdges;
   /** Biome-density grass modulation. Omitted → chunk off (strength 0, fallback tile). */
   grass?: BankGrassConfig;
+  /** #755 FR4 — land on this side only (a coastal course). Omitted → both. */
+  landSide?: 'left' | 'right';
   /** #742 — the water the bank gives way to (default: the route's own ribbon). */
   footprint?: WaterFootprint | null;
 }
@@ -83,6 +85,7 @@ export const createBankPass = async ({
   edgesForProgress,
   grass,
   footprint,
+  landSide,
 }: BankPassOptions): Promise<Pass> => {
   const code = SHADOW_UNIFORMS_WGSL + SAMPLE_SHADOW_WGSL + HORIZON_HAZE_WGSL + bankWgsl;
   const module = device.createShaderModule({ label: 'bank', code });
@@ -279,7 +282,7 @@ export const createBankPass = async ({
     ],
   });
 
-  const geom = buildBankStrips({ curve, edgesForProgress, footprint });
+  const geom = buildBankStrips({ curve, edgesForProgress, footprint, landSide });
   const positionBuffer = device.createBuffer({
     label: 'bank-pos',
     size: geom.positions.byteLength,

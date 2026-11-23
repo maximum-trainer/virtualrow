@@ -199,3 +199,21 @@ describe('buildBankStrips over a drawn lake (#742 FR5)', () => {
     expect(islandVerts).toBeGreaterThan(0);
   });
 });
+
+describe('one-sided land for a coastal course (#755 FR4)', () => {
+  const curve = new RouteCurve([vec3(0, 0, 0), vec3(0, 0, -300)], false);
+  const indexedSigns = (landSide?: 'left' | 'right') => {
+    const g = buildBankStrips({ curve, landSide, footprint: null });
+    const signs = new Set<number>();
+    for (const i of g.indices) signs.add(g.sides[i * 2]);
+    return { signs, triangles: g.indices.length / 3 };
+  };
+  it('emits exactly one bank strip, on the land side', () => {
+    const both = indexedSigns();
+    expect([...both.signs].sort()).toEqual([-1, 1]);
+    const left = indexedSigns('left');
+    expect([...left.signs]).toEqual([-1]);
+    expect(left.triangles).toBe(both.triangles / 2);
+    expect([...indexedSigns('right').signs]).toEqual([1]);
+  });
+});
