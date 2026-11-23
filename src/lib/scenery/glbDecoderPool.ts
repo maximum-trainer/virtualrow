@@ -11,10 +11,13 @@
  */
 
 import {
+  decodeModelGlb,
   decodeSceneryGlb,
   type GlbDecodeRequest,
   type GlbDecodeResponse,
+  type GlbModelRequest,
 } from './glbDecodeWorker';
+import type { GlbModel } from './glbLoader';
 
 export interface DecodedScenery {
   positions: Float32Array;
@@ -26,6 +29,11 @@ export interface DecodedScenery {
 
 export interface GlbDecoderPool {
   decode(id: string, url: string, applyVegetationGain: boolean): Promise<DecodedScenery>;
+  /**
+   * #729 FR4 — fetch and decode a whole model off the main thread, with its
+   * primitives kept apart (the scull: oars and crew articulate).
+   */
+  decodeModel(url: string, options: { preserveNodeTransforms: boolean }): Promise<GlbModel>;
   dispose(): void;
 }
 
@@ -61,7 +69,7 @@ const createWorkerPool = (factory: () => Worker): GlbDecoderPool => {
   let nextRequestId = 1;
   const pending = new Map<
     number,
-    { resolve: (mesh: DecodedScenery) => void; reject: (err: Error) => void }
+    { resolve: (response: GlbDecodeResponse) => void; reject: (err: Error) => void }
   >();
 
   const ensure = (): Worker => {
@@ -73,19 +81,8 @@ const createWorkerPool = (factory: () => Worker): GlbDecoderPool => {
       const slot = pending.get(msg.requestId);
       if (!slot) return;
       pending.delete(msg.requestId);
-      if (msg.type === 'ok') {
-        slot.resolve({
-          positions: new Float32Array(msg.positions),
-          normals: new Float32Array(msg.normals),
-          indices: msg.indicesIs32
-            ? new Uint32Array(msg.indices)
-            : new Uint16Array(msg.indices),
-          colors: new Float32Array(msg.colors),
-          baseColor: msg.baseColor,
-        });
-      } else {
-        slot.reject(new Error(msg.message));
-      }
+      if (msg.type === 'err') slot.reject(new Error(msg.message));
+      else slot.resolve(msg);
     });
     w.addEventListener('error', (event) => {
       const err = new Error(event.message || 'scenery decode worker error');
@@ -98,25 +95,34 @@ const createWorkerPool = (factory: () => Worker): GlbDecoderPool => {
     return w;
   };
 
+  const request = (build: (requestId: number) => GlbDecodeRequest | GlbModelRequest) =>
+    new Promise<GlbDecodeResponse>((resolve, reject) => {
+      const requestId = nextRequestId++;
+      pending.set(requestId, { resolve, reject });
+      try {
+        ensure().postMessage(build(requestId));
+      } catch (err) {
+        pending.delete(requestId);
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
+    });
+
   return {
-    decode(id, url, applyVegetationGain) {
-      return new Promise<DecodedScenery>((resolve, reject) => {
-        const requestId = nextRequestId++;
-        pending.set(requestId, { resolve, reject });
-        const req: GlbDecodeRequest = {
-          type: 'decode',
-          requestId,
-          id,
-          url,
-          applyVegetationGain,
-        };
-        try {
-          ensure().postMessage(req);
-        } catch (err) {
-          pending.delete(requestId);
-          reject(err instanceof Error ? err : new Error(String(err)));
-        }
-      });
+    async decode(id, url, applyVegetationGain) {
+      const msg = await request((requestId) => ({ type: 'decode', requestId, id, url, applyVegetationGain }));
+      if (msg.type !== 'ok') throw new Error(`unexpected decode response: ${msg.type}`);
+      return {
+        positions: new Float32Array(msg.positions),
+        normals: new Float32Array(msg.normals),
+        indices: msg.indicesIs32 ? new Uint32Array(msg.indices) : new Uint16Array(msg.indices),
+        colors: new Float32Array(msg.colors),
+        baseColor: msg.baseColor,
+      };
+    },
+    async decodeModel(url, { preserveNodeTransforms }) {
+      const msg = await request((requestId) => ({ type: 'decode-model', requestId, url, preserveNodeTransforms }));
+      if (msg.type !== 'model-ok') throw new Error(`unexpected decode response: ${msg.type}`);
+      return msg.model;
     },
     dispose() {
       worker?.terminate();
@@ -138,6 +144,12 @@ const createInlinePool = (fetchImpl?: typeof fetch): GlbDecoderPool => {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const bytes = new Uint8Array(await res.arrayBuffer());
       return decodeSceneryGlb(bytes, applyVegetationGain);
+    },
+    async decodeModel(url, { preserveNodeTransforms }) {
+      if (!doFetch) throw new Error('fetch is not available for inline GLB decode');
+      const res = await doFetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return decodeModelGlb(new Uint8Array(await res.arrayBuffer()), preserveNodeTransforms);
     },
     dispose() {
       /* inline pool holds no resources */

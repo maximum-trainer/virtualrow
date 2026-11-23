@@ -11,7 +11,7 @@
  * main thread only pays for `createBuffer` / `writeBuffer`.
  */
 
-import { loadGlb } from './glbLoader';
+import { loadGlb, type GlbModel } from './glbLoader';
 import {
   mergeSceneryPrimitives,
   scaleMeshColors,
@@ -45,7 +45,39 @@ export interface GlbDecodeErr {
   message: string;
 }
 
-export type GlbDecodeResponse = GlbDecodeOk | GlbDecodeErr;
+/**
+ * #729 FR4 — decode a whole model, primitives kept apart, for the scull:
+ * its oars and crew articulate, so it is not merged like scenery.
+ */
+export interface GlbModelRequest {
+  type: 'decode-model';
+  requestId: number;
+  url: string;
+  preserveNodeTransforms: boolean;
+}
+
+export interface GlbModelOk {
+  type: 'model-ok';
+  requestId: number;
+  model: GlbModel;
+}
+
+export type GlbDecodeResponse = GlbDecodeOk | GlbDecodeErr | GlbModelOk;
+
+/** Shared by the worker and the inline fallback (#729 FR4). */
+export const decodeModelGlb = (bytes: Uint8Array, preserveNodeTransforms: boolean): Promise<GlbModel> =>
+  loadGlb(bytes, { preserveNodeTransforms });
+
+/** Every distinct buffer behind a model's typed arrays, for a transfer list. */
+export const modelTransferables = (model: GlbModel): ArrayBuffer[] => {
+  const buffers = new Set<ArrayBuffer>();
+  for (const p of model.primitives) {
+    for (const a of [p.positions, p.normals, p.indices, p.nodeWorldMatrix, p.pivotWorldMatrix]) {
+      if (a && a.buffer instanceof ArrayBuffer) buffers.add(a.buffer);
+    }
+  }
+  return [...buffers];
+};
 
 /**
  * Pure helper so the inline fallback and the worker share the same pipeline.
@@ -102,6 +134,27 @@ const isWorkerScope =
 
 if (isWorkerScope && workerScope) {
   workerScope.addEventListener('message', (event: MessageEvent) => {
+    const modelReq = event.data as GlbModelRequest | undefined;
+    if (modelReq?.type === 'decode-model') {
+      void (async () => {
+        try {
+          const res = await fetch(modelReq.url);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const model = await decodeModelGlb(new Uint8Array(await res.arrayBuffer()), modelReq.preserveNodeTransforms);
+          const payload: GlbModelOk = { type: 'model-ok', requestId: modelReq.requestId, model };
+          workerScope.postMessage(payload, modelTransferables(model));
+        } catch (err) {
+          const payload: GlbDecodeErr = {
+            type: 'err',
+            requestId: modelReq.requestId,
+            id: modelReq.url,
+            message: err instanceof Error ? err.message : String(err),
+          };
+          workerScope.postMessage(payload);
+        }
+      })();
+      return;
+    }
     const req = event.data as GlbDecodeRequest | undefined;
     if (!req || req.type !== 'decode') return;
     void (async () => {

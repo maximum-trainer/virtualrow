@@ -66,7 +66,6 @@ import {
 } from './waterDetectionSummary';
 import { createSceneryMeshPass } from '../passes/sceneryMesh';
 import { revealAlpha } from '../passes/sceneryReveal';
-import { loadGlb } from '../../scenery/glbLoader';
 import {
   placeFurniture,
   routeExtras,
@@ -181,6 +180,7 @@ import { shaderGrassStrengthFor } from './shaderGrass';
 import type { PerformanceMode } from '../../scenery/sceneryPlacement';
 import type { SceneryProfile } from '../../services/routeEnrichmentService';
 import { createShadowStage, type ShadowTelemetry } from './shadowStage';
+import { measureAttach, measureAttachAsync } from './attachMeasure';
 import { tierCapsFor } from './tierCaps';
 import { publishSpeedMps, type Rower3DFleet, type TelemetryHandles } from './telemetry';
 import { createPostFx, type PostFxCaps } from './postFx';
@@ -638,30 +638,33 @@ export const createRideScene = async (
   // writeTexture is on the real GPUQueue but not on the attach-test mock;
   // skipping the upload leaves the atlas blank there, which is fine — no
   // test depends on the leaf texture's content.
-  if (typeof device.queue.writeTexture === 'function') {
-    for (let s = 0; s < FOLIAGE_SHAPES.length; s += 1) {
-      for (let v = 0; v < FOLIAGE_VARIANT_COUNT; v += 1) {
-        const layer = s * FOLIAGE_VARIANT_COUNT + v;
-        const pixels = paintFoliage(FOLIAGE_SHAPES[s], foliageAtlasSize, v);
-        device.queue.writeTexture(
-          { texture: foliageAtlasTex, origin: { x: 0, y: 0, z: layer }, mipLevel: 0 },
-          pixels as BufferSource,
-          { bytesPerRow: foliageAtlasSize * 4, rowsPerImage: foliageAtlasSize },
-          { width: foliageAtlasSize, height: foliageAtlasSize, depthOrArrayLayers: 1 },
-        );
-        const mips = buildFoliageMips(pixels, foliageAtlasSize);
-        for (let m = 0; m < mips.length; m += 1) {
-          const { size, pixels: mipPixels } = mips[m];
+  // #729 FR5 — timed as `vr:attach:atlas`.
+  measureAttach('atlas', () => {
+    if (typeof device.queue.writeTexture === 'function') {
+      for (let s = 0; s < FOLIAGE_SHAPES.length; s += 1) {
+        for (let v = 0; v < FOLIAGE_VARIANT_COUNT; v += 1) {
+          const layer = s * FOLIAGE_VARIANT_COUNT + v;
+          const pixels = paintFoliage(FOLIAGE_SHAPES[s], foliageAtlasSize, v);
           device.queue.writeTexture(
-            { texture: foliageAtlasTex, origin: { x: 0, y: 0, z: layer }, mipLevel: m + 1 },
-            mipPixels as BufferSource,
-            { bytesPerRow: size * 4, rowsPerImage: size },
-            { width: size, height: size, depthOrArrayLayers: 1 },
+            { texture: foliageAtlasTex, origin: { x: 0, y: 0, z: layer }, mipLevel: 0 },
+            pixels as BufferSource,
+            { bytesPerRow: foliageAtlasSize * 4, rowsPerImage: foliageAtlasSize },
+            { width: foliageAtlasSize, height: foliageAtlasSize, depthOrArrayLayers: 1 },
           );
+          const mips = buildFoliageMips(pixels, foliageAtlasSize);
+          for (let m = 0; m < mips.length; m += 1) {
+            const { size, pixels: mipPixels } = mips[m];
+            device.queue.writeTexture(
+              { texture: foliageAtlasTex, origin: { x: 0, y: 0, z: layer }, mipLevel: m + 1 },
+              mipPixels as BufferSource,
+              { bytesPerRow: size * 4, rowsPerImage: size },
+              { width: size, height: size, depthOrArrayLayers: 1 },
+            );
+          }
         }
       }
     }
-  }
+  });
   const foliageAtlasView = foliageAtlasTex.createView({ dimension: '2d-array' });
   const foliageSampler = device.createSampler({
     label: 'foliage',
@@ -724,7 +727,7 @@ export const createRideScene = async (
   // Chrome compiles them off the GPU process's main thread, in parallel,
   // and the ride only reports ready once they are all compiled. The
   // passes are therefore created together and awaited as one batch.
-  const [sceneryPass, boatPass, sceneryMeshPass] = await Promise.all([
+  const [sceneryPass, boatPass, sceneryMeshPass] = await measureAttachAsync('pipelines', () => Promise.all([
     createSceneryPass({
       device,
       format,
@@ -737,7 +740,7 @@ export const createRideScene = async (
     }),
     createBoatPass({ device, format, frameUniforms, mesh: boatMesh }),
     createSceneryMeshPass({ device, format, frameUniforms }),
-  ]);
+  ]));
   const BOAT_SCULL_PREFIX = 'boat-scull';
   /**
    * #728 FR1 / #713 D1a — instances of each scull primitive: the player,
@@ -807,6 +810,16 @@ export const createRideScene = async (
     const tier = 'abcdefgl'.includes(prefix) ? prefix : 'a';
     return `tier-${tier}`;
   };
+  // The fetch + GLB decode + primitive merge all run off-thread in a Worker
+  // pool so the main thread only pays for the final GPU buffer upload. On a
+  // tier-E tree the decode step was taking long enough to drop a frame each
+  // time new chunks streamed in; moving it to a worker removes that hitch.
+  // In SSR and jsdom tests the pool falls back to an inline decode, so the
+  // renderer behaves exactly as before where `Worker` is not available.
+  const decoderPool: GlbDecoderPool = createGlbDecoderPool(
+    opts.glbDecoderPool ?? defaultSceneryDecoderOptions(),
+  );
+
   /**
    * Load one crew's scull GLB and register each primitive as a mesh id
    * under `prefix`. `paint` applies the player's palette to the crew
@@ -820,10 +833,12 @@ export const createRideScene = async (
   ): Promise<void> => {
   try {
     const crewGlb = crewName === 'female' ? 'scull-female.glb' : 'scull-male.glb';
-    const res = await fetch(assetUrl(`/assets/boat/${crewGlb}`));
-    if (res.ok) {
-      const bytes = new Uint8Array(await res.arrayBuffer());
-      const model = await loadGlb(bytes, { preserveNodeTransforms: true });
+    // #729 FR4 — fetched and decoded in the decoder pool's worker, like the
+    // scenery kit, so the main thread only registers the buffers.
+    {
+      const model = await decoderPool.decodeModel(assetUrl(`/assets/boat/${crewGlb}`), {
+        preserveNodeTransforms: true,
+      });
       for (let i = 0; i < model.primitives.length; i += 1) {
         const prim = model.primitives[i];
         const id = `${prefix}:${i}`;
@@ -889,7 +904,7 @@ export const createRideScene = async (
   } catch { /* scull GLB load failed — the old baked boat remains as fallback */ }
   };
   const playerCrew: 'male' | 'female' = opts.crew === 'female' ? 'female' : 'male';
-  await loadScull(playerCrew, BOAT_SCULL_PREFIX, boatScullPrimitives, true);
+  await measureAttachAsync('crew', () => loadScull(playerCrew, BOAT_SCULL_PREFIX, boatScullPrimitives, true));
   // #713 D2a — the fleet rows both crews; the player's is already loaded.
   if (tierCaps.fleetCount > 0 && boatScullPrimitives.length > 0) {
     await loadScull(playerCrew === 'male' ? 'female' : 'male', BOAT_SCULL_ALT_PREFIX, boatScullAltPrimitives, false);
@@ -902,15 +917,6 @@ export const createRideScene = async (
   // the boat's distance, so distant scenery isn't fetched until the boat nears
   // it — no up-front burst that blocks the first frame or trips a host 503.
   //
-  // The fetch + GLB decode + primitive merge all run off-thread in a Worker
-  // pool so the main thread only pays for the final GPU buffer upload. On a
-  // tier-E tree the decode step was taking long enough to drop a frame each
-  // time new chunks streamed in; moving it to a worker removes that hitch.
-  // In SSR and jsdom tests the pool falls back to an inline decode, so the
-  // renderer behaves exactly as before where `Worker` is not available.
-  const decoderPool: GlbDecoderPool = createGlbDecoderPool(
-    opts.glbDecoderPool ?? defaultSceneryDecoderOptions(),
-  );
   // #688 — the sceneryMeshPass's shadow-depth loop iterates every
   // registered mesh with instances; small props (buoys, flagpoles,
   // distance markers, bank railings) drop tiny, invisible-at-tier shadows
@@ -1133,7 +1139,7 @@ export const createRideScene = async (
     wakePass,
     oarSplashPass,
     postFx,
-  ] = await Promise.all([
+  ] = await measureAttachAsync('pipelines', () => Promise.all([
     shadowStagePending,
     createSkyPass({ device, format, frameUniforms, lightingUniforms }),
     bankPassPending,
@@ -1145,7 +1151,7 @@ export const createRideScene = async (
     wakePassPending,
     oarSplashPassPending,
     createPostFx({ device, sceneFormat: format, outputFormat, caps: postCaps }),
-  ]);
+  ]));
   postFx.setInputs({
     sceneView: sceneTexture.createView(),
     sceneTexture,
