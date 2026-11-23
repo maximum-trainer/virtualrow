@@ -101,6 +101,9 @@ jobs:
           # a build without these two secrets ships green and silent.
           VITE_CRASH_REPORT_ENDPOINT: ${{ secrets.CRASH_REPORT_ENDPOINT }}
           VITE_CRASH_REPORT_TOKEN: ${{ secrets.CRASH_REPORT_TOKEN }}
+          # #37/#477: the virtualrow-api Worker's public URL (a repo
+          # *variable*, not a secret). Unset keeps preferences local-only.
+          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
 
       - name: Copy app build into docs/app/
         run: |

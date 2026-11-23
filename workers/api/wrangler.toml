@@ -17,8 +17,18 @@ database_name = "virtualrow-dev"
 database_id = "96eb755a-7d8c-4205-9d72-48cdcc9fd743"
 migrations_dir = "../../db/migrations"
 
+# #421: daily telemetry retention (see src/telemetry.ts runRetention).
+[triggers]
+crons = ["17 3 * * *"]
+
+[vars]
+ALLOWED_ORIGINS = "http://localhost:5173,http://localhost:4173"
+
 [env.dev]
 name = "virtualrow-api-dev"
+
+[env.dev.vars]
+ALLOWED_ORIGINS = "https://maximum-trainer.github.io,http://localhost:5173,http://localhost:4173"
 
 [[env.dev.d1_databases]]
 binding = "DB"
@@ -28,6 +38,9 @@ migrations_dir = "../../db/migrations"
 
 [env.production]
 name = "virtualrow-api"
+
+[env.production.vars]
+ALLOWED_ORIGINS = "https://maximum-trainer.github.io"
 
 [[env.production.d1_databases]]
 binding = "DB"

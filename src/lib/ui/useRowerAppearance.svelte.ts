@@ -7,8 +7,8 @@
  * is deliberately NOT pulled in here — it is three.js code that lands with the
  * workout/scene slice.
  */
+import { createDefaultRowerAppearanceService } from '../services/profileSync';
 import {
-  createLocalStorageRowerAppearanceService,
   DEFAULT_ROWER_APPEARANCE,
   type RowerAppearancePreference,
   type RowerAppearanceService,
@@ -19,9 +19,19 @@ export class RowerAppearanceStore {
 
   appearance = $state<RowerAppearancePreference>({ ...DEFAULT_ROWER_APPEARANCE });
 
-  constructor(service: RowerAppearanceService = createLocalStorageRowerAppearanceService()) {
+  constructor(service: RowerAppearanceService = createDefaultRowerAppearanceService()) {
     this.#service = service;
     this.appearance = service.read();
+    void this.sync();
+  }
+
+  /**
+   * Pull the signed-in athlete's server copy (#477) and show it when it is
+   * newer. A no-op for guests, offline, or when no API is configured.
+   */
+  async sync(): Promise<void> {
+    const next = await this.#service.sync?.();
+    if (next) this.appearance = next;
   }
 
   setSlot<K extends keyof RowerAppearancePreference>(

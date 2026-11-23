@@ -38,6 +38,16 @@ export interface TelemetryEvent {
 
 let events: TelemetryEvent[] = [];
 let store: Storage | null = null;
+const listeners = new Set<(event: TelemetryEvent) => void>();
+
+/**
+ * Hear every event as it is recorded (#421: the shipper). Returns the
+ * unsubscribe. A listener that throws is ignored, never the recording.
+ */
+export const subscribeTelemetry = (listener: (event: TelemetryEvent) => void): (() => void) => {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+};
 
 /** `performance.now`, or something monotonic enough, without throwing. */
 const now = (): number => {
@@ -101,7 +111,15 @@ export const openTelemetry = (storage: Storage | null | undefined): void => {
 
 /** Note that something happened. */
 export const recordTelemetry = (kind: string, detail?: Record<string, unknown>): void => {
-  events.push({ at: now(), kind, ...(detail ? { detail } : {}) });
+  const event: TelemetryEvent = { at: now(), kind, ...(detail ? { detail } : {}) };
+  events.push(event);
+  for (const listener of listeners) {
+    try {
+      listener(event);
+    } catch {
+      // The log matters more than any one listener.
+    }
+  }
   if (events.length > MAX_TELEMETRY_EVENTS) {
     events = events.slice(events.length - MAX_TELEMETRY_EVENTS);
   }
