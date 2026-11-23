@@ -3,6 +3,7 @@
 import { createAthleteVerifier, fetchIntervalsAthlete, type FetchAthlete } from './auth';
 import { allowedOrigin, preflight, withCors } from './cors';
 import { getField, isProfileField, putField, upsertUser } from './profile';
+import { createRateLimiter, ingestProblemReport, ingestTelemetry, runRetention } from './telemetry';
 
 export interface Env {
   DB: D1Database;
@@ -36,10 +37,23 @@ const PROFILE_ROUTE = /^\/api\/profile\/([a-z]+)$/;
 
 export function createHandler(deps: HandlerDeps) {
   const verify = createAthleteVerifier(deps.fetchAthlete, deps.now);
+  const allowIngest = createRateLimiter(deps.now);
 
   async function route(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     if (request.method === 'GET' && url.pathname === '/health/db') return handleHealth(env);
+
+    if (url.pathname === '/api/telemetry' || url.pathname === '/api/problem-reports') {
+      if (request.method !== 'POST') {
+        return new Response('Method Not Allowed', { status: 405, headers: { Allow: 'POST, OPTIONS' } });
+      }
+      if (!allowIngest(request.headers.get('CF-Connecting-IP') ?? 'unknown')) {
+        return Response.json({ error: 'rate-limited' }, { status: 429, headers: { 'Retry-After': '60' } });
+      }
+      return url.pathname === '/api/telemetry'
+        ? ingestTelemetry(env.DB, request, deps.now())
+        : ingestProblemReport(env.DB, request, deps.now());
+    }
 
     const match = PROFILE_ROUTE.exec(url.pathname);
     if (!match?.[1]) return new Response('Not Found', { status: 404 });
@@ -63,6 +77,10 @@ export function createHandler(deps: HandlerDeps) {
       const origin = allowedOrigin(request, env.ALLOWED_ORIGINS);
       if (request.method === 'OPTIONS') return preflight(origin);
       return withCors(await route(request, env), origin);
+    },
+    /** #421 daily retention (cron in wrangler.toml). */
+    async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
+      await runRetention(env.DB, deps.now());
     },
   } satisfies ExportedHandler<Env>;
 }
