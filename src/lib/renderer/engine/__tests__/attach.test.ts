@@ -455,6 +455,38 @@ describe('viewport insets (#733 VP-15)', () => {
   });
 });
 
+// #735 VP-17 FR3/FR5 — the camera telemetry reports the FOV actually drawn,
+// including the portrait widening, rather than a constant 58.
+describe('the ride camera publishes what it draws (#735)', () => {
+  it('reports the portrait-widened FOV on a tall canvas', async () => {
+    const { portraitFov, BASE_FOV } = await import('../camera');
+    const canvas = makeMockCanvas();
+    Object.assign(canvas, { width: 400, height: 800, clientWidth: 400, clientHeight: 800 });
+    const renderer = (await attach(canvas, {
+      testMode: true,
+      getFrame: () => ({
+        paceSPer500: 120,
+        distanceMeters: 40,
+        cadence: 24,
+        isPlaying: false,
+        holdBoat: false,
+        finished: false,
+        intensityFactor: 1,
+        elapsedSeconds: 10,
+        ghost: null,
+        view: 'chase',
+      }),
+    })) as unknown as WithTest;
+    renderer._frameOnce();
+    const camera = (globalThis as unknown as { window: Record<string, unknown> }).window['__ROWER3D_CAMERA'] as {
+      fov: number;
+    };
+    expect(camera.fov).toBeCloseTo(portraitFov(BASE_FOV, 0.5), 6);
+    expect(camera.fov).toBeGreaterThan(BASE_FOV);
+    renderer.dispose();
+  });
+});
+
 describe('the boat is never behind the HUD (#733 FR3)', () => {
   type Rect = { left: number; top: number; right: number; bottom: number };
   const VIEWPORTS: [number, number][] = [
