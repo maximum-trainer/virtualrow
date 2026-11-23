@@ -95,10 +95,13 @@ describe('attach', () => {
     renderer.dispose();
   });
 
-  it('leaves vr:attach measures for the pipelines, the atlas and the crew (#729 FR5)', async () => {
+  it('leaves vr:attach measures for the pipelines and the crew (#729 FR5)', async () => {
+    // `vr:attach:atlas` is recorded around the atlas paint + upload, which
+    // the mock queue (no writeTexture) skips; foliageAtlasUpload.test.ts
+    // covers the upload.
     performance.clearMeasures();
     const renderer = await attach(makeMockCanvas(), { testMode: true });
-    for (const phase of ['pipelines', 'atlas', 'crew']) {
+    for (const phase of ['pipelines', 'crew']) {
       expect(performance.getEntriesByName(`vr:attach:${phase}`, 'measure').length, phase).toBeGreaterThan(0);
     }
     renderer?.dispose();
