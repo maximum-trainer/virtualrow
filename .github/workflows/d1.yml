@@ -99,7 +99,8 @@ jobs:
       - name: Decide environment
         id: env
         run: |
-          if [ "${{ github.event_name }}" = "push" ]; then
+          # Production on a push to main, or a manual run from main; dev otherwise.
+          if [ "${{ github.event_name }}" = "push" ] || { [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.ref }}" = "refs/heads/main" ]; }; then
             echo "db=virtualrow-prod" >> "$GITHUB_OUTPUT"
             echo "wrangler_env=production" >> "$GITHUB_OUTPUT"
           else
