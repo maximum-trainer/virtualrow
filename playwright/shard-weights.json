@@ -64,6 +64,7 @@
     "uhd:responsive.spec.ts": 232,
     "default:webgpu-ride-camera-steady.spec.ts": 60,
     "default:webgpu-frame-pacing.spec.ts": 60,
+    "default:webgpu-ride-start-jank.spec.ts": 40,
     "default:ride-camera-button.spec.ts": 90
   }
 }
