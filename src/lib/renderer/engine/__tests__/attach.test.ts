@@ -95,6 +95,15 @@ describe('attach', () => {
     renderer.dispose();
   });
 
+  it('leaves vr:attach measures for the pipelines, the atlas and the crew (#729 FR5)', async () => {
+    performance.clearMeasures();
+    const renderer = await attach(makeMockCanvas(), { testMode: true });
+    for (const phase of ['pipelines', 'atlas', 'crew']) {
+      expect(performance.getEntriesByName(`vr:attach:${phase}`, 'measure').length, phase).toBeGreaterThan(0);
+    }
+    renderer?.dispose();
+  });
+
   it('surfaces renderer-unavailable when getContext returns null', async () => {
     const canvas = makeMockCanvas();
     (canvas as unknown as { getContext(): null }).getContext = () => null;
@@ -355,6 +364,17 @@ describe('attach', () => {
       };
       return urls as unknown as { urls: string[] };
     };
+
+    it('decodes the scull through the GLB decoder pool, off the main thread (#729 FR4)', async () => {
+      const poolUrls: string[] = [];
+      const fetchImpl = (async (input: RequestInfo | URL) => {
+        poolUrls.push(typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url);
+        return new Response(null, { status: 404 });
+      }) as typeof fetch;
+      const renderer = await attach(makeMockCanvas(), { testMode: true, glbDecoderPool: { fetchImpl } } as never);
+      expect(poolUrls.some((u) => u.endsWith('/assets/boat/scull-male.glb'))).toBe(true);
+      renderer?.dispose();
+    });
 
     it('defaults to scull-male.glb when no crew is passed (unchanged pre-seam behaviour)', async () => {
       const captured = captureBoatFetches() as unknown as string[] & { restore(): void };
