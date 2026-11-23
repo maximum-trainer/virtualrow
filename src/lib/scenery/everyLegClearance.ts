@@ -84,3 +84,23 @@ export const clearOfEveryLeg = <P extends { id: string; position: readonly [numb
     const reach = corridor + footprintRadiusFor(p.id, BUILT_IN_FOOTPRINT_LOOKUP);
     return centreline.distance(p.position[0], p.position[2], reach) >= reach;
   });
+
+/**
+ * #755 FR3 — on open water (a lake or the sea with no outline), whatever
+ * stands on the bank must be past the shore of *every* leg, not only the one
+ * it was laid out from: a lap's far leg is often closer than its own shore.
+ * Keeps the items `at(item)` puts at least `halfWidth` (plus `radius(item)`)
+ * from every part of the centreline.
+ */
+export const beyondEveryLegShore = <T>(
+  items: readonly T[],
+  centreline: CentrelineIndex,
+  halfWidth: number,
+  at: (item: T) => readonly [number, number],
+  radius: (item: T) => number = () => 0,
+): T[] =>
+  items.filter((item) => {
+    const [x, z] = at(item);
+    const reach = halfWidth + radius(item);
+    return centreline.distance(x, z, reach) >= reach;
+  });

@@ -30,6 +30,7 @@ import {
   type SceneryProfile,
 } from '../services/routeEnrichmentService';
 import { seededRandom } from './seededRandom';
+import { DEFAULT_WATER_WIDTH_METERS } from './waterHalfWidth';
 
 export const FOLIAGE_SLOT_METRES = 10;
 export const FOLIAGE_BAND_DEPTH_METRES = 36;
@@ -68,7 +69,6 @@ export interface FoliageLayoutInput {
 const sideOf = (offset: number): 'left' | 'right' => (offset < 0 ? 'left' : 'right');
 const nearestBankOffset = (halfWidth: number): number => halfWidth + SCENERY_WATER_MARGIN_METRES;
 
-const DEFAULT_WATER_WIDTH_METERS = 20;
 const waterHalfWidthAt = (
   enrichment: RouteEnrichmentData | null | undefined,
   progress: number,

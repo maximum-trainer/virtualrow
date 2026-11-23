@@ -34,6 +34,7 @@ import {
 } from '../services/routeEnrichmentService';
 import { seededRandom } from './seededRandom';
 import { SCENERY_WATER_MARGIN_METRES } from './foliagePlan';
+import { DEFAULT_WATER_WIDTH_METERS } from './waterHalfWidth';
 
 /** Species indices the solid flora stage recognises for the new layers. */
 export const REED_SPECIES = 3;
@@ -60,7 +61,7 @@ const waterHalfWidthAt = (
   progress: number,
   side: 'left' | 'right',
 ): number => {
-  const fallback = enrichment?.waterWidthMeters ?? 20;
+  const fallback = enrichment?.waterWidthMeters ?? DEFAULT_WATER_WIDTH_METERS;
   return getWaterEdgesSceneUnitsForProgress(enrichment?.segmentProfiles, fallback, progress)[side];
 };
 

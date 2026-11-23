@@ -104,3 +104,19 @@ describe('#493 AC19 — per-side scenery profile drives per-side landscape', () 
     for (const el of layout.rightElements) expect(el.sceneryProfile).toBe('commercial');
   });
 });
+
+describe('#755 FR2 — the shared water width with no segments', () => {
+  it('a 600 m lake puts every landscape element past its 300 m shore', () => {
+    const enrichment = {
+      waterBodyType: 'lake',
+      waterWidthMeters: 600,
+      elevations: [],
+      segmentProfiles: [],
+      source: 'fallback',
+    } as unknown as RouteEnrichmentData;
+    const layout = layoutLandscape({ curve: straightCurve(), enrichment });
+    const all = [...layout.leftElements, ...layout.rightElements];
+    expect(all.length).toBeGreaterThan(0);
+    for (const el of all) expect(Math.abs(el.position[0])).toBeGreaterThanOrEqual(300);
+  });
+});

@@ -29,6 +29,7 @@ import {
   type RouteSegmentEnrichment,
   type SceneryProfile,
 } from '../services/routeEnrichmentService';
+import { waterHalfWidthAt } from './waterHalfWidth';
 
 export const LANDSCAPE_OFFSET = 50;
 export const SCENERY_WATER_MARGIN_METRES = 2;
@@ -57,31 +58,7 @@ export interface LandscapeLayoutInput {
   track?: SceneryTrack | null;
 }
 
-const DEFAULT_WATER_WIDTH_METERS = 20;
 const nearestBankOffset = (halfWidth: number): number => halfWidth + SCENERY_WATER_MARGIN_METRES;
-
-// Mirror of the water-edges helper in the enrichment service, without pulling
-// SCENE_SCALE and the clearance module (which uses three).
-const waterHalfWidthAt = (
-  enrichment: RouteEnrichmentData | null | undefined,
-  progress: number,
-  side: BankSide,
-): number => {
-  const profiles = enrichment?.segmentProfiles;
-  if (!profiles || profiles.length === 0) {
-    return (enrichment?.waterWidthMeters ?? DEFAULT_WATER_WIDTH_METERS) / 2;
-  }
-  const clamped = Math.max(0, Math.min(1, progress));
-  const lastIndex = profiles.length - 1;
-  const scaled = clamped * lastIndex;
-  const lower = profiles[Math.floor(scaled)];
-  const upper = profiles[Math.min(lastIndex, Math.floor(scaled) + 1)];
-  const blend = scaled - Math.floor(scaled);
-  const lo = (side === 'left' ? lower.leftShoreMeters : lower.rightShoreMeters) ?? 0;
-  const hi = (side === 'left' ? upper.leftShoreMeters : upper.rightShoreMeters) ?? 0;
-  const meters = lo + (hi - lo) * blend;
-  return Number.isFinite(meters) && meters > 0 ? meters : DEFAULT_WATER_WIDTH_METERS / 2;
-};
 
 const densitiesOf = (segment: RouteSegmentEnrichment, side: BankSide) => {
   const own = side === 'left' ? segment.leftSceneryProfile : segment.rightSceneryProfile;
