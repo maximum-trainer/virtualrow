@@ -18,7 +18,7 @@
   import { attach } from '$lib/renderer/engine/attach';
   import { resolvePerformanceMode } from '../../components/rower3d/constants';
   import { getGraphicsStore } from '$lib/ui/graphicsContext';
-  import { toEngineRoute } from '$lib/ui/sceneryRoute';
+  import { toEngineRouteCached } from '$lib/ui/sceneryRoute';
   import { measureAttach } from '$lib/renderer/engine/attachMeasure';
   import { progressFromReports } from '$lib/utils/loadingProgress';
   import { getSessionStore } from '$lib/ui/sessionContext';
@@ -132,7 +132,7 @@
   });
   // #729 FR5 — the route layout is timed as `vr:attach:route`.
   const engineRoute = $derived(
-    measureAttach('route', () => toEngineRoute(routes.selectedRoute, selectedEnrichment, resolvedTier)),
+    measureAttach('route', () => toEngineRouteCached(routes.selectedRoute, selectedEnrichment, resolvedTier)),
   );
 
   // #542 AC11: when the engine declines (no WebGPU, software adapter, attach
