@@ -80,7 +80,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     lit = mix(1.0, lit, lighting.sun.w);
   }
   // Light scattered up out of the water; a shadow dims it, not the sky it reflects.
-  let body = vec3<f32>(0.10, 0.27, 0.34) * lighting.waterTint.rgb * (0.7 + 0.3 * lit);
+  let body = WATER_BODY * lighting.waterTint.rgb * (0.7 + 0.3 * lit);
   let nv = clamp(dot(n, v), 0.0, 1.0);
   let r = reflect(-v, n);
   let sky = skyColourToward(vec3<f32>(r.x, max(r.y, 0.0), r.z));

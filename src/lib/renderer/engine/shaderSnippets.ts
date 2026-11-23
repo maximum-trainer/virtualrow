@@ -15,7 +15,7 @@
  */
 
 import { GROUND_HAZE_END_M, GROUND_HAZE_START_M } from '../plan/groundPlane';
-import { WATER_F0, WATER_SPECULAR_POWER, waterSlopeWgsl } from '../plan/waterWaves';
+import { WATER_BODY_COLOUR, WATER_F0, WATER_SPECULAR_POWER, waterSlopeWgsl } from '../plan/waterWaves';
 
 /**
  * `@group(1)` is the shadow bind group for lit passes with no other
@@ -170,6 +170,7 @@ fn skyColourToward(dir: vec3<f32>) -> vec3<f32> {
 export const WATER_SURFACE_WGSL = /* wgsl */ `
 const WATER_F0: f32 = ${WATER_F0.toFixed(3)};
 const WATER_SPECULAR_POWER: f32 = ${WATER_SPECULAR_POWER.toFixed(1)};
+const WATER_BODY: vec3<f32> = vec3<f32>(${WATER_BODY_COLOUR.map((c) => c.toFixed(3)).join(', ')});
 ${waterSlopeWgsl()}`;
 
 /** The blend state every pass that outputs `horizonAlpha` must use. */

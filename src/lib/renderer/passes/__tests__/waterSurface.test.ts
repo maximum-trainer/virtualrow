@@ -12,7 +12,7 @@ import {
   SKY_COLOUR_WGSL,
   WATER_SURFACE_WGSL,
 } from '../../engine/shaderSnippets';
-import { WATER_WAVE_TRAINS } from '../../plan/waterWaves';
+import { WATER_BODY_COLOUR, WATER_WAVE_TRAINS } from '../../plan/waterWaves';
 
 const passesDir = dirname(fileURLToPath(import.meta.url)) + '/..';
 const read = (f: string) => readFileSync(join(passesDir, f), 'utf8');
@@ -48,5 +48,14 @@ describe('shared water surface (#734)', () => {
     // FR3: the far water still dissolves through the shared horizon haze.
     expect(wgsl).toContain('horizonAlpha(camDist)');
     expect(WATER_SURFACE_WGSL.match(/let c = cos\(/g)).toHaveLength(WATER_WAVE_TRAINS.length + 1);
+  });
+});
+
+describe('water body colour (#734, #732 FR4)', () => {
+  it('the WGSL body colour is the shared WATER_BODY_COLOUR', () => {
+    const [r, g, b] = WATER_BODY_COLOUR;
+    expect(WATER_SURFACE_WGSL).toContain(`const WATER_BODY: vec3<f32> = vec3<f32>(${r.toFixed(3)}, ${g.toFixed(3)}, ${b.toFixed(3)});`);
+    const water = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'water.wgsl'), 'utf8');
+    expect(water).toContain('let body = WATER_BODY * lighting.waterTint.rgb');
   });
 });
