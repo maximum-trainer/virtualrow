@@ -22,6 +22,7 @@
     "src/lib/utils/sceneTelemetryLog.ts",
     "src/lib/utils/worldScale.ts",
     "src/lib/renderer/renderBudget.ts",
+    "src/lib/renderer/engine/latticeSpectrum.ts",
     "src/components/rower3d/constants.ts"
   ]
 }

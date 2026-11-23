@@ -63,40 +63,36 @@ fn vs_main(@location(0) position: vec3<f32>) -> VSOut {
 
 @fragment
 fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
-  let shallow = vec3<f32>(0.22, 0.52, 0.58);
-  let deep = vec3<f32>(0.07, 0.22, 0.36);
-  // Deeper modulation + a second (orthogonal, lower-freq) ripple so the
-  // water surface reads as moving from the chase camera. Previously
-  // ripple × 0.6 was too subtle to notice during a row.
-  let ripple = 0.5 + 0.5 * sin(in.worldXZ.x * 0.6 + frame.time * 2.0)
-                   * cos(in.worldXZ.y * 0.5 - frame.time * 1.1);
-  let secondary = 0.5 + 0.5 * sin(in.worldXZ.x * 0.11 - frame.time * 0.6)
-                      * cos(in.worldXZ.y * 0.09 + frame.time * 0.4);
-  let col = mix(deep, shallow, clamp(ripple * 0.85 + secondary * 0.3 - 0.15, 0.0, 1.0));
+  // #734 VP-16 — the surface normal comes from twelve wave trains a golden
+  // angle apart plus a detail octave (`waterSlope`, generated from
+  // `plan/waterWaves.ts`), so no camera sees the old sin(x)·cos(z)
+  // checkerboard. The colour is the body of the water mixed, by Fresnel,
+  // toward the sky it reflects (`skyColourToward`, the sky pass's own
+  // gradient), plus a lobe of sun. `plan/waterWaves.ts` holds a CPU twin.
+  let toCam = frame.camPos - in.worldPos;
+  let camDist = length(toCam.xz);
+  let v = normalize(toCam);
+  let g = waterSlope(in.worldXZ, frame.time, camDist);
+  let n = normalize(vec3<f32>(-g.x, 1.0, -g.y));
   // #730 FR4: Overcast softens the shadow (strength < 1); 1 is today's.
   var lit = sampleShadow(in.worldPos, in.viewZ);
   if (lighting.sun.w < 1.0) {
     lit = mix(1.0, lit, lighting.sun.w);
   }
-  // Water takes a lighter shadow — only the reflection dims.
-  var shaded = col * (0.75 + 0.25 * lit) * lighting.waterTint.rgb;
-  // #730: a low sun lays a glint down the water. waterSpecular is 0 at
-  // Midday and under Overcast, so those frames skip it entirely.
-  let spec = lighting.horizonWarm.w;
-  if (spec > 0.0) {
-    let ripple2 = vec3<f32>(
-      0.08 * sin(in.worldXZ.x * 1.7 + frame.time * 2.3),
-      1.0,
-      0.08 * cos(in.worldXZ.y * 1.3 - frame.time * 1.9),
-    );
-    let n = normalize(ripple2);
-    let v = normalize(frame.camPos - in.worldPos);
-    let r = reflect(-v, n);
-    let glint = pow(max(dot(r, normalize(frame.sunDir)), 0.0), 48.0);
-    shaded = shaded + lighting.sun.rgb * (glint * spec * lit);
-  }
-  // Dissolve into the sky at the horizon in step with the land
-  // (HORIZON_HAZE_WGSL), so distant water is not left as a hard blue line.
-  let camDist = length(in.worldPos.xz - frame.camPos.xz);
-  return vec4<f32>(shaded, horizonAlpha(camDist));
+  // Light scattered up out of the water; a shadow dims it, not the sky it reflects.
+  let body = vec3<f32>(0.10, 0.27, 0.34) * lighting.waterTint.rgb * (0.7 + 0.3 * lit);
+  let nv = clamp(dot(n, v), 0.0, 1.0);
+  let r = reflect(-v, n);
+  let sky = skyColourToward(vec3<f32>(r.x, max(r.y, 0.0), r.z));
+  let fresnel = WATER_F0 + (1.0 - WATER_F0) * pow(1.0 - nv, 5.0);
+  var col = mix(body, sky, fresnel);
+  // The sun's lobe: none under Overcast (sunDisc 0), brighter for a low
+  // sun (waterSpecular, the #730 glint), always masked by the shadow.
+  let hv = normalize(v + normalize(frame.sunDir));
+  let lobe = pow(max(dot(n, hv), 0.0), WATER_SPECULAR_POWER)
+    * lighting.ambient.w * (0.6 + lighting.horizonWarm.w) * lit;
+  col = col + vec3<f32>(1.0, 0.96, 0.88) * lighting.sun.rgb * lobe;
+  // FR3: dissolve into the sky at the horizon in step with the land
+  // (HORIZON_HAZE_WGSL), so the far waterline is soft.
+  return vec4<f32>(col, horizonAlpha(camDist));
 }
