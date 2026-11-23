@@ -216,10 +216,17 @@ export async function installRideHarness(page: Page): Promise<void> {
  * PM5/HR simulators, then the session bridge navigates to `/row`. Leaves the
  * page on `/row` with the canvas host mounted.
  */
-export async function startDemoRide(page: Page): Promise<void> {
+export async function startDemoRide(
+  page: Page,
+  opts: {
+    /** Runs once the demo button is there, before the click (#729: hover first). */
+    beforeClick?: (page: Page) => Promise<void>;
+  } = {},
+): Promise<void> {
   await page.goto('./');
   await page.waitForSelector('.route-info-overlay h2', { timeout: 15_000 });
   await page.waitForSelector('.btn-try-demo', { timeout: 15_000 });
+  await opts.beforeClick?.(page);
   // Click through evaluate so the 3D canvas never intercepts the pointer.
   await page.evaluate(() => {
     (document.querySelector('.btn-try-demo') as HTMLButtonElement | null)?.click();

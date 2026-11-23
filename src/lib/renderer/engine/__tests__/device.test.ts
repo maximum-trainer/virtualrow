@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { describeAdapter, isSoftwareAdapter, requestDevice, softwareAttachRequested } from '../device';
+import {
+  describeAdapter,
+  isSoftwareAdapter,
+  prewarmDevice,
+  requestDevice,
+  resetPrewarmForTests,
+  softwareAttachRequested,
+} from '../device';
 import { resetWebGPUHealth, readWebGPUHealth } from '../health';
 import {
   installGPUStub,
@@ -150,5 +157,91 @@ describe('device', () => {
     expect((globalThis.navigator as unknown as { gpu?: unknown }).gpu).toBeTruthy();
     installGPUStub(undefined);
     expect((globalThis.navigator as unknown as { gpu?: unknown }).gpu).toBeUndefined();
+  });
+});
+
+// #729 (Dan's choice, 2026-11-23): get the device on start-button hover or
+// focus, so Chrome's synchronous adapter/device work lands before the click.
+describe('prewarmDevice (#729)', () => {
+  beforeEach(() => {
+    resetWebGPUHealth();
+    resetPrewarmForTests();
+  });
+
+  const spyGPU = (adapter: GPUAdapter | 'throw') => {
+    const gpu = makeMockGPU(adapter);
+    const requestAdapter = vi.spyOn(gpu, 'requestAdapter');
+    return { gpu, requestAdapter };
+  };
+
+  it('hands the device it made to the next attach, without asking again', async () => {
+    const adapter = makeMockAdapter();
+    const requestDeviceSpy = vi.spyOn(adapter, 'requestDevice');
+    const { gpu, requestAdapter } = spyGPU(adapter);
+    prewarmDevice({ gpu });
+    prewarmDevice({ gpu }); // idempotent
+    await vi.waitFor(() => expect(requestDeviceSpy).toHaveBeenCalled());
+    const early = await requestDeviceSpy.mock.results[0]?.value;
+    const session = await requestDevice({ gpu });
+    expect(requestAdapter).toHaveBeenCalledOnce();
+    expect(requestDeviceSpy).toHaveBeenCalledOnce();
+    expect(session.state.kind === 'ready' && session.state.device).toBe(early);
+    expect(readWebGPUHealth()?.adapter).toContain('mock');
+    session.dispose();
+  });
+
+  it('is taken once: the next attach asks for its own device', async () => {
+    const { gpu, requestAdapter } = spyGPU(makeMockAdapter());
+    prewarmDevice({ gpu });
+    (await requestDevice({ gpu })).dispose();
+    const second = await requestDevice({ gpu });
+    expect(second.state.kind).toBe('ready');
+    expect(requestAdapter).toHaveBeenCalledTimes(2);
+    second.dispose();
+  });
+
+  it('is not used by a retry after a device loss', async () => {
+    const { gpu, requestAdapter } = spyGPU(makeMockAdapter());
+    prewarmDevice({ gpu });
+    const retry = await requestDevice({ gpu }, { isRetry: true });
+    expect(retry.state.kind).toBe('ready');
+    expect(requestAdapter).toHaveBeenCalledTimes(2);
+    retry.dispose();
+  });
+
+  it('keeps nothing for a software adapter, so the attach declines it as before', async () => {
+    const { gpu, requestAdapter } = spyGPU(makeMockAdapter({ software: true }));
+    prewarmDevice({ gpu });
+    const session = await requestDevice({ gpu });
+    expect(session.state).toEqual({ kind: 'unavailable', reason: 'software-adapter' });
+    expect(requestAdapter).toHaveBeenCalledTimes(2);
+  });
+
+  it('drops a device that was lost while waiting', async () => {
+    const adapter = makeMockAdapter();
+    const requestDeviceSpy = vi.spyOn(adapter, 'requestDevice');
+    const { gpu } = spyGPU(adapter);
+    prewarmDevice({ gpu });
+    await vi.waitFor(() => expect(requestDeviceSpy).toHaveBeenCalled());
+    const early = (await requestDeviceSpy.mock.results[0]?.value) as GPUDevice & {
+      __triggerLost: () => void;
+    };
+    early.__triggerLost();
+    const session = await requestDevice({ gpu });
+    expect(session.state.kind).toBe('ready');
+    expect(session.state.kind === 'ready' && session.state.device).not.toBe(early);
+    session.dispose();
+  });
+
+  it('swallows a failed request; the attach then asks and reports as usual', async () => {
+    const { gpu } = spyGPU('throw');
+    prewarmDevice({ gpu });
+    const session = await requestDevice({ gpu });
+    expect(session.state).toEqual({ kind: 'unavailable', reason: 'adapter-request-failed' });
+  });
+
+  it('does nothing without WebGPU', () => {
+    expect(() => prewarmDevice(undefined)).not.toThrow();
+    expect(() => prewarmDevice({})).not.toThrow();
   });
 });
