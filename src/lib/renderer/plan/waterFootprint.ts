@@ -29,6 +29,8 @@ export interface WaterFootprint {
 
 const DEFAULT_CELL_METRES = 25;
 export const FOOTPRINT_EDGE_MARGIN_METRES = 0.5;
+/** #742 FR3 — how far inside the water a route GLB must stand to be taken out. */
+export const GLB_WATER_MARGIN_METRES = 3;
 
 const distanceToSegment = (
   px: number, pz: number, ax: number, az: number, bx: number, bz: number,

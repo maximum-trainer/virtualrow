@@ -5,11 +5,21 @@
 // (Willowbrook from `routeService` + a synthetic HOCR-flavoured
 // gates-only route) across every tier × enrichment pair.
 //
-// Imported-course fixtures (Head of the Cuyahoga / Head of the Cam /
-// Hamburg / Seekonk) land once #742's recorded gate chains are in
-// `src/__tests__/fixtures/`.
+// #760: and the recorded imported rownative courses the oversized
+// boathouse appeared on (Head of the Cuyahoga, Lake Quinsigamond, Head
+// of the Cam, Hamburg Fari 7500, Seekonk North Stake Race), rowed along
+// their gate chains as an import does.
 
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
+import cuyahoga114 from '../../../__tests__/fixtures/rownative/114.json';
+import quinsigamond115 from '../../../__tests__/fixtures/rownative/115.json';
+import cam171 from '../../../__tests__/fixtures/rownative/171.json';
+import hamburg124 from '../../../__tests__/fixtures/rownative/124.json';
+import seekonk104 from '../../../__tests__/fixtures/rownative/104.json';
+import { GLB_WATER_MARGIN_METRES, routeWaterFootprint } from '../../renderer/plan/waterFootprint';
+import { bridgeParallelLegs, islandLand } from '../../renderer/plan/parallelLegs';
+import { buildWaterStrip } from '../../renderer/plan/waterStrip';
+import { resolveCourseGeometry, type RownativeCourseGeometryInput } from '../../services/rownativeGeometry';
 import { toEngineRoute } from '../../ui/sceneryRoute';
 import { willowbrookRiverCoordinates } from '../../../data/seedRouteCoordinates';
 import { WILLOWBROOK_ROUTE_ID } from '../../../components/rower3d/sceneryTrack';
@@ -49,14 +59,41 @@ const fallbackEnrichment: RouteEnrichmentData = {
 
 const nullEnrichment: RouteEnrichmentData | null = null;
 
-describe('placement clearance property (#723 FR1/FR2/FR3)', () => {
+const IMPORTED_COURSES: [string, unknown][] = [
+  ['Head of the Cuyahoga', cuyahoga114],
+  ['Lake Quinsigamond Lap of the Lake', quinsigamond115],
+  ['Head of the Cam', cam171],
+  ['Hamburg Fari 7500', hamburg124],
+  ['Seekonk North Stake Race', seekonk104],
+];
+const routes = new Map<string, WaterRoute>([['Willowbrook', willowbrook]]);
+
+beforeAll(async () => {
+  for (const [name, file] of IMPORTED_COURSES) {
+    const input = file as RownativeCourseGeometryInput;
+    const { coordinates } = await resolveCourseGeometry(input);
+    routes.set(name, {
+      ...willowbrook,
+      id: `rownative-${input.id}`,
+      name,
+      location: '',
+      coordinates,
+      distance: Math.round(routeTotalDistanceMeters(coordinates)) / 1000,
+    });
+  }
+});
+
+describe('placement clearance property (#723 FR1/FR2/FR3, #760)', () => {
+  for (const routeName of ['Willowbrook', ...IMPORTED_COURSES.map(([name]) => name)]) {
   for (const tier of TIERS) {
     for (const [enrichName, enrichment] of [
       ['no-enrichment', nullEnrichment] as const,
       ['fallback-enrichment', fallbackEnrichment] as const,
     ]) {
-      it(`Willowbrook @ ${tier} × ${enrichName}: every placement respects the corridor + bank`, () => {
-        const engineRoute = toEngineRoute(willowbrook, enrichment, tier);
+      it(`${routeName} @ ${tier} × ${enrichName}: every placement respects the corridor + bank`, () => {
+        const route = routes.get(routeName);
+        expect(route, `${routeName} resolved`).toBeDefined();
+        const engineRoute = toEngineRoute(route, enrichment, tier);
         expect(engineRoute).not.toBeNull();
         if (!engineRoute || !engineRoute.curvePoints || engineRoute.curvePoints.length < 2) return;
         const corridor = keepClearHalfWidth();
@@ -72,9 +109,17 @@ describe('placement clearance property (#723 FR1/FR2/FR3)', () => {
           curve.sample(Math.max(0, Math.min(0.999, t)), curveSample);
           return curveSample;
         };
+        // #742 FR3: the engine takes any model standing on some part of
+        // the route's water (another leg's, on a lap) out before drawing
+        // it. Built as rideScene builds it, so this guards what is drawn.
+        const legs = bridgeParallelLegs(curve, engineRoute.waterEdgesForProgress, {
+          isLand: islandLand(engineRoute.lakePolygons),
+        });
+        const routeWater = routeWaterFootprint(buildWaterStrip(curve, { edgesForProgress: legs.edgesForProgress }));
         for (const group of engineRoute.sceneryGlbs ?? []) {
           const radius = footprintRadiusFor(group.id, BUILT_IN_FOOTPRINT_LOOKUP);
           for (const inst of group.instances) {
+            if (routeWater.contains(inst.position[0], inst.position[2], GLB_WATER_MARGIN_METRES)) continue;
             // Find the nearest sample on a coarse scan. A property-level
             // guard only needs to catch items that overlap the water by
             // many metres — the original failures ran 5 to 20 m into the
@@ -134,5 +179,6 @@ describe('placement clearance property (#723 FR1/FR2/FR3)', () => {
         }
       });
     }
+  }
   }
 });
