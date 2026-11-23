@@ -17,6 +17,8 @@ export interface BankDepthPipeline {
   sides: GPUBuffer;
   indices: GPUBuffer;
   indexCount: number;
+  /** #742 — a long route's banks need 32-bit indices. */
+  indexFormat: GPUIndexFormat;
   dispose(): void;
 }
 
@@ -80,6 +82,7 @@ export const createBankDepthPipeline = (
     sides,
     indices,
     indexCount: geom.indices.length,
+    indexFormat: geom.indexFormat,
     dispose() {
       if (disposed) return;
       disposed = true;
