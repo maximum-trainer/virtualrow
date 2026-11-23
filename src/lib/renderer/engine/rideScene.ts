@@ -127,7 +127,7 @@ import {
   fleetWaterHalfWidth,
 } from './fleet';
 import { DEFAULT_WATER_HALF_WIDTH_M, buildWaterStrip } from '../plan/waterStrip';
-import { lakeWater, poolsOffWater, routeWaterFootprint, surfaceAt, withLakes } from '../plan/waterFootprint';
+import { GLB_WATER_MARGIN_METRES, lakeWater, poolsOffWater, routeWaterFootprint, surfaceAt, withLakes } from '../plan/waterFootprint';
 import { FLEET_INSTANCE_CAPACITY } from '../passes/boat';
 import { assetUrl } from '../../utils/assetUrl';
 import { createSceneryPass } from './sceneryPass';
@@ -206,8 +206,6 @@ import {
   type ShadowUniformsCpu,
 } from './uniforms';
 
-/** #742 FR3 — how far inside the water a GLB must stand to be taken out. */
-const GLB_WATER_MARGIN_METRES = 3;
 
 /**
  * A scenery route shape the engine understands: the UI-side `route` is
