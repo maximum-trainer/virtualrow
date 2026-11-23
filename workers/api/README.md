@@ -23,3 +23,18 @@ No Cloudflare account is required to build the client (`npm run build` in the re
 | `production` | `virtualrow-api`         | `virtualrow-prod`  |
 
 Binding name is `DB` in both environments. IDs live in `wrangler.toml` (not secrets).
+
+## Profile API (#37)
+
+Every `/api/*` call carries the app's intervals.icu access token as
+`Authorization: Bearer <token>`. The Worker checks it against
+`https://intervals.icu/api/v1/athlete/0`, caches the athlete for 10 minutes per
+isolate (keyed by a SHA-256 of the token), and creates the `users` row on first use.
+
+| Method | Path | Body | Result |
+| --- | --- | --- | --- |
+| GET | `/api/profile/appearance` or `/colours` | | `{ value, updatedAt }` (`null`s when unset) |
+| PUT | same | `{ value, updatedAt }` (epoch ms, ≤16 KB) | 200 stored copy, or 409 with the newer stored copy |
+
+Browser origins come from the `ALLOWED_ORIGINS` var in `wrangler.toml`
+(production: the GitHub Pages host only).

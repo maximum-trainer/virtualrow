@@ -1,13 +1,23 @@
 // Cloudflare Worker entry point for virtualrow's server-side persistence.
-// See issue #670. Only the DB healthcheck lives here in Phase 1; feature
-// routes land with their feature issues (#37, #421, #417, #477, #650).
+// See issues #670 (foundation) and #37 (auth + profile API).
+import { createAthleteVerifier, fetchIntervalsAthlete, type FetchAthlete } from './auth';
+import { allowedOrigin, preflight, withCors } from './cors';
+import { getField, isProfileField, putField, upsertUser } from './profile';
+
 export interface Env {
   DB: D1Database;
+  /** Comma-separated browser origins allowed to call /api/*. */
+  ALLOWED_ORIGINS?: string;
 }
 
 export interface HealthResponse {
   ok: boolean;
   error?: string;
+}
+
+export interface HandlerDeps {
+  fetchAthlete: FetchAthlete;
+  now: () => number;
 }
 
 async function handleHealth(env: Env): Promise<Response> {
@@ -22,12 +32,39 @@ async function handleHealth(env: Env): Promise<Response> {
   }
 }
 
-export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+const PROFILE_ROUTE = /^\/api\/profile\/([a-z]+)$/;
+
+export function createHandler(deps: HandlerDeps) {
+  const verify = createAthleteVerifier(deps.fetchAthlete, deps.now);
+
+  async function route(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-    if (request.method === 'GET' && url.pathname === '/health/db') {
-      return handleHealth(env);
+    if (request.method === 'GET' && url.pathname === '/health/db') return handleHealth(env);
+
+    const match = PROFILE_ROUTE.exec(url.pathname);
+    if (!match?.[1]) return new Response('Not Found', { status: 404 });
+    if (request.method !== 'GET' && request.method !== 'PUT') {
+      return new Response('Method Not Allowed', { status: 405, headers: { Allow: 'GET, PUT, OPTIONS' } });
     }
-    return new Response('Not Found', { status: 404 });
-  },
-} satisfies ExportedHandler<Env>;
+    const athlete = await verify(request);
+    if (!athlete) return Response.json({ error: 'unauthorized' }, { status: 401 });
+    const field = match[1];
+    if (!isProfileField(field)) return Response.json({ error: 'unknown-field' }, { status: 404 });
+
+    const now = deps.now();
+    const userId = await upsertUser(env.DB, athlete, now);
+    return request.method === 'GET'
+      ? getField(env.DB, userId, field)
+      : putField(env.DB, userId, field, request, now);
+  }
+
+  return {
+    async fetch(request: Request, env: Env): Promise<Response> {
+      const origin = allowedOrigin(request, env.ALLOWED_ORIGINS);
+      if (request.method === 'OPTIONS') return preflight(origin);
+      return withCors(await route(request, env), origin);
+    },
+  } satisfies ExportedHandler<Env>;
+}
+
+export default createHandler({ fetchAthlete: fetchIntervalsAthlete, now: Date.now });
