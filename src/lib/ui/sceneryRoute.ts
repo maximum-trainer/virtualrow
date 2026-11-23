@@ -29,6 +29,7 @@
  * the scenery instancing (the engine mounts an empty scenery pass for an empty
  * `pools`, which is what it already does on the fallback route).
  */
+import { centrelineIndex, clearOfEveryLeg } from '../scenery/everyLegClearance';
 import type { WaterRoute } from '../types/index';
 import {
   getWaterEdgesSceneUnitsForProgress,
@@ -331,7 +332,9 @@ export const toEngineRoute = (
     const terrain = buildTerrainProfile(enrichment?.elevations);
     const structures: Placement[] = computeStructurePlacements(curve, requests, terrain, enrichment ?? null);
     const grouped = new Map<SceneryModelId, SceneryInstance[]>();
-    for (const p of [...left, ...right, ...structures]) {
+    // #760 — a bank placement on one leg must not stand in another leg's lane.
+    const everyLeg = centrelineIndex(curvePoints);
+    for (const p of [...clearOfEveryLeg(left, everyLeg), ...clearOfEveryLeg(right, everyLeg), ...structures]) {
       const list = grouped.get(p.id) ?? [];
       list.push({ position: p.position, rotationY: p.rotationY, scale: p.scale });
       grouped.set(p.id, list);
