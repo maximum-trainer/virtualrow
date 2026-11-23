@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { computeCascades, practicalSplits } from '../cascadedShadows';
+import { computeCascades, createComputedCascades, practicalSplits } from '../cascadedShadows';
 import type { Vec3 } from '../../math/vec3';
 
 const vec = (x: number, y: number, z: number): Vec3 =>
@@ -57,6 +57,24 @@ describe('computeCascades', () => {
     expect(result.cascades[0].radius).toBeGreaterThan(0);
     expect(result.cascades[2].radius).toBeGreaterThan(0);
     expect(result.cascades[3].radius).toBe(0);
+  });
+
+  // #736 — the frame loop fills one result in place; it must match a fresh one.
+  it('fills a reused target with the same result, frame after frame, without new matrices', () => {
+    const target = createComputedCascades();
+    const first = computeCascades(cfg, target);
+    expect(first).toBe(target);
+    const mats = target.cascades.map((c) => c.viewProj);
+    for (const config of [cfg, { ...cfg, cascades: 2, camPos: vec(5, 3, -40) }, { ...cfg, cascades: 4 }]) {
+      const fresh = computeCascades(config);
+      const reused = computeCascades(config, target);
+      reused.cascades.forEach((c, i) => expect(c.viewProj).toBe(mats[i]));
+      expect(Array.from(reused.splits)).toEqual(Array.from(fresh.splits));
+      for (let i = 0; i < 4; i += 1) {
+        expect(Array.from(reused.cascades[i].viewProj)).toEqual(Array.from(fresh.cascades[i].viewProj));
+        expect(reused.cascades[i].radius).toBe(fresh.cascades[i].radius);
+      }
+    }
   });
 
   it('splits are monotonically increasing', () => {

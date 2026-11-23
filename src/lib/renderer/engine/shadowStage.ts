@@ -230,7 +230,8 @@ export const createShadowStage = async (
   // Lazy per-mesh bind groups for the sceneryMesh depth pass — meshes
   // register asynchronously (GLBs load after attach), so the cache is
   // keyed by the instance-buffer identity and filled on first iteration.
-  const sceneryMeshBindGroupCache = new Map<GPUBuffer, GPUBindGroup>();
+  // #736 — keyed per mesh: grouped meshes share one buffer at different offsets.
+  const sceneryMeshBindGroupCache = new Map<string, { buffer: GPUBuffer; bindGroup: GPUBindGroup }>();
   const charactersBoatBindGroup = characters && boatPass
     ? device.createBindGroup({
         label: 'charactersDepth-boat-bg',
@@ -410,16 +411,21 @@ export const createShadowStage = async (
           // distance markers, bank railings). The lit pass still draws
           // them via `forEachActiveMesh` below the shadow stage.
           sceneryMeshPass.forEachActiveShadowCaster((m) => {
-            let bg = sceneryMeshBindGroupCache.get(m.instanceBuffer);
-            if (!bg) {
-              bg = createSceneryMeshDepthMeshBindGroup(
-                device,
-                sceneryMesh.meshLayout,
-                m.instanceBuffer,
-                `sceneryMeshDepth:${m.id}`,
-              );
-              sceneryMeshBindGroupCache.set(m.instanceBuffer, bg);
+            let cached = sceneryMeshBindGroupCache.get(m.id);
+            if (!cached || cached.buffer !== m.instanceBuffer) {
+              cached = {
+                buffer: m.instanceBuffer,
+                bindGroup: createSceneryMeshDepthMeshBindGroup(
+                  device,
+                  sceneryMesh.meshLayout,
+                  m.instanceBuffer,
+                  `sceneryMeshDepth:${m.id}`,
+                  { offset: m.instanceOffset, size: m.instanceSize },
+                ),
+              };
+              sceneryMeshBindGroupCache.set(m.id, cached);
             }
+            const bg = cached.bindGroup;
             pass.setBindGroup(1, bg);
             pass.setVertexBuffer(0, m.positionBuffer);
             pass.setIndexBuffer(m.indexBuffer, m.indexFormat);

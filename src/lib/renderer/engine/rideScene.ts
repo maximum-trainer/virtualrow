@@ -104,7 +104,7 @@ import {
 } from '../plan/crewPalette';
 import { dominantGrassProfile } from '../plan/grassDensityPlan';
 import { publishBoatSource, publishFallback } from './health';
-import { computeCascades } from './cascadedShadows';
+import { computeCascades, createComputedCascades } from './cascadedShadows';
 import { createPlacement, placeBoat, placeGhost, strokeAmplitude } from './characterPlacement';
 import { createStrokeClock, resetStrokeClock, stepStrokeClock } from './strokeClock';
 import { createDistanceSmoother } from './distanceSmoother';
@@ -115,15 +115,16 @@ import { GHOST_LANE_OFFSET_M, gapMeters, ghostStroke } from '../../../components
 import { GHOST_SCULL_STYLE, ghostMarker, type GhostMarker } from '../plan/ghostStyle';
 import type { SceneryInstance } from '../passes/sceneryMesh';
 import {
-  advanceFleet,
+  advanceFleetInPlace,
   createFleet,
+  mutableFleet,
+  type MutableFleetState,
   fleetFadeFor,
   fleetHullTintFor,
   fleetMemberOnCourse,
   fleetStrokeOffset,
   fleetPaletteIndexForColor,
   fleetWaterHalfWidth,
-  type FleetState,
 } from './fleet';
 import { DEFAULT_WATER_HALF_WIDTH_M, buildWaterStrip } from '../plan/waterStrip';
 import { lakeWater, poolsOffWater, routeWaterFootprint, surfaceAt, withLakes } from '../plan/waterFootprint';
@@ -159,6 +160,8 @@ import {
   planSceneryStream,
   sceneryModelsToLoad,
   streamLookaheadMeters,
+  streamNeedsRecheck,
+  type StreamLook,
   type CurveDistanceSample,
 } from './sceneryStreamPlan';
 import { FOLIAGE_SHAPES, FOLIAGE_VARIANT_COUNT } from '../../scenery/foliageTexture';
@@ -180,7 +183,7 @@ import type { SceneryProfile } from '../../services/routeEnrichmentService';
 import { createShadowStage, type ShadowTelemetry } from './shadowStage';
 import { measureAttachAsync } from './attachMeasure';
 import { tierCapsFor } from './tierCaps';
-import { publishSpeedMps, type Rower3DFleet, type TelemetryHandles } from './telemetry';
+import { publishSpeedMps, type TelemetryHandles } from './telemetry';
 import { createPostFx, type PostFxCaps } from './postFx';
 import {
   conditionsToFrameLighting,
@@ -434,6 +437,52 @@ export type EngineLoadPhase = 'scene' | 'boat' | 'crew' | 'atlas' | 'scenery-nea
  * is still loading after this streams in later with the FR3 fade, so a slow
  * network costs a fade, not a stuck loading bar.
  */
+/**
+ * #736 — set a fleet instance's tint in its own tuple. Fleet instances only
+ * ever hold tuples made here, so the one they have is safe to rewrite.
+ */
+const writeTint = (
+  current: readonly [number, number, number, number] | undefined,
+  r: number,
+  g: number,
+  b: number,
+): [number, number, number, number] => {
+  const t = (current ?? [0, 0, 0, 1]) as [number, number, number, number];
+  t[0] = r;
+  t[1] = g;
+  t[2] = b;
+  t[3] = 1;
+  return t;
+};
+
+const emptyRideFrame = (): RideFrame => ({
+  paceSPer500: 0,
+  distanceMeters: 0,
+  cadence: 0,
+  isPlaying: false,
+  holdBoat: false,
+  finished: false,
+  intensityFactor: 0,
+  elapsedSeconds: 0,
+  ghost: null,
+});
+
+/** #736 — copy every RideFrame field into `dst`, so a scratch frame can stand in for a spread. */
+const copyRideFrame = (dst: RideFrame, src: RideFrame): RideFrame => {
+  dst.paceSPer500 = src.paceSPer500;
+  dst.distanceMeters = src.distanceMeters;
+  dst.cadence = src.cadence;
+  dst.isPlaying = src.isPlaying;
+  dst.holdBoat = src.holdBoat;
+  dst.finished = src.finished;
+  dst.intensityFactor = src.intensityFactor;
+  dst.elapsedSeconds = src.elapsedSeconds;
+  dst.ghost = src.ghost;
+  dst.view = src.view;
+  dst.loop = src.loop;
+  return dst;
+};
+
 export const START_SCENERY_TIMEOUT_MS = 20_000;
 
 export const createRideScene = async (
@@ -755,7 +804,26 @@ export const createRideScene = async (
      * writeBuffer away.
      */
     authoredColors?: Float32Array;
+    /** #736 FR4 — drawn for the player's palette; recomputed when it changes. */
+    visible: boolean;
+    /** #736 FR4 — drawn for the fleet, which always wears the default palette. */
+    fleetVisible: boolean;
+    /** #736 — this frame's instances, and the records they are built from, kept across frames. */
+    instances: SceneryInstance[];
+    player: Mat4;
+    ghost: ScullInstance;
+    fleet: ScullInstance[];
   }
+  /** #736 — a styled scull instance rewritten in place each frame. */
+  interface ScullInstance {
+    model: Mat4;
+    tint: [number, number, number, number] | readonly [number, number, number, number] | undefined;
+    alpha: number;
+    rim: number;
+    flat: number;
+    haze: number;
+  }
+  const scullInstance = (): ScullInstance => ({ model: mat4(), tint: undefined, alpha: 1, rim: 0, flat: 0, haze: 1 });
   const boatScullPrimitives: BoatScullPrimitive[] = [];
   const boatScullAltPrimitives: BoatScullPrimitive[] = [];
   let currentAppearance: CrewPalette = opts.appearance ?? DEFAULT_CREW_PALETTE;
@@ -823,6 +891,9 @@ export const createRideScene = async (
       const model = await decoderPool.decodeModel(assetUrl(`/assets/boat/${crewGlb}`), {
         preserveNodeTransforms: true,
       });
+      // #736 — every primitive of this scull shares one instance buffer, so
+      // a frame uploads the whole boat (player, ghost, fleet) in one write.
+      sceneryMeshPass.reserveInstanceGroup(prefix, model.primitives.length, SCULL_INSTANCES);
       for (let i = 0; i < model.primitives.length; i += 1) {
         const prim = model.primitives[i];
         const id = `${prefix}:${i}`;
@@ -861,6 +932,7 @@ export const createRideScene = async (
           colors: initialColors,
           // #728 FR1 / #713: the player, the race ghost, the fleet.
           maxInstances: SCULL_INSTANCES,
+          instanceGroup: { name: prefix, index: i },
         });
         if (paint) boatScullMeshIds.push(id);
         const nodeWorld = mat4();
@@ -882,6 +954,12 @@ export const createRideScene = async (
           slot,
           nodeName: slotKey,
           authoredColors,
+          visible: isCrewNodeVisible(slotKey, currentAppearance),
+          fleetVisible: isCrewNodeVisible(slotKey, DEFAULT_CREW_PALETTE),
+          instances: [],
+          player: mat4(),
+          ghost: scullInstance(),
+          fleet: [],
         });
       }
     }
@@ -1412,12 +1490,25 @@ export const createRideScene = async (
   const sceneryRegistrations = createRegistrationQueue<{ id: string; decoded: DecodedScenery }>();
   // #726 FR2 — the window follows the boat's speed (the previous frame's).
   let streamSpeedMps = 0;
+  // #736 FR2 — the planner asks both sets directly, no merged copy a frame.
+  const sceneryKnown = { has: (id: string) => sceneryLoaded.has(id) || sceneryLoading.has(id) };
+  let lastStream: StreamLook | null = null;
   const streamScenery = (boatDistanceMeters: number, loop: boolean): void => {
+    const lookahead = streamLookaheadMeters(streamSpeedMps);
+    // #736 FR2 — nothing in flight and the boat barely moved: same answer.
+    if (!streamNeedsRecheck(lastStream, boatDistanceMeters, lookahead, loop, sceneryLoading.size > 0)) return;
+    if (lastStream) {
+      lastStream.meters = boatDistanceMeters;
+      lastStream.horizon = boatDistanceMeters + lookahead;
+      lastStream.loop = loop;
+    } else {
+      lastStream = { meters: boatDistanceMeters, horizon: boatDistanceMeters + lookahead, loop };
+    }
     const pending = sceneryModelsToLoad(
       sceneryPlan,
-      new Set<string>([...sceneryLoaded, ...sceneryLoading]),
+      sceneryKnown,
       boatDistanceMeters,
-      streamLookaheadMeters(streamSpeedMps),
+      lookahead,
       SCENERY_MAX_PER_TICK,
       // #647 FR6 — looping walks the stream plan torus-style so the first
       // tiles of the route are already loaded when the boat crosses the seam.
@@ -1481,7 +1572,7 @@ export const createRideScene = async (
   // their deterministic positions and respawn-into-window behaviour.
   // The actual state object is built in the frame loop once
   // `totalDistanceMeters` is known.
-  const fleetState: { current: FleetState | null } = { current: null };
+  const fleetState: { current: MutableFleetState | null } = { current: null };
   const fleetPlacements = Array.from({ length: FLEET_INSTANCE_CAPACITY }, () => createPlacement());
   const fleetBones = Array.from({ length: BOAT_BONE_COUNT }, () => mat4());
   for (let i = 0; i < BOAT_BONE_COUNT; i += 1) mat4Identity(fleetBones[i]);
@@ -1496,12 +1587,7 @@ export const createRideScene = async (
   const BOAT_TINT = boatTintFromAthlete(opts.athleteId);
   const GHOST_TINT = new Float32Array([0.35, 0.85, 1.0, 0.5]);
   // #728 FR1 — per-primitive instance matrices, kept across frames.
-  const scullPlayerInstances = new Map<string, Mat4>();
-  const scullGhostInstances = new Map<string, Mat4>();
   const scullGhostTrs = mat4();
-  /** #713 — per-frame instance lists of each scull primitive, both crews. */
-  const scullInstanceLists = new Map<string, SceneryInstance[]>();
-  const fleetScullInstances = new Map<string, Mat4>();
   const fleetScullTrs = Array.from({ length: FLEET_INSTANCE_CAPACITY }, () => mat4());
   /**
    * #713 D3a — a fleet member's style per primitive. The hull takes the
@@ -1509,17 +1595,18 @@ export const createRideScene = async (
    * crew's vertex colours carry the player's palette, so a member rowing
    * it wears the authored kit instead (D5 per-member kit is phase 2).
    */
-  const fleetPrimitiveStyle = (
+  const fleetPrimitiveTint = (
     prim: BoatScullPrimitive,
     hull: Float32Array,
     sharesPlayerColors: boolean,
-  ): { tint?: readonly [number, number, number, number] } => {
-    if (isFleetTintable(prim.nodeName ?? prim.group)) return { tint: [hull[0], hull[1], hull[2], 1] };
+    current: ScullInstance['tint'],
+  ): ScullInstance['tint'] => {
+    if (isFleetTintable(prim.nodeName ?? prim.group)) return writeTint(current, hull[0], hull[1], hull[2]);
     if (sharesPlayerColors && prim.slot && prim.authoredColors) {
       const c = prim.authoredColors;
-      return { tint: [c[0], c[1], c[2], 1] };
+      return writeTint(current, c[0], c[1], c[2]);
     }
-    return {};
+    return undefined;
   };
   // #577 D9a — placeholder fleet uses a desaturated solid hull tint so
   // they read as a pack of other boats rather than semi-transparent
@@ -1595,6 +1682,30 @@ export const createRideScene = async (
   // those three frames sample the same pixels of a boat that has not moved.
   let holdFrame = false;
   let heldFrame: { time: number; ride: RideFrame | null; smoothed?: RideFrame | null } | null = null;
+  const rowedFrameScratch = emptyRideFrame();
+  /** #736 — the frame a fleet member is placed from, rewritten per member. */
+  const fleetFrameScratch = emptyRideFrame();
+  /** #736 — scull poses handed to `scullPrimitiveTransform`, rewritten per boat. */
+  const restPose = crewStrokePose(opts.crew === 'female' ? 'female' : 'male', 0);
+  const scullPoseScratch = {
+    player: { boatTrs: mat4(), sweep: 0, stroke: restPose },
+    ghost: { boatTrs: mat4(), sweep: 0, stroke: restPose },
+    fleet: { boatTrs: mat4(), sweep: 0, stroke: restPose },
+  };
+  /** #736 — per-frame matrices and vectors, reused rather than allocated each frame. */
+  const frameScratch = {
+    boatTrs: mat4(),
+    scullRot: mat4(),
+    scullTrans: mat4(),
+    camBoat: vec3(),
+    camTangent: vec3(),
+    camSample: { position: vec3(), tangent: vec3(0, 0, -1), angle: 0 },
+    up: vec3(0, 1, 0),
+    camForward: vec3(),
+    lightDirection: vec3(),
+    cascades: createComputedCascades(),
+  };
+  const seekFrameScratch = emptyRideFrame();
   // #724 — test mode: pin the boat at a distance along the route (null rows).
   let seekMeters: number | null = null;
   // #737 VP-19 FR1/FR3 — the real interval between drawn frames, and the
@@ -1640,23 +1751,30 @@ export const createRideScene = async (
     if (holdFrame && !heldFrame) heldFrame = { time: frame.time, ride: rideFrame };
     if (!holdFrame) heldFrame = null;
 
-    const rowedFrame: RideFrame | null = heldFrame?.smoothed !== undefined
-      ? heldFrame.smoothed
-      : rideFrame
-      ? {
-          ...rideFrame,
-          distanceMeters: distanceSmoother.update(
-            rideFrame.distanceMeters,
-            rideFrame.isPlaying && !rideFrame.holdBoat && !rideFrame.finished,
-            now(),
-          ),
-        }
-      : null;
+    // #736 — both derived frames are written into scratch, not spread anew.
+    let rowedFrame: RideFrame | null = null;
+    if (heldFrame?.smoothed !== undefined) {
+      rowedFrame = heldFrame.smoothed;
+    } else if (rideFrame) {
+      rowedFrame = copyRideFrame(rowedFrameScratch, rideFrame);
+      rowedFrame.distanceMeters = distanceSmoother.update(
+        rideFrame.distanceMeters,
+        rideFrame.isPlaying && !rideFrame.holdBoat && !rideFrame.finished,
+        now(),
+      );
+    }
     // #724 — a spec can pin the boat to a distance to traverse a bridge.
-    const smoothedFrame: RideFrame | null = seekMeters !== null && rowedFrame
-      ? { ...rowedFrame, distanceMeters: seekMeters, holdBoat: false, finished: false }
-      : rowedFrame;
-    if (heldFrame && heldFrame.smoothed === undefined) heldFrame.smoothed = smoothedFrame;
+    let smoothedFrame: RideFrame | null = rowedFrame;
+    if (seekMeters !== null && rowedFrame) {
+      smoothedFrame = copyRideFrame(seekFrameScratch, rowedFrame);
+      smoothedFrame.distanceMeters = seekMeters;
+      smoothedFrame.holdBoat = false;
+      smoothedFrame.finished = false;
+    }
+    // A held frame keeps its own copy: the scratch is rewritten next frame.
+    if (heldFrame && heldFrame.smoothed === undefined) {
+      heldFrame.smoothed = smoothedFrame && copyRideFrame(emptyRideFrame(), smoothedFrame);
+    }
 
     placeBoat(boatPlacement, routeCurve, smoothedFrame, totalDistanceMeters, curveLength, 0);
     // #571 wake foam: run the CPU particle sim before the pass encodes.
@@ -1757,9 +1875,7 @@ export const createRideScene = async (
     boatPass.ghostVisible.value = ghostInfo !== null && !scullLoaded && !ghostHidden;
 
     if (scullLoaded) {
-      const boatTrs = mat4();
-      const scullRot = mat4();
-      const scullTrans = mat4();
+      const { boatTrs, scullRot, scullTrans } = frameScratch;
       mat4FromRotationY(scullRot, boatPlacement.heading);
       mat4Identity(scullTrans);
       scullTrans[12] = boatPlacement.world[0];
@@ -1790,29 +1906,35 @@ export const createRideScene = async (
         ghostPose = crewStrokePose(crew, ghostSweep);
       }
 
+      const playerPose = scullPoseScratch.player;
+      playerPose.boatTrs = boatTrs;
+      playerPose.sweep = sweep;
+      playerPose.stroke = stroke;
+      const ghostPoseArgs = scullPoseScratch.ghost;
+      if (ghostTrs) {
+        ghostPoseArgs.boatTrs = ghostTrs;
+        ghostPoseArgs.sweep = ghostSweep;
+        ghostPoseArgs.stroke = ghostPose;
+      }
+      const ghostStyle = ghostMask ? GHOST_MASK_STYLE : GHOST_SCULL_STYLE;
       for (const prim of boatScullPrimitives) {
-        const instances = scullInstanceLists.get(prim.id) ?? [];
-        scullInstanceLists.set(prim.id, instances);
+        const instances = prim.instances;
         instances.length = 0;
-        if (isCrewNodeVisible(prim.nodeName, currentAppearance)) {
-          const player = scullPlayerInstances.get(prim.id) ?? mat4();
-          scullPlayerInstances.set(prim.id, player);
-          instances.push(scullPrimitiveTransform(player, prim, { boatTrs, sweep, stroke }));
+        if (prim.visible) {
+          instances.push(scullPrimitiveTransform(prim.player, prim, playerPose));
           if (ghostTrs) {
-            const ghost = scullGhostInstances.get(prim.id) ?? mat4();
-            scullGhostInstances.set(prim.id, ghost);
-            instances.push({
-              model: scullPrimitiveTransform(ghost, prim, { boatTrs: ghostTrs, sweep: ghostSweep, stroke: ghostPose }),
-              ...(ghostMask ? GHOST_MASK_STYLE : GHOST_SCULL_STYLE),
-            });
+            const ghost = prim.ghost;
+            scullPrimitiveTransform(ghost.model, prim, ghostPoseArgs);
+            ghost.tint = ghostStyle.tint;
+            ghost.alpha = ghostStyle.alpha;
+            ghost.rim = ghostStyle.rim;
+            ghost.flat = ghostStyle.flat;
+            ghost.haze = ghostStyle.haze;
+            instances.push(ghost);
           }
         }
       }
-      for (const prim of boatScullAltPrimitives) {
-        const instances = scullInstanceLists.get(prim.id) ?? [];
-        scullInstanceLists.set(prim.id, instances);
-        instances.length = 0;
-      }
+      for (const prim of boatScullAltPrimitives) prim.instances.length = 0;
     }
     boatPass.boat.write(device, {
       model: boatPlacement.modelMatrix,
@@ -1835,21 +1957,18 @@ export const createRideScene = async (
     // route curve, write per-instance uniforms. The visible count is
     // `tierCaps.fleetCount`, clamped to the pass's capacity.
     if (!fleetState.current || fleetState.current.routeMeters !== totalDistanceMeters) {
-      fleetState.current = createFleet({
+      fleetState.current = mutableFleet(createFleet({
         count: tierCaps.fleetCount,
         routeMeters: totalDistanceMeters,
         routeId: opts.routeId,
         playerStartMeters: boatPlacement.distanceMeters,
         waterHalfWidth: fleetWater,
-      });
+      }));
       lastFleetTime = frame.time;
     }
     const fleetDt = lastFleetTime >= 0 ? Math.max(0, frame.time - lastFleetTime) : 0;
-    fleetState.current = advanceFleet(
-      fleetState.current,
-      boatPlacement.distanceMeters,
-      fleetDt,
-    );
+    // #736 FR5 — advanced in place: no new members a frame.
+    advanceFleetInPlace(fleetState.current, boatPlacement.distanceMeters, fleetDt);
     lastFleetTime = frame.time;
     const fleetMembers = fleetState.current.members;
     // #577 D6b — compute the "avoid this palette entry" index once per
@@ -1860,7 +1979,8 @@ export const createRideScene = async (
     // all (nor cast shadows); the rest pack into the first slots, faded
     // by their distance from the player.
     let visibleFleet = 0;
-    const fleetTelemetry: Rower3DFleet['members'] = [];
+    // #736 — telemetry rows are reused, one per visible slot.
+    const fleetTelemetry = telemetry.fleet.members;
     const fleetPhase = phase;
     const fleetAmp = strokeAmplitude(rideFrame);
     for (let i = 0; i < fleetMembers.length && visibleFleet < FLEET_INSTANCE_CAPACITY; i += 1) {
@@ -1876,17 +1996,9 @@ export const createRideScene = async (
       if (!fleetMemberOnCourse(relative, boatPlacement.distanceMeters, totalDistanceMeters, !!rideFrame?.loop)) continue;
       const slot = visibleFleet;
       visibleFleet += 1;
-      const syntheticFrame: RideFrame = {
-        paceSPer500: 0,
-        distanceMeters: member.distanceMeters,
-        cadence: 0,
-        isPlaying: false,
-        holdBoat: false,
-        finished: false,
-        intensityFactor: 0,
-        elapsedSeconds: frame.time,
-        ghost: null,
-      };
+      const syntheticFrame = fleetFrameScratch;
+      syntheticFrame.distanceMeters = member.distanceMeters;
+      syntheticFrame.elapsedSeconds = frame.time;
       placeBoat(
         fleetPlacements[slot],
         routeCurve,
@@ -1898,14 +2010,22 @@ export const createRideScene = async (
       const tint = fleetTints[slot];
       tint.set(fleetHullTintFor(member.seed, fleetExcludeIndex));
       const strokeOffset = fleetStrokeOffset(member.seed);
-      fleetTelemetry.push({
+      const row = fleetTelemetry[slot] ?? (fleetTelemetry[slot] = {
         crew: member.crew,
-        hullColor: [tint[0], tint[1], tint[2]],
-        strokeOffset,
-        lane: member.laneOffsetMeters,
-        distanceMeters: member.distanceMeters,
-        fade,
+        hullColor: [0, 0, 0],
+        strokeOffset: 0,
+        lane: 0,
+        distanceMeters: 0,
+        fade: 0,
       });
+      row.crew = member.crew;
+      row.hullColor[0] = tint[0];
+      row.hullColor[1] = tint[1];
+      row.hullColor[2] = tint[2];
+      row.strokeOffset = strokeOffset;
+      row.lane = member.laneOffsetMeters;
+      row.distanceMeters = member.distanceMeters;
+      row.fade = fade;
       if (scullLoaded) {
         // #713 — the member rows the scull of its own crew (D2a): the
         // player's when it matches, else the other one, if that loaded.
@@ -1916,15 +2036,18 @@ export const createRideScene = async (
         const trs = scullBoatTrs(fleetScullTrs[slot], place.world, place.heading);
         // D4a — the player's stroke, shifted by the member's own offset.
         const memberSweep = oarSweep(memberCrew, (fleetPhase + strokeOffset) % 1, fleetAmp);
-        const memberPose = crewStrokePose(memberCrew, memberSweep);
+        const memberPose = scullPoseScratch.fleet;
+        memberPose.boatTrs = trs;
+        memberPose.sweep = memberSweep;
+        memberPose.stroke = crewStrokePose(memberCrew, memberSweep);
+        const sharesPlayerColors = prims === boatScullPrimitives;
         for (const prim of prims) {
-          if (!isCrewNodeVisible(prim.nodeName, DEFAULT_CREW_PALETTE)) continue;
-          const key = `${prim.id}#${slot}`;
-          const m = fleetScullInstances.get(key) ?? mat4();
-          fleetScullInstances.set(key, m);
-          scullPrimitiveTransform(m, prim, { boatTrs: trs, sweep: memberSweep, stroke: memberPose });
-          const style = fleetPrimitiveStyle(prim, tint, prims === boatScullPrimitives);
-          scullInstanceLists.get(prim.id)?.push({ model: m, alpha: fade, ...style });
+          if (!prim.fleetVisible) continue;
+          const inst = prim.fleet[slot] ?? (prim.fleet[slot] = scullInstance());
+          scullPrimitiveTransform(inst.model, prim, memberPose);
+          inst.alpha = fade;
+          inst.tint = fleetPrimitiveTint(prim, tint, sharesPlayerColors, inst.tint);
+          prim.instances.push(inst);
         }
       }
       tint[3] *= fade;
@@ -1940,10 +2063,11 @@ export const createRideScene = async (
     // fallback, as it is for the player and the ghost.
     boatPass.fleetVisibleCount.value = scullLoaded ? 0 : visibleFleet;
     telemetry.fleet.model = visibleFleet === 0 ? 'none' : scullLoaded ? 'scull' : 'placeholder';
-    telemetry.fleet.members = fleetTelemetry;
+    fleetTelemetry.length = visibleFleet;
     if (scullLoaded) {
-      for (const prim of boatScullPrimitives) sceneryMeshPass.setInstances(prim.id, scullInstanceLists.get(prim.id) ?? []);
-      for (const prim of boatScullAltPrimitives) sceneryMeshPass.setInstances(prim.id, scullInstanceLists.get(prim.id) ?? []);
+      for (const prim of boatScullPrimitives) sceneryMeshPass.setInstances(prim.id, prim.instances);
+      for (const prim of boatScullAltPrimitives) sceneryMeshPass.setInstances(prim.id, prim.instances);
+      sceneryMeshPass.flushInstanceGroups();
     }
 
     telemetry.boat.x = boatPlacement.world[0];
@@ -1993,9 +2117,11 @@ export const createRideScene = async (
     telemetry.ghostMeters.strokePhase = ghostPhase;
     telemetry.ghostMeters.lane = -GHOST_LANE_OFFSET_M;
 
-    const camBoat = vec3(boatPlacement.world[0], boatPlacement.world[1], boatPlacement.world[2]);
-    const camTangent = vec3();
-    const camSample = routeCurve.sample(boatPlacement.progress);
+    const { camBoat, camTangent, camSample, up, camForward, lightDirection } = frameScratch;
+    camBoat[0] = boatPlacement.world[0];
+    camBoat[1] = boatPlacement.world[1];
+    camBoat[2] = boatPlacement.world[2];
+    routeCurve.sample(boatPlacement.progress, camSample);
     camTangent[0] = camSample.tangent[0];
     camTangent[1] = camSample.tangent[1];
     camTangent[2] = camSample.tangent[2];
@@ -2025,7 +2151,6 @@ export const createRideScene = async (
     });
     const eye = cameraRig.applied.position;
     const target = cameraRig.applied.lookAt;
-    const up = vec3(0, 1, 0);
     mat4LookAt(frame.view, eye, target, up);
     const fovY = (cameraRig.applied.fov * Math.PI) / 180;
     projectionWithInsets(frame.proj, fovY, width, height, viewportInsets, CAMERA_NEAR_M, CAMERA_FAR_M);
@@ -2082,6 +2207,12 @@ export const createRideScene = async (
     packFrameUniforms(frame, uniformScratch);
     device.queue.writeBuffer(frameUniforms, 0, uniformScratch as BufferSource);
 
+    camForward[0] = target[0] - eye[0];
+    camForward[1] = target[1] - eye[1];
+    camForward[2] = target[2] - eye[2];
+    lightDirection[0] = -frame.sunDir[0];
+    lightDirection[1] = -frame.sunDir[1];
+    lightDirection[2] = -frame.sunDir[2];
     const computed = computeCascades({
       cascades: atlas.cascades,
       near: 0.5,
@@ -2091,12 +2222,12 @@ export const createRideScene = async (
       fovY: effectiveFovY(fovY, height, viewportInsets),
       aspect: width / height,
       camPos: eye,
-      camForward: vec3(target[0] - eye[0], target[1] - eye[1], target[2] - eye[2]),
+      camForward,
       camUp: up,
-      lightDirection: vec3(-frame.sunDir[0], -frame.sunDir[1], -frame.sunDir[2]),
+      lightDirection,
       lambda: 0.5,
       tileTexels: atlas.tileSize,
-    });
+    }, frameScratch.cascades);
     shadowStage.payload.cascadeCount = atlas.cascades;
     for (let i = 0; i < 4; i++) {
       const dst = shadowStage.payload.cascades[i] ?? { viewProj: mat4() };
@@ -2115,7 +2246,10 @@ export const createRideScene = async (
     shadowCpu.cascadeCount = atlas.cascades;
     packShadowUniforms(shadowCpu, shadowScratch);
     device.queue.writeBuffer(shadowUniformsBuf, 0, shadowScratch as BufferSource);
-    telemetry.shadows.lastSplits = Array.from(computed.splits);
+    // #736 — written in place rather than a new array a frame.
+    const lastSplits = telemetry.shadows.lastSplits;
+    lastSplits.length = computed.splits.length;
+    for (let i = 0; i < computed.splits.length; i += 1) lastSplits[i] = computed.splits[i];
 
     const outputTexture = context.getCurrentTexture();
     const outputView = outputTexture.createView();
@@ -2231,6 +2365,8 @@ export const createRideScene = async (
   const setAppearance = (palette: CrewPalette): void => {
     currentAppearance = palette;
     for (const prim of boatScullPrimitives) {
+      // #736 FR4 — hair and hat visibility only change with the palette.
+      prim.visible = isCrewNodeVisible(prim.nodeName, palette);
       if (!prim.slot || !prim.authoredColors) continue;
       const tinted = tintPrimitiveColors(prim.authoredColors, prim.slot, palette);
       sceneryMeshPass.writeColors(prim.id, tinted);

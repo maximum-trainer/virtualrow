@@ -5,6 +5,8 @@ import {
   streamLookaheadMeters,
   sceneryModelsToLoad,
   type CurveDistanceSample,
+  STREAM_RECHECK_METERS,
+  streamNeedsRecheck,
 } from '../sceneryStreamPlan';
 
 // A straight 1000 m route sampled every 100 m along +Z... actually -Z, but the
@@ -162,5 +164,24 @@ describe('createRegistrationQueue', () => {
     expect(done).toEqual(['a', 'b', 'c']);
     expect(q.drainOne(() => { throw new Error('nothing waits'); })).toBe(false);
     expect(q.pending).toBe(0);
+  });
+});
+
+// #736 VP-18 FR2 — the stream looks again only when its answer can change.
+describe('streamNeedsRecheck', () => {
+  const last = { meters: 100, horizon: 700, loop: false };
+  it('looks the first time, and whenever something is in flight', () => {
+    expect(streamNeedsRecheck(null, 0, 600, false, false)).toBe(true);
+    expect(streamNeedsRecheck(last, 100, 600, false, true)).toBe(true);
+  });
+  it('skips while the boat is within 5 m and the window has not grown 5 m', () => {
+    expect(streamNeedsRecheck(last, 104.9, 600, false, false)).toBe(false);
+    expect(streamNeedsRecheck(last, 100, 400, false, false)).toBe(false);
+  });
+  it('looks again after 5 m, after a seek back, a grown window, or a loop switch', () => {
+    expect(streamNeedsRecheck(last, 100 + STREAM_RECHECK_METERS, 600, false, false)).toBe(true);
+    expect(streamNeedsRecheck(last, 50, 600, false, false)).toBe(true);
+    expect(streamNeedsRecheck(last, 101, 605, false, false)).toBe(true);
+    expect(streamNeedsRecheck(last, 100, 600, true, false)).toBe(true);
   });
 });

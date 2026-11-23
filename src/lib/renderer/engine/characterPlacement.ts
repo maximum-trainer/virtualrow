@@ -52,6 +52,16 @@ export const createPlacement = (): PlacementState => ({
   heading: 0,
 });
 
+// #736 — scratch for `placeBoat`, which runs for the player, the ghost and
+// every fleet member each frame. Nothing here outlives one call.
+const placeScratch = {
+  point: { position: vec3(), tangent: vec3(0, 0, -1), angle: 0 },
+  rotY: mat4(),
+  rotZ: mat4(),
+  rot: mat4(),
+  trans: mat4(),
+};
+
 /**
  * Boat placement: `holdBoat` pins progress to 0 (countdown), `finished`
  * pins it to 1. Otherwise `distanceMeters / totalLength`, clamped.
@@ -91,13 +101,13 @@ export const placeBoat = (
     progress = Math.max(0, Math.min(1, progress));
   }
 
-  const point = curve.sample(progress);
+  const point = curve.sample(progress, placeScratch.point);
   // Lateral offset in local-+X along the curve tangent (ghost sits to port).
   const tangentLen = Math.hypot(point.tangent[0], point.tangent[2]) || 1;
   const px = (-point.tangent[2] / tangentLen) * lateralOffsetX;
   const pz = (point.tangent[0] / tangentLen) * lateralOffsetX;
 
-  const rotY = mat4();
+  const { rotY, rotZ, rot, trans } = placeScratch;
   mat4FromRotationY(rotY, point.angle ?? 0);
   // #571 boat lean: sample curvature at the current progress and heel the
   // boat into the turn. `rot_Z` applied on the right of `rot_Y` is a
@@ -105,11 +115,8 @@ export const placeBoat = (
   // axis after the yaw. The combined rotation is `rot_Y * rot_Z`.
   const curvature = routeCurvatureAt(curve, progress, total);
   const roll = boatRollRadians(curvature);
-  const rotZ = mat4();
   mat4FromRotationZ(rotZ, roll);
-  const rot = mat4();
   mat4Multiply(rot, rotY, rotZ);
-  const trans = mat4();
   makeTranslation(trans, point.position[0] + px, point.position[1] + BOAT_HEIGHT_Y, point.position[2] + pz);
   mat4Multiply(out.modelMatrix, trans, rot);
 

@@ -48,7 +48,7 @@ const makeDevice = () => {
     createRenderPipeline: vi.fn(() => ({
       getBindGroupLayout: vi.fn(() => ({})),
     })),
-    createBuffer: vi.fn(() => makeBuffer()),
+    createBuffer: vi.fn((_desc?: GPUBufferDescriptor) => makeBuffer()),
     createBindGroup: vi.fn((desc: GPUBindGroupDescriptor) => {
       bindGroups.push(desc);
       return {} as GPUBindGroup;
@@ -503,5 +503,78 @@ describe('createSceneryMeshPass', () => {
     it('scales the distance haze by the instance share, so the ghost can opt out', () => {
       expect(sceneryMeshWgsl).toMatch(/min\(f,\s*0\.35\)\s*\*\s*inst\.fx\.w/);
     });
+  });
+});
+
+// #736 VP-18 FR3 — a model of many primitives shares one instance buffer and
+// goes up in one write a frame.
+describe('instance groups', () => {
+  const setup = async () => {
+    const { device, queue, bindGroups } = makeDevice();
+    const p = await createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+    const calls = (queue.writeBuffer as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    return { device, p, calls, bindGroups };
+  };
+
+  it('uploads every mesh in the group with one write, at its own aligned slot', async () => {
+    const { device, p, calls, bindGroups } = await setup();
+    p.reserveInstanceGroup('scull', 3, 2);
+    for (let i = 0; i < 3; i += 1) {
+      p.register({ ...makeInput({ id: `g:${i}` }), instanceGroup: { name: 'scull', index: i } });
+    }
+    const groupBuffer = (device.createBuffer as unknown as { mock: { results: { value: GPUBuffer }[] } }).mock.results
+      .map((r) => r.value)
+      .find((_, k) => ((device.createBuffer as unknown as { mock: { calls: [GPUBufferDescriptor][] } }).mock.calls[k][0].label === 'sceneryMesh:scull-inst'));
+    expect(groupBuffer).toBeDefined();
+
+    const before = calls.length;
+    for (let i = 0; i < 3; i += 1) {
+      const m = mat4Identity(mat4());
+      m[12] = i + 1;
+      p.setInstances(`g:${i}`, [m]);
+    }
+    expect(calls.length - before, 'nothing written until the flush').toBe(0);
+    p.flushInstanceGroups();
+    expect(calls.length - before).toBe(1);
+    const [buffer, offset, data] = calls.at(-1) as [GPUBuffer, number, Float32Array];
+    expect(buffer).toBe(groupBuffer);
+    expect(offset).toBe(0);
+    // 2 instances × 96 B = 192 B, padded to the 256 B storage-offset alignment.
+    expect(data.byteLength).toBe(3 * 256);
+    for (let i = 0; i < 3; i += 1) expect(data[(i * 256) / 4 + 12]).toBe(i + 1);
+
+    // Each mesh binds its own slot of the shared buffer.
+    const entries = bindGroups
+      .map((d) => d as GPUBindGroupDescriptor)
+      .filter((d) => /^sceneryMesh:g:\d-bg$/.test(d.label ?? ''))
+      .map((d) => (Array.from(d.entries)[0].resource as GPUBufferBinding));
+    expect(entries.map((e) => e.offset)).toEqual([0, 256, 512]);
+    expect(entries.every((e) => e.buffer === groupBuffer && e.size === 2 * SCENERY_INSTANCE_BYTES)).toBe(true);
+
+    // Nothing changed since: the next flush writes nothing.
+    p.flushInstanceGroups();
+    expect(calls.length - before).toBe(1);
+  });
+
+  it('reports each grouped mesh with its own byte range for the shadow pass', async () => {
+    const { p } = await setup();
+    p.reserveInstanceGroup('scull', 2, 2);
+    p.register({ ...makeInput({ id: 'a' }), instanceGroup: { name: 'scull', index: 0 } });
+    p.register({ ...makeInput({ id: 'b' }), instanceGroup: { name: 'scull', index: 1 } });
+    p.setInstances('a', [mat4Identity(mat4())]);
+    p.setInstances('b', [mat4Identity(mat4())]);
+    const seen: { id: string; offset: number; size: number }[] = [];
+    p.forEachActiveShadowCaster((m) => seen.push({ id: m.id, offset: m.instanceOffset, size: m.instanceSize }));
+    expect(seen).toEqual([
+      { id: 'a', offset: 0, size: 2 * SCENERY_INSTANCE_BYTES },
+      { id: 'b', offset: 256, size: 2 * SCENERY_INSTANCE_BYTES },
+    ]);
+  });
+
+  it('refuses a slot the group does not have', async () => {
+    const { p } = await setup();
+    p.reserveInstanceGroup('scull', 1, 2);
+    expect(() => p.register({ ...makeInput({ id: 'x' }), instanceGroup: { name: 'scull', index: 1 } })).toThrow(/no slot 1/);
+    expect(() => p.register({ ...makeInput({ id: 'y' }), instanceGroup: { name: 'missing', index: 0 } })).toThrow(/missing/);
   });
 });

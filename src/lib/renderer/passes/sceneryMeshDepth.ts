@@ -80,9 +80,10 @@ export const createSceneryMeshDepthMeshBindGroup = (
   layout: GPUBindGroupLayout,
   instanceBuffer: GPUBuffer,
   label = 'sceneryMeshDepth:mesh',
+  range?: { offset: number; size: number },
 ): GPUBindGroup =>
   device.createBindGroup({
     label,
     layout,
-    entries: [{ binding: 0, resource: { buffer: instanceBuffer } }],
+    entries: [{ binding: 0, resource: range ? { buffer: instanceBuffer, ...range } : { buffer: instanceBuffer } }],
   });

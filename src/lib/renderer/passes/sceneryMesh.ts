@@ -79,6 +79,23 @@ export interface SceneryMeshInput {
    * (the boat, the crew, models placed before the ride starts).
    */
   revealAt?: number;
+  /**
+   * #736 — draw this mesh's instances from slot `index` of a shared buffer
+   * reserved with `reserveInstanceGroup`, so a model made of many primitives
+   * (the scull) uploads all its matrices in one write per frame.
+   */
+  instanceGroup?: { name: string; index: number };
+}
+
+/** #736 — one GPU buffer shared by several meshes, uploaded in one write. */
+interface InstanceGroup {
+  buffer: GPUBuffer;
+  staging: Float32Array;
+  /** Bytes between one mesh's slot and the next (storage-offset aligned). */
+  strideBytes: number;
+  slots: number;
+  maxInstances: number;
+  dirty: boolean;
 }
 
 interface RegisteredMesh {
@@ -91,6 +108,11 @@ interface RegisteredMesh {
   indexFormat: 'uint16' | 'uint32';
   indexCount: number;
   instanceBuffer: GPUBuffer;
+  /** #736 — byte range of `instanceBuffer` this mesh reads; the whole buffer unless grouped. */
+  instanceOffset: number;
+  instanceSize: number;
+  /** #736 — set when the instances live in a shared group buffer. */
+  group: InstanceGroup | null;
   /** #726 FR3 — {revealTime, fadeSeconds, visibility, pad}. */
   revealBuffer: GPUBuffer;
   maxInstances: number;
@@ -119,6 +141,9 @@ export interface SceneryMeshSnapshot {
   readonly indexFormat: 'uint16' | 'uint32';
   readonly indexCount: number;
   readonly instanceBuffer: GPUBuffer;
+  /** #736 — byte range of `instanceBuffer` holding this mesh's instances. */
+  readonly instanceOffset: number;
+  readonly instanceSize: number;
   readonly instanceCount: number;
   /** #688 — whether this mesh opts into the shadow-depth cascade. */
   readonly castsShadow: boolean;
@@ -141,6 +166,16 @@ export interface SceneryMeshPass extends Pass {
    * instance carries its own tint, opacity and rim (#728, #713 D3a).
    */
   setInstances(id: string, instances: readonly SceneryInstance[]): void;
+  /**
+   * #736 — reserve a shared instance buffer of `slots` meshes, each up to
+   * `maxInstances`, for meshes registered with `instanceGroup`. Their
+   * `setInstances` calls fill a CPU staging copy; `flushInstanceGroups`
+   * (also run at the start of `encode`) uploads each changed group in one
+   * write. Reserving an existing name is a no-op.
+   */
+  reserveInstanceGroup(name: string, slots: number, maxInstances: number): void;
+  /** #736 — upload every group changed since the last flush, one write each. */
+  flushInstanceGroups(): void;
   /**
    * Overwrite the per-vertex colour buffer for an already-registered mesh
    * (#578 FR2). The length must match the mesh's vertex count × 4; a
@@ -234,6 +269,36 @@ export const createSceneryMeshPass = async ({
   const translucentMeshLayout = translucentPipeline.getBindGroupLayout(1);
 
   const registry = new Map<string, RegisteredMesh>();
+  const groups = new Map<string, InstanceGroup>();
+  // A storage binding's offset must be a multiple of this (256 on every adapter today).
+  const offsetAlignment = device.limits?.minStorageBufferOffsetAlignment || 256;
+
+  const reserveInstanceGroup = (name: string, slots: number, maxInstances: number): void => {
+    if (groups.has(name)) return;
+    const perMesh = Math.max(1, maxInstances) * SCENERY_INSTANCE_BYTES;
+    const strideBytes = Math.ceil(perMesh / offsetAlignment) * offsetAlignment;
+    const count = Math.max(1, slots);
+    groups.set(name, {
+      buffer: device.createBuffer({
+        label: `sceneryMesh:${name}-inst`,
+        size: count * strideBytes,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      }),
+      staging: new Float32Array((count * strideBytes) / 4),
+      strideBytes,
+      slots: count,
+      maxInstances: Math.max(1, maxInstances),
+      dirty: false,
+    });
+  };
+
+  const flushInstanceGroups = (): void => {
+    for (const group of groups.values()) {
+      if (!group.dirty) continue;
+      group.dirty = false;
+      device.queue.writeBuffer(group.buffer, 0, group.staging as BufferSource);
+    }
+  };
 
   const register = (input: SceneryMeshInput): void => {
     if (registry.has(input.id)) return;
@@ -288,11 +353,21 @@ export const createSceneryMeshPass = async ({
       usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
     });
     device.queue.writeBuffer(indexBuffer, 0, indexData as BufferSource);
-    const instanceBuffer = device.createBuffer({
-      label: `sceneryMesh:${input.id}-inst`,
-      size: Math.max(1, input.maxInstances) * SCENERY_INSTANCE_BYTES,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
+    const group = input.instanceGroup ? groups.get(input.instanceGroup.name) ?? null : null;
+    const slotIndex = input.instanceGroup?.index ?? 0;
+    if (input.instanceGroup && (!group || slotIndex < 0 || slotIndex >= group.slots)) {
+      throw new Error(`sceneryMesh: ${input.id} has no slot ${slotIndex} in group "${input.instanceGroup.name}"`);
+    }
+    const maxInstances = group ? group.maxInstances : Math.max(1, input.maxInstances);
+    const instanceSize = maxInstances * SCENERY_INSTANCE_BYTES;
+    const instanceOffset = group ? slotIndex * group.strideBytes : 0;
+    const instanceBuffer = group
+      ? group.buffer
+      : device.createBuffer({
+          label: `sceneryMesh:${input.id}-inst`,
+          size: instanceSize,
+          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        });
     const revealBuffer = device.createBuffer({
       label: `sceneryMesh:${input.id}-reveal`,
       size: SCENERY_REVEAL_UNIFORM_BYTES,
@@ -300,7 +375,7 @@ export const createSceneryMeshPass = async ({
     });
     device.queue.writeBuffer(revealBuffer, 0, packRevealUniform(input.revealAt ?? ALWAYS_REVEALED) as BufferSource);
     const meshEntries: GPUBindGroupEntry[] = [
-      { binding: 1, resource: { buffer: instanceBuffer } },
+      { binding: 1, resource: { buffer: instanceBuffer, offset: instanceOffset, size: instanceSize } },
       { binding: 2, resource: { buffer: revealBuffer } },
     ];
     const bindGroup = device.createBindGroup({
@@ -323,11 +398,16 @@ export const createSceneryMeshPass = async ({
       indexFormat: input.indices instanceof Uint32Array ? 'uint32' : 'uint16',
       indexCount: input.indices.length,
       instanceBuffer,
+      instanceOffset,
+      instanceSize,
+      group,
       revealBuffer,
-      maxInstances: Math.max(1, input.maxInstances),
+      maxInstances,
       instanceCount: 0,
-      translucent: new Uint8Array(Math.max(1, input.maxInstances)),
-      staging: new Float32Array(Math.max(1, input.maxInstances) * FLOATS_PER_INSTANCE),
+      translucent: new Uint8Array(maxInstances),
+      staging: group
+        ? group.staging.subarray(instanceOffset / 4, instanceOffset / 4 + maxInstances * FLOATS_PER_INSTANCE)
+        : new Float32Array(maxInstances * FLOATS_PER_INSTANCE),
       translucentCount: 0,
       bindGroup,
       translucentBindGroup,
@@ -370,6 +450,11 @@ export const createSceneryMeshPass = async ({
       }
       mesh.translucentCount += mesh.translucent[i];
     }
+    // #736 — a grouped mesh goes up with the rest of its group.
+    if (mesh.group) {
+      mesh.group.dirty = true;
+      return;
+    }
     // #726 FR4 — one contiguous write for the whole list, not one per instance.
     if (count > 0) {
       device.queue.writeBuffer(
@@ -405,6 +490,8 @@ export const createSceneryMeshPass = async ({
     stats,
     register,
     setInstances,
+    reserveInstanceGroup,
+    flushInstanceGroups,
     writeColors,
     get meshCount() { return registry.size; },
     forEachActiveMesh(cb) {
@@ -417,6 +504,8 @@ export const createSceneryMeshPass = async ({
           indexFormat: mesh.indexFormat,
           indexCount: mesh.indexCount,
           instanceBuffer: mesh.instanceBuffer,
+          instanceOffset: mesh.instanceOffset,
+          instanceSize: mesh.instanceSize,
           instanceCount: mesh.instanceCount,
           castsShadow: mesh.castsShadow,
         });
@@ -433,6 +522,8 @@ export const createSceneryMeshPass = async ({
           indexFormat: mesh.indexFormat,
           indexCount: mesh.indexCount,
           instanceBuffer: mesh.instanceBuffer,
+          instanceOffset: mesh.instanceOffset,
+          instanceSize: mesh.instanceSize,
           instanceCount: mesh.instanceCount,
           castsShadow: mesh.castsShadow,
         });
@@ -443,6 +534,7 @@ export const createSceneryMeshPass = async ({
       stats.instances = 0;
       stats.triangles = 0;
       if (disposed || registry.size === 0) return;
+      flushInstanceGroups();
       let anyVisible = false;
       for (const mesh of registry.values()) {
         if (mesh.instanceCount > 0) { anyVisible = true; break; }
@@ -496,10 +588,12 @@ export const createSceneryMeshPass = async ({
         mesh.normalBuffer.destroy();
         mesh.colorBuffer.destroy();
         mesh.indexBuffer.destroy();
-        mesh.instanceBuffer.destroy();
+        if (!mesh.group) mesh.instanceBuffer.destroy();
         mesh.revealBuffer.destroy();
       }
       registry.clear();
+      for (const group of groups.values()) group.buffer.destroy();
+      groups.clear();
     },
   };
 };

@@ -327,6 +327,57 @@ export const createFleet = (opts: {
   return { members, routeMeters, paceMps: NOMINAL_CRUISE_MPS, playerMeters: playerStart };
 };
 
+/** A fleet the engine owns and advances in place, frame after frame (#736 FR5). */
+export interface MutableFleetState {
+  members: FleetMember[];
+  routeMeters: number;
+  paceMps: number;
+  playerMeters: number;
+}
+
+/**
+ * #736 FR5 — `advanceFleet`, writing into `state` and its members instead
+ * of building new ones, so the frame loop makes no garbage.
+ */
+export const advanceFleetInPlace = (
+  state: MutableFleetState,
+  playerDistanceMeters: number,
+  dt: number,
+): void => {
+  const routeMeters = state.routeMeters;
+  const step = Math.max(0, dt);
+  if (step > 0) {
+    const v = signedDelta(playerDistanceMeters, state.playerMeters, routeMeters) / step;
+    if (v >= MIN_PACE_MPS && v <= MAX_PACE_MPS) {
+      state.paceMps += (v - state.paceMps) * (1 - Math.exp(-step / PACE_TAU_S));
+    }
+  }
+  const paceMps = state.paceMps;
+  for (const m of state.members) {
+    let d = wrapRouteDistance(m.distanceMeters + paceMps * m.speedFactor * step, routeMeters);
+    const relative = signedDelta(d, playerDistanceMeters, routeMeters);
+    if (relative > FLEET_WINDOW_AHEAD_M) {
+      // Pulled away off the front → respawn astern, in the hidden band,
+      // with a jitter so the pack doesn't bunch into one slot.
+      const jitter = hash(m.seed) * FLEET_HIDDEN_BAND_M;
+      d = wrapRouteDistance(playerDistanceMeters - FLEET_WINDOW_BEHIND_M + jitter, routeMeters);
+    } else if (relative < -FLEET_WINDOW_BEHIND_M) {
+      const jitter = hash(m.seed ^ 0x9e3779b9) * FLEET_HIDDEN_BAND_M;
+      d = wrapRouteDistance(playerDistanceMeters + FLEET_WINDOW_AHEAD_M - jitter, routeMeters);
+    }
+    m.distanceMeters = d;
+  }
+  state.playerMeters = playerDistanceMeters;
+};
+
+/** A copy of `state` the caller may advance in place. */
+export const mutableFleet = (state: FleetState): MutableFleetState => ({
+  members: state.members.map((m) => ({ ...m })),
+  routeMeters: state.routeMeters,
+  paceMps: state.paceMps,
+  playerMeters: state.playerMeters,
+});
+
 /**
  * Advance the fleet by `dt` seconds. Each member rows at its own share of
  * the player's rolling-average pace (#728 FR5); when its offset from the
@@ -341,33 +392,9 @@ export const advanceFleet = (
   playerDistanceMeters: number,
   dt: number,
 ): FleetState => {
-  const routeMeters = state.routeMeters;
-  const step = Math.max(0, dt);
-  let paceMps = state.paceMps;
-  if (step > 0) {
-    const v = signedDelta(playerDistanceMeters, state.playerMeters, routeMeters) / step;
-    if (v >= MIN_PACE_MPS && v <= MAX_PACE_MPS) {
-      paceMps += (v - paceMps) * (1 - Math.exp(-step / PACE_TAU_S));
-    }
-  }
-  if (state.members.length === 0) {
-    return { members: state.members, routeMeters, paceMps, playerMeters: playerDistanceMeters };
-  }
-  const members = state.members.map((m) => {
-    let d = wrapRouteDistance(m.distanceMeters + paceMps * m.speedFactor * step, routeMeters);
-    const relative = signedDelta(d, playerDistanceMeters, routeMeters);
-    if (relative > FLEET_WINDOW_AHEAD_M) {
-      // Pulled away off the front → respawn astern, in the hidden band,
-      // with a jitter so the pack doesn't bunch into one slot.
-      const jitter = hash(m.seed) * FLEET_HIDDEN_BAND_M;
-      d = wrapRouteDistance(playerDistanceMeters - FLEET_WINDOW_BEHIND_M + jitter, routeMeters);
-    } else if (relative < -FLEET_WINDOW_BEHIND_M) {
-      const jitter = hash(m.seed ^ 0x9e3779b9) * FLEET_HIDDEN_BAND_M;
-      d = wrapRouteDistance(playerDistanceMeters + FLEET_WINDOW_AHEAD_M - jitter, routeMeters);
-    }
-    return { ...m, distanceMeters: d };
-  });
-  return { members, routeMeters, paceMps, playerMeters: playerDistanceMeters };
+  const next = mutableFleet(state);
+  advanceFleetInPlace(next, playerDistanceMeters, dt);
+  return next;
 };
 
 /** Signed shortest-path distance from `b` to `a` on the route loop. */
