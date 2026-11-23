@@ -132,6 +132,7 @@ import { FLEET_INSTANCE_CAPACITY } from '../passes/boat';
 import { assetUrl } from '../../utils/assetUrl';
 import { createSceneryPass } from './sceneryPass';
 import { recordClearance } from './clearance';
+import { createPixelProbe } from './pixelProbe';
 import { assembleRenderStats, emptyPanelStats, writePanelStats } from './frameRenderStats';
 import { clearRenderStats, recordRenderStats } from '../renderStats';
 
@@ -455,7 +456,15 @@ export const createRideScene = async (
 
   const outputFormat: GPUTextureFormat =
     (navigator as unknown as { gpu?: GPU }).gpu?.getPreferredCanvasFormat?.() ?? 'bgra8unorm';
-  context.configure({ device, format: outputFormat, alphaMode: 'opaque' });
+  // #807 — in test mode the presented frame can be copied out, so specs read
+  // pixels from the GPU rather than through a 2-D canvas copy.
+  context.configure({
+    device,
+    format: outputFormat,
+    alphaMode: 'opaque',
+    ...(opts.testMode ? { usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC } : {}),
+  });
+  const pixelProbe = opts.testMode ? createPixelProbe(device) : null;
   // #573 P8 — the lit passes render into an HDR offscreen target; PostFxPass
   // composites to the real swap-chain. The `format` prop every lit pass takes
   // is this HDR format; `outputFormat` is only used by the composite + DOF
@@ -2087,10 +2096,12 @@ export const createRideScene = async (
     device.queue.writeBuffer(shadowUniformsBuf, 0, shadowScratch as BufferSource);
     telemetry.shadows.lastSplits = Array.from(computed.splits);
 
-    const outputView = context.getCurrentTexture().createView();
+    const outputTexture = context.getCurrentTexture();
+    const outputView = outputTexture.createView();
     const sceneView = sceneTexture.createView();
     const depthView = depthTexture.createView();
     graph.run(device, sceneView, depthView, width, height, frame, outputView);
+    if (pixelProbe?.pending) pixelProbe.capture(outputTexture);
 
     telemetry.frameStats.frame += 1;
     telemetry.frameStats.dtMs = realDtMs;
@@ -2232,8 +2243,15 @@ export const createRideScene = async (
   const GHOST_MASK_KEY = '__ROWER3D_GHOST_MASK' as const;
   const HOLD_FRAME_KEY = '__ROWER3D_HOLD_FRAME' as const;
   const SEEK_METERS_KEY = '__ROWER3D_SEEK_METERS' as const;
+  const READ_PIXELS_KEY = '__ROWER3D_READ_PIXELS' as const;
   if (opts.testMode) {
     try {
+      // #807 — draw a frame and sample its pixels from the GPU.
+      (globalThis as unknown as Record<string, unknown>)[READ_PIXELS_KEY] = (grid = 20, minBrightness = 15) => {
+        const result = pixelProbe!.request(grid, minBrightness);
+        frameOnce();
+        return result;
+      };
       (globalThis as unknown as Record<string, unknown>)[SET_CONDITIONS_KEY] = setConditions;
       (globalThis as unknown as Record<string, unknown>)[HIDE_GHOST_KEY] = (hidden: boolean) => {
         ghostHidden = !!hidden;
@@ -2335,6 +2353,7 @@ export const createRideScene = async (
         delete (globalThis as unknown as Record<string, unknown>)[GHOST_MASK_KEY];
         delete (globalThis as unknown as Record<string, unknown>)[HOLD_FRAME_KEY];
         delete (globalThis as unknown as Record<string, unknown>)[SEEK_METERS_KEY];
+        delete (globalThis as unknown as Record<string, unknown>)[READ_PIXELS_KEY];
       } catch { /* non-browser */ }
       clearPolygonWaterTelemetry();
       clearRenderStats();

@@ -43,13 +43,95 @@ export async function assertCanvasNotBlank(
   const minBrightness = opts.minBrightness ?? 15;
   const grid = opts.gridSize ?? 20;
 
-  // Drive one more render so the swap-chain holds a presented frame at the
-  // moment we read it back; without this the readback can race the present.
+  const sampled = await readCanvasSamples(page, canvas, grid, minBrightness);
+
+  expect(sampled, `canvas readback should succeed (via ${sampled.via})`).toMatchObject({ error: undefined });
+  const share = sampled.total === 0 ? 0 : sampled.nonBlank / sampled.total;
+  expect(
+    share,
+    `expected ≥${(minShare * 100).toFixed(0)}% of ${sampled.total} sampled pixels to be ` +
+      `non-black (R+G+B ≥ ${minBrightness}); got ${sampled.nonBlank}/${sampled.total}. ` +
+      `Canvas ${sampled.w}×${sampled.h}, read via ${sampled.via}. A black canvas means lit passes submitted ` +
+      `invalid command buffers (see helper comment).`,
+  ).toBeGreaterThanOrEqual(minShare);
+}
+
+export interface CanvasSamples {
+  total: number;
+  nonBlank: number;
+  w: number;
+  h: number;
+  error?: string;
+  /** Which path read the pixels (#807). */
+  via: 'engine' | 'screenshot' | 'canvas';
+}
+
+type ReadPixels = (grid: number, minBrightness: number) => Promise<Omit<CanvasSamples, 'via'>>;
+
+/**
+ * #807 — sample the frame the engine drew, by the most reliable path:
+ *
+ * 1. `engine`: the engine copies its presented frame out on the GPU
+ *    (`__ROWER3D_READ_PIXELS`, test mode only). No browser canvas copy is
+ *    involved, so it works where `drawImage` of a WebGPU canvas comes back
+ *    black (Windows + NVIDIA).
+ * 2. `screenshot`: on Windows without that seam, sample a screenshot of the
+ *    canvas element (the method #728 used on the same laptop).
+ * 3. `canvas`: otherwise, copy the canvas into a 2-D canvas, as before.
+ *
+ * Each path draws a fresh frame first so the read cannot race a present.
+ */
+export async function readCanvasSamples(
+  page: Page,
+  canvas: Locator,
+  grid: number,
+  minBrightness: number,
+): Promise<CanvasSamples> {
+  const engine = await page.evaluate(
+    async ({ g, mb }) => {
+      const read = (window as unknown as { __ROWER3D_READ_PIXELS?: ReadPixels }).__ROWER3D_READ_PIXELS;
+      return read ? read(g, mb) : null;
+    },
+    { g: grid, mb: minBrightness },
+  );
+  if (engine) return { ...engine, via: 'engine' };
+
   await page.evaluate(() =>
     (window as unknown as { __ROWER3D_FORCE_RENDER?: () => void }).__ROWER3D_FORCE_RENDER?.(),
   );
 
-  const sampled = await canvas.evaluate(
+  if (process.platform === 'win32') {
+    const png = (await canvas.screenshot()).toString('base64');
+    const shot = await page.evaluate(
+      async ({ data, g, mb }) => {
+        const img = new Image();
+        img.src = `data:image/png;base64,${data}`;
+        await img.decode();
+        const w = img.naturalWidth;
+        const h = img.naturalHeight;
+        const tmp = document.createElement('canvas');
+        tmp.width = w;
+        tmp.height = h;
+        const ctx = tmp.getContext('2d');
+        if (!ctx) return { total: 0, nonBlank: 0, w, h, error: 'no-2d-context' };
+        ctx.drawImage(img, 0, 0);
+        let total = 0;
+        let nonBlank = 0;
+        for (let yi = 0; yi < g; yi += 1) {
+          for (let xi = 0; xi < g; xi += 1) {
+            const d = ctx.getImageData(Math.floor(((xi + 0.5) / g) * w), Math.floor(((yi + 0.5) / g) * h), 1, 1).data;
+            total += 1;
+            if (d[0] + d[1] + d[2] >= mb) nonBlank += 1;
+          }
+        }
+        return { total, nonBlank, w, h };
+      },
+      { data: png, g: grid, mb: minBrightness },
+    );
+    return { ...shot, via: 'screenshot' };
+  }
+
+  const fromCanvas = await canvas.evaluate(
     (el, { grid: g, minBrightness: mb }) => {
       const c = el as HTMLCanvasElement;
       const w = c.width;
@@ -58,17 +140,11 @@ export async function assertCanvasNotBlank(
       tmp.width = w;
       tmp.height = h;
       const ctx = tmp.getContext('2d');
-      if (!ctx) return { total: 0, nonBlank: 0, w, h, error: 'no-2d-context' as const };
+      if (!ctx) return { total: 0, nonBlank: 0, w, h, error: 'no-2d-context' };
       try {
         ctx.drawImage(c, 0, 0);
       } catch (err) {
-        return {
-          total: 0,
-          nonBlank: 0,
-          w,
-          h,
-          error: (err instanceof Error ? err.message : String(err)) as string,
-        };
+        return { total: 0, nonBlank: 0, w, h, error: err instanceof Error ? err.message : String(err) };
       }
       let total = 0;
       let nonBlank = 0;
@@ -85,16 +161,7 @@ export async function assertCanvasNotBlank(
     },
     { grid, minBrightness },
   );
-
-  expect(sampled, 'canvas readback should succeed').toMatchObject({ error: undefined });
-  const share = sampled.total === 0 ? 0 : sampled.nonBlank / sampled.total;
-  expect(
-    share,
-    `expected ≥${(minShare * 100).toFixed(0)}% of ${sampled.total} sampled pixels to be ` +
-      `non-black (R+G+B ≥ ${minBrightness}); got ${sampled.nonBlank}/${sampled.total}. ` +
-      `Canvas ${sampled.w}×${sampled.h}. A black canvas means lit passes submitted ` +
-      `invalid command buffers (see helper comment).`,
-  ).toBeGreaterThanOrEqual(minShare);
+  return { ...fromCanvas, via: 'canvas' };
 }
 
 /**
