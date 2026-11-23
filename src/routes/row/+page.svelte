@@ -18,7 +18,8 @@
   import { attach } from '$lib/renderer/engine/attach';
   import { resolvePerformanceMode } from '../../components/rower3d/constants';
   import { getGraphicsStore } from '$lib/ui/graphicsContext';
-  import { toEngineRoute } from '$lib/ui/sceneryRoute';
+  import { toEngineRouteCached } from '$lib/ui/sceneryRoute';
+  import { measureAttach } from '$lib/renderer/engine/attachMeasure';
   import { progressFromReports } from '$lib/utils/loadingProgress';
   import { getSessionStore } from '$lib/ui/sessionContext';
   import { getRideSession } from '$lib/ui/rideSessionContext';
@@ -129,7 +130,10 @@
     if (typeof window === 'undefined') return undefined;
     return graphics?.distanceMode ?? resolvedTier;
   });
-  const engineRoute = $derived(toEngineRoute(routes.selectedRoute, selectedEnrichment, resolvedTier));
+  // #729 FR5 — the route layout is timed as `vr:attach:route`.
+  const engineRoute = $derived(
+    measureAttach('route', () => toEngineRouteCached(routes.selectedRoute, selectedEnrichment, resolvedTier)),
+  );
 
   // #542 AC11: when the engine declines (no WebGPU, software adapter, attach
   // throw) the ride view swaps the stage for the "needs WebGPU" screen; the

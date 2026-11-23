@@ -21,6 +21,13 @@ const fetchFromDisk: typeof fetch = async (input) => {
   return new Response(copy, { status: 200 });
 };
 
+const fetchFromBoat: typeof fetch = async (input) => {
+  const url = typeof input === 'string' ? input : (input as URL).toString();
+  const file = url.split('/assets/boat/')[1];
+  if (!file) throw new Error(`unexpected test URL: ${url}`);
+  return new Response(new Uint8Array(readFileSync(path.join(process.cwd(), 'public/assets/boat', file))), { status: 200 });
+};
+
 describe('createGlbDecoderPool (inline fallback)', () => {
   it('fetches a scenery GLB and returns the merged mesh', async () => {
     const pool = createGlbDecoderPool({ fetchImpl: fetchFromDisk });
@@ -53,6 +60,21 @@ describe('createGlbDecoderPool (inline fallback)', () => {
     }
   });
 
+  // #729 FR4 — the scull decodes through the pool too, keeping its
+  // primitives and node transforms (the oars and the crew articulate).
+  it('decodes a whole model with its node transforms (#729 FR4)', async () => {
+    const pool = createGlbDecoderPool({ fetchImpl: fetchFromBoat });
+    const model = await pool.decodeModel('/assets/boat/scull-male.glb', { preserveNodeTransforms: true });
+    expect(model.primitives.length).toBeGreaterThan(1);
+    expect(model.primitives.some((p) => p.nodeName !== undefined)).toBe(true);
+    expect(model.primitives.every((p) => p.nodeWorldMatrix?.length === 16)).toBe(true);
+  });
+
+  it('rejects a whole-model decode when the fetch returns non-OK', async () => {
+    const pool = createGlbDecoderPool({ fetchImpl: async () => new Response(null, { status: 503 }) });
+    await expect(pool.decodeModel('/any', { preserveNodeTransforms: true })).rejects.toThrow(/503/);
+  });
+
   it('rejects when the fetch returns non-OK', async () => {
     const pool = createGlbDecoderPool({
       fetchImpl: async () => new Response(null, { status: 404 }),
@@ -82,6 +104,17 @@ describe('createGlbDecoderPool (worker-backed)', () => {
     pool.dispose();
   });
 
+  it('decodes a whole model in the Worker and hands back the primitives (#729 FR4)', async () => {
+    const worker = new StubWorker();
+    const pool = createGlbDecoderPool({ workerFactory: () => worker });
+    const model = await pool.decodeModel('/assets/boat/scull-male.glb', { preserveNodeTransforms: true });
+    expect(worker.requests.map((r) => r.type)).toEqual(['decode-model']);
+    expect(model.primitives.length).toBeGreaterThan(1);
+    expect(model.primitives[0].positions).toBeInstanceOf(Float32Array);
+    expect(model.primitives.every((p) => p.nodeWorldMatrix instanceof Float32Array)).toBe(true);
+    pool.dispose();
+  });
+
   it('rejects pending requests when the worker emits an error event', async () => {
     const pool = createGlbDecoderPool({
       workerFactory: () => new ThrowingWorker(),
@@ -98,6 +131,7 @@ class StubWorker implements Worker {
   onmessageerror: ((this: Worker, ev: MessageEvent) => unknown) | null = null;
   onerror: ((this: AbstractWorker, ev: ErrorEvent) => unknown) | null = null;
   private listeners: MessageHandler[] = [];
+  readonly requests: { type: string }[] = [];
 
   addEventListener(type: string, listener: EventListener | EventListenerObject): void {
     if (type === 'message') this.listeners.push(listener as MessageHandler);
@@ -109,6 +143,19 @@ class StubWorker implements Worker {
   terminate(): void {}
 
   postMessage(message: unknown): void {
+    this.requests.push(message as { type: string });
+    if ((message as { type: string }).type === 'decode-model') {
+      const req = message as { requestId: number; url: string; preserveNodeTransforms: boolean };
+      void (async () => {
+        const bytes = new Uint8Array(
+          readFileSync(path.join(process.cwd(), 'public/assets/boat', req.url.split('/assets/boat/')[1])),
+        );
+        const { decodeModelGlb } = await import('../glbDecodeWorker');
+        const model = await decodeModelGlb(bytes, req.preserveNodeTransforms);
+        this.dispatch({ data: { type: 'model-ok', requestId: req.requestId, model } } as MessageEvent);
+      })();
+      return;
+    }
     const req = message as { requestId: number; id: string; url: string; applyVegetationGain: boolean };
     void (async () => {
       try {
