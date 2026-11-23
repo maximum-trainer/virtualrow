@@ -77,6 +77,17 @@
   cursor: pointer;
 }
 
+.btn-hud-camera {
+  gap: var(--space-xs);
+  padding: 0 var(--space-sm);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.btn-hud-camera-icon {
+  font-size: 1rem;
+}
+
 .btn-hud-action:hover,
 .btn-hud-action:focus-visible {
   background: rgba(10, 14, 20, 0.78);

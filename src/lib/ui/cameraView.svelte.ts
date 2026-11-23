@@ -56,7 +56,7 @@ export class CameraViewStore {
     writeStored(next);
   };
 
-  /** Set the view directly (test seam / future UI button). Unknown values no-op. */
+  /** Set the view directly (test seam; the HUD button cycles, #815). Unknown values no-op. */
   set(next: CameraView): void {
     if (!isCameraView(next)) return;
     this.#view = next;

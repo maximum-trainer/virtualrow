@@ -284,6 +284,7 @@
             onReset={() => ride.resetWorkout()}
             onEnd={() => ride.endWorkout()}
             {fullscreen}
+            camera={cameraView}
             ghost={ride.ghostGap}
             lap={ride.effectiveLoop.enabled && routes.selectedRoute
               ? {
