@@ -114,6 +114,11 @@ export interface RideRendererOptions {
    * null when it hides (ghost within 30 m, off screen, or none).
    */
   readonly onGhostMarker?: (marker: RideGhostMarker | null) => void;
+  /**
+   * #726 VP-08 FR1 — each engine load phase as it settles, for the
+   * loading bar.
+   */
+  readonly onLoadPhase?: (phase: string, status: 'done' | 'failed') => void;
 }
 
 /** The marker over a race ghost more than 30 m away (#728 VP-10 FR2). */

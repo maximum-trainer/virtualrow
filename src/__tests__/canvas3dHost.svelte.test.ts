@@ -39,6 +39,16 @@ describe('Canvas3DHost', () => {
     expect(optsArg).toMatchObject({ tier: 'high', route: { id: 'r1' }, testMode: true });
   });
 
+  // #726 VP-08 FR1 — the engine's load phases reach the ride page's bar.
+  it('forwards the engine load phases to onLoadPhase', async () => {
+    const attach = vi.fn<RideAttach>(() => ({ dispose: vi.fn() }));
+    const onLoadPhase = vi.fn();
+    render(Canvas3DHost, { attach, onLoadPhase });
+    await Promise.resolve();
+    attach.mock.calls[0][1]!.onLoadPhase!('crew', 'done');
+    expect(onLoadPhase).toHaveBeenCalledWith('crew', 'done');
+  });
+
   it('passes the crew prop through to the engine attach', async () => {
     const dispose = vi.fn();
     const attach = vi.fn<RideAttach>(() => ({ dispose }));

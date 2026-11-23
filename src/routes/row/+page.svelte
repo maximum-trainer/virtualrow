@@ -19,7 +19,7 @@
   import { resolvePerformanceMode } from '../../components/rower3d/constants';
   import { getGraphicsStore } from '$lib/ui/graphicsContext';
   import { toEngineRoute } from '$lib/ui/sceneryRoute';
-  import { describeLoadProgress, LOAD_PHASES } from '$lib/utils/loadingProgress';
+  import { progressFromReports } from '$lib/utils/loadingProgress';
   import { getSessionStore } from '$lib/ui/sessionContext';
   import { getRideSession } from '$lib/ui/rideSessionContext';
   import { getRoutesStore } from '$lib/ui/routesContext';
@@ -69,10 +69,11 @@
 
   const testMode = typeof window !== 'undefined' && !!window.__PLAYWRIGHT_TESTING;
 
-  // The load bar watched the three/R3F scene load in App; the WebGPU engine owns
-  // its own load now, so until it reports phases the bar is complete (and so
-  // renders nothing). Real phases land with the engine's load telemetry.
-  const routeLoadProgress = describeLoadProgress(new Set(LOAD_PHASES.map((p) => p.key)));
+  // #726 VP-08 FR1 — the engine reports each load phase as it settles (the
+  // boat, the crew, the flora atlas, the scenery near the start, the first
+  // frame), and the bar shows them. An engine that declined has nothing to
+  // load, so the bar goes and the needs-WebGPU screen shows alone.
+  let loadReports = $state(new Map<string, 'done' | 'failed'>());
 
   // Put the stage on the whole screen (#335). The control reads its element back
   // from the browser's own fullscreenchange, so hand it the stage once mounted.
@@ -134,6 +135,7 @@
   // throw) the ride view swaps the stage for the "needs WebGPU" screen; the
   // rest of the site stays reachable through the Routes link.
   let canvasBackend = $state<CanvasBackend>('stub');
+  const routeLoadProgress = $derived(progressFromReports(loadReports, canvasBackend === 'unavailable'));
 
   // #584 FR1 — on a device loss the engine publishes a user-facing banner on
   // `window.__ROWER3D_BANNER`. We poll it at 250 ms so a reader sees the
@@ -223,6 +225,7 @@
             viewportInsets={hudInsets}
             rebuildOnRouteChange={!testMode}
             onBackend={(b) => (canvasBackend = b)}
+            onLoadPhase={(phase, status) => (loadReports = new Map(loadReports).set(phase, status))}
           />
 
           {#if workout.current && workout.progress}

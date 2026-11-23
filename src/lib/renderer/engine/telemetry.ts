@@ -162,6 +162,10 @@ export interface Rower3DScenery {
   frame: number;
   /** #726 FR3 — models streamed in mid-ride, in registration order. */
   reveals: Rower3DSceneryReveal[];
+  /** #726 FR1 — models with an instance inside the start window. */
+  nearStartIds: string[];
+  /** #726 FR1 — models registered when the first frame was drawn; null before it. */
+  registeredAtFirstFrame: string[] | null;
 }
 
 /**
@@ -392,6 +396,8 @@ export const createTelemetry = (forceRender: () => void): TelemetryHandles => {
       failedIds: [],
       frame: 0,
       reveals: [],
+      nearStartIds: [],
+      registeredAtFirstFrame: null,
     },
     shadows: {
       cascades: 0,

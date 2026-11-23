@@ -135,16 +135,31 @@ describe('attach', () => {
     const original = globalThis.fetch;
     globalThis.fetch = (async (input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url;
-      if (url.endsWith('/a01-buoy-lane-sphere.glb')) return new Response(bytes);
+      if (url.endsWith('/b04-boat-rack-outdoor.glb')) return new Response(bytes);
       return new Response(null, { status: 404 });
     }) as typeof fetch;
     try {
       const renderer = (await attach(makeMockCanvas(), {
         testMode: true,
+        // Far past the 600 m start window, so it streams in once the boat
+        // has rowed there rather than before the first frame (FR1).
         route: {
           pools: [],
-          sceneryGlbs: [{ id: 'a01-buoy-lane-sphere', instances: [{ position: [4, 0, -50], rotationY: 0, scale: 1 }] }],
+          curvePoints: [[0, 0, 0], [0, 0, -3000]],
+          totalDistanceMeters: 3000,
+          sceneryGlbs: [{ id: 'b04-boat-rack-outdoor', instances: [{ position: [30, 0, -2000], rotationY: 0, scale: 1 }] }],
         },
+        getFrame: () => ({
+          paceSPer500: 120,
+          distanceMeters: 1900,
+          cadence: 20,
+          isPlaying: true,
+          holdBoat: false,
+          finished: false,
+          intensityFactor: 1,
+          elapsedSeconds: 10,
+          ghost: null,
+        }),
       })) as unknown as WithTest & {
         _telemetry: {
           scenery: {
@@ -159,15 +174,93 @@ describe('attach', () => {
         renderer._frameOnce();
         await new Promise((r) => setTimeout(r, 5));
       }
-      expect(scenery.reveals.map((r) => r.id)).toEqual(['a01-buoy-lane-sphere']);
+      expect(scenery.reveals.map((r) => r.id)).toEqual(['b04-boat-rack-outdoor']);
       const reveal = scenery.reveals[0];
       expect(reveal.registeredAtFrame).toBe(scenery.frame);
       expect(reveal.revealAlpha).toBe(0);
-      expect(scenery.registered).toBe(1);
+      expect(scenery.registered).toBeGreaterThanOrEqual(1);
       renderer.dispose();
     } finally {
       globalThis.fetch = original;
     }
+  });
+
+  // #726 VP-08 FR1 — the first frame already holds every model with an
+  // instance within 600 m of the start, and the load reports its phases.
+  describe('a fully dressed start (#726 FR1)', () => {
+    const serve = async () => {
+      const { readFileSync } = await import('node:fs');
+      const { resolve } = await import('node:path');
+      const bytes = readFileSync(resolve(process.cwd(), 'public/assets/scenery/tier-a/a01-buoy-lane-sphere.glb'));
+      return (async (input: RequestInfo | URL) => {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url;
+        if (url.includes('/assets/scenery/')) return new Response(bytes);
+        return new Response(null, { status: 404 });
+      }) as typeof fetch;
+    };
+    const route = {
+      pools: [],
+      curvePoints: [[0, 0, 0], [0, 0, -3000]] as [number, number, number][],
+      totalDistanceMeters: 3000,
+      sceneryGlbs: [
+        // Nearest instance 300 m in: inside the start window.
+        { id: 'b04-boat-rack-outdoor', instances: [{ position: [30, 0, -2000], rotationY: 0, scale: 1 }, { position: [30, 0, -300], rotationY: 0, scale: 1 }] },
+        { id: 'b05-quay-wall-stone', instances: [{ position: [-30, 0, -580], rotationY: 0, scale: 1 }] },
+        // 1.5 km in: streams in later.
+        { id: 'b02-boathouse-uk-victorian', instances: [{ position: [-30, 0, -1500], rotationY: 0, scale: 1 }] },
+      ],
+    };
+    type Scenery = {
+      nearStartIds: string[];
+      registeredAtFirstFrame: string[] | null;
+      reveals: { id: string }[];
+    };
+
+    it('registers every model near the start before the first frame, without a fade', async () => {
+      const original = globalThis.fetch;
+      globalThis.fetch = await serve();
+      try {
+        const renderer = (await attach(makeMockCanvas(), { testMode: true, route })) as unknown as WithTest & {
+          _telemetry: { scenery: Scenery };
+        };
+        const scenery = renderer._telemetry.scenery;
+        // The engine's own course furniture at the start is in the window too.
+        expect(scenery.nearStartIds).toContain('b04-boat-rack-outdoor');
+        expect(scenery.nearStartIds).toContain('b05-quay-wall-stone');
+        expect(scenery.nearStartIds).not.toContain('b02-boathouse-uk-victorian');
+        expect([...(scenery.registeredAtFirstFrame ?? [])].sort()).toEqual([...scenery.nearStartIds].sort());
+        expect(scenery.reveals, 'models placed before the start do not fade').toEqual([]);
+        renderer.dispose();
+      } finally {
+        globalThis.fetch = original;
+      }
+    });
+
+    it('reports each load phase once, the first frame last', async () => {
+      const original = globalThis.fetch;
+      globalThis.fetch = await serve();
+      const reported: [string, string][] = [];
+      try {
+        const renderer = (await attach(makeMockCanvas(), {
+          testMode: true,
+          route,
+          onLoadPhase: (phase: string, status: string) => reported.push([phase, status]),
+        })) as unknown as WithTest;
+        for (let i = 0; i < 20 && !reported.some(([p]) => p === 'atlas'); i += 1) {
+          await new Promise((r) => setTimeout(r, 5));
+        }
+        const phases = reported.map(([p]) => p);
+        expect([...phases].sort()).toEqual(['atlas', 'boat', 'crew', 'frame', 'scene', 'scenery-near']);
+        expect(phases.indexOf('frame')).toBeGreaterThan(phases.indexOf('scenery-near'));
+        expect(phases.indexOf('scenery-near')).toBeGreaterThan(phases.indexOf('scene'));
+        expect(reported.find(([p]) => p === 'scenery-near')?.[1]).toBe('done');
+        renderer._frameOnce();
+        expect(reported.filter(([p]) => p === 'frame')).toHaveLength(1);
+        renderer.dispose();
+      } finally {
+        globalThis.fetch = original;
+      }
+    });
   });
 
   it('isSceneryRoute recognises the shape', () => {

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   LOAD_PHASES,
   describeLoadProgress,
+  progressFromReports,
   type LoadPhaseKey,
 } from '../lib/utils/loadingProgress';
 
@@ -35,11 +36,12 @@ describe('the phases of a route load', () => {
   });
 
   it('are worth roughly what they cost the rower', () => {
-    // Measured shares of a 3,247 ms wait: view 21%, scene 19%, frame 1%,
-    // boat 59%. The boat is the largest by far and must not be a token sliver
-    // at the end, which is what a four-equal-quarters bar would make it.
-    const boat = LOAD_PHASES.find((p) => p.key === 'boat')!;
-    expect(boat.weight).toBeGreaterThan(40);
+    // The two big downloads are the crew's scull GLB (~2 MB) and the kit
+    // models near the start (#726 FR1); neither may be a token sliver.
+    const crew = LOAD_PHASES.find((p) => p.key === 'crew')!;
+    const near = LOAD_PHASES.find((p) => p.key === 'scenery-near')!;
+    expect(crew.weight).toBeGreaterThanOrEqual(25);
+    expect(near.weight).toBeGreaterThanOrEqual(25);
 
     // And the frame, measured at 41 ms, must not be worth a quarter.
     const frame = LOAD_PHASES.find((p) => p.key === 'frame')!;
@@ -54,6 +56,13 @@ describe('the phases of a route load', () => {
   });
 });
 
+// #726 VP-08 FR1 — the engine reports each of these as it settles.
+describe('the engine load phases (#726 FR1)', () => {
+  it('are the boat, crew, flora atlas and near scenery, between the scene and the first frame', () => {
+    expect(LOAD_PHASES.map((p) => p.key)).toEqual(['scene', 'boat', 'crew', 'atlas', 'scenery-near', 'frame']);
+  });
+});
+
 describe('describeLoadProgress', () => {
   it('starts at zero, naming the first thing it is waiting for', () => {
     const state = describeLoadProgress(done());
@@ -64,13 +73,13 @@ describe('describeLoadProgress', () => {
   });
 
   it('adds a phase only once it has finished', () => {
-    const view = LOAD_PHASES.find((p) => p.key === 'view')!;
+    const scene = LOAD_PHASES.find((p) => p.key === 'scene')!;
 
-    expect(describeLoadProgress(done('view')).percent).toBe(view.weight);
+    expect(describeLoadProgress(done('scene')).percent).toBe(scene.weight);
   });
 
   it('names what it is waiting for now, not what it just finished', () => {
-    const state = describeLoadProgress(done('view'));
+    const state = describeLoadProgress(done('scene'));
 
     expect(state.phase).toBe(LOAD_PHASES[1].label);
   });
@@ -117,7 +126,7 @@ describe('describeLoadProgress', () => {
   it('is complete when a phase failed rather than finished', () => {
     // A boat that 503s must not leave the rower at 41% for ever. The row goes
     // on without it, so the wait is over (#266, #267 set the precedent).
-    const state = describeLoadProgress(done('view', 'scene', 'frame'), done('boat'));
+    const state = describeLoadProgress(done('scene', 'crew', 'atlas', 'scenery-near', 'frame'), done('boat'));
 
     expect(state.complete).toBe(true);
     expect(state.percent).toBe(100);
@@ -141,5 +150,32 @@ describe('describeLoadProgress', () => {
     const state = describeLoadProgress(new Set(['nonsense'] as unknown as LoadPhaseKey[]));
 
     expect(state.percent).toBe(0);
+  });
+});
+
+// #726 VP-08 FR1 — the ride page turns the engine's phase reports into the bar.
+describe('progressFromReports (#726 FR1)', () => {
+  it('shows the bar until the engine has reported every phase', () => {
+    const reports = new Map<string, 'done' | 'failed'>([['scene', 'done'], ['boat', 'done']]);
+    const state = progressFromReports(reports, false);
+    expect(state.complete).toBe(false);
+    expect(state.phase).toBe('Loading the crew');
+  });
+
+  it('counts a failed phase as settled, and names it', () => {
+    const reports = new Map<string, 'done' | 'failed'>(LOAD_PHASES.map((p) => [p.key, 'done'] as const));
+    reports.set('boat', 'failed');
+    const state = progressFromReports(reports, false);
+    expect(state.complete).toBe(true);
+    expect(state.failed).toEqual(['boat']);
+  });
+
+  it('ignores a phase the bar does not know', () => {
+    const state = progressFromReports(new Map([['warp-drive', 'done']]), false);
+    expect(state.percent).toBe(0);
+  });
+
+  it('is complete when the engine declined, so the needs-WebGPU screen shows alone', () => {
+    expect(progressFromReports(new Map(), true).complete).toBe(true);
   });
 });
