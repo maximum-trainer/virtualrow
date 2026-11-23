@@ -105,11 +105,17 @@ export interface Rower3DRoute {
   builds?: number;
   /** #724 — every bridge span the scene placed. */
   spans?: Rower3DSpan[];
+  /** #742 FR3 — progress ranges lying alongside another part of the route. */
+  selfParallel?: Array<[number, number]>;
+  /** #742 FR3 — scenery and furniture instances not placed because they stood on the route's water. */
+  rejectedOnWater?: number;
 }
 
 export interface Rower3DClearance {
   min: number;
   samples: number;
+  /** #742 FR6 — what lies under the boat's hull this frame. */
+  surface?: 'water' | 'land';
 }
 
 /**

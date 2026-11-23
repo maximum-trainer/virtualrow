@@ -48,6 +48,16 @@ export interface BuildWaterStripOptions {
 
 const UP: Vec3 = vec3(0, 1, 0);
 
+/**
+ * Columns along the water strip when none are asked for: one per ≈10 m of
+ * route (128 to 16 000), or 128 for the straight fallback ribbon.
+ */
+export const defaultStripDivisions = (curve: RouteCurve | null): number => (
+  curve && curve.length >= 2
+    ? Math.max(128, Math.min(16000, Math.ceil(curve.approximateLength(64) / 10)))
+    : 128
+);
+
 export const buildWaterStrip = (
   curve: RouteCurve | null,
   options: BuildWaterStripOptions = {},
@@ -58,10 +68,7 @@ export const buildWaterStrip = (
   // quad represents ≈10 m of route. Low division counts (the old 128) let a
   // sharp bend between two columns pull the straight-line strip quad off
   // the curve centre and read the boat as drifting onto the bank.
-  const defaultDivisions = curve && curve.length >= 2
-    ? Math.max(128, Math.min(16000, Math.ceil(curve.approximateLength(64) / 10)))
-    : 128;
-  const divisions = Math.max(2, options.divisions ?? defaultDivisions);
+  const divisions = Math.max(2, options.divisions ?? defaultStripDivisions(curve));
   const edgesForProgress = options.edgesForProgress
     ?? ((_t: number): WaterEdges => ({ left: halfWidth, right: halfWidth }));
 

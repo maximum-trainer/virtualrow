@@ -49,6 +49,7 @@ import { createSkyPass } from '../passes/sky';
 import { createWaterPass } from '../passes/water';
 import { createWaterPolygonPass } from '../passes/waterPolygon';
 import { simplifyPolygons } from '../plan/polygonSimplify';
+import { bridgeParallelLegs, islandLand } from '../plan/parallelLegs';
 import { createWaterDebugPass } from '../passes/waterDebug';
 import { isPolygonWaterEnabled } from './polygonWater';
 import {
@@ -123,7 +124,8 @@ import {
   fleetWaterHalfWidth,
   type FleetState,
 } from './fleet';
-import { DEFAULT_WATER_HALF_WIDTH_M } from '../plan/waterStrip';
+import { DEFAULT_WATER_HALF_WIDTH_M, buildWaterStrip } from '../plan/waterStrip';
+import { lakeWater, poolsOffWater, routeWaterFootprint, surfaceAt, withLakes } from '../plan/waterFootprint';
 import { FLEET_INSTANCE_CAPACITY } from '../passes/boat';
 import { assetUrl } from '../../utils/assetUrl';
 import { createSceneryPass } from './sceneryPass';
@@ -193,6 +195,9 @@ import {
   sproutWindowFor,
   type ShadowUniformsCpu,
 } from './uniforms';
+
+/** #742 FR3 — how far inside the water a GLB must stand to be taken out. */
+const GLB_WATER_MARGIN_METRES = 3;
 
 /**
  * A scenery route shape the engine understands: the UI-side `route` is
@@ -503,8 +508,51 @@ export const createRideScene = async (
   packSproutUniforms(sprout.near, sprout.far, sproutScratch);
   device.queue.writeBuffer(sproutUniforms, 0, sproutScratch as BufferSource);
 
+  // Build the water/bank curve + edges fn FIRST so every geometry pass
+  // that follows the river (water strip, bank strips lit + depth, boat
+  // placement, course furniture, camera) can share one spline.
+  const fallbackCurveSource: Array<[number, number, number]> = [[0, 0, 0], [0, 0, -200]];
+  const waterCurveSource = isSceneryRoute(opts.route) && opts.route.curvePoints && opts.route.curvePoints.length >= 2
+    ? opts.route.curvePoints
+    : fallbackCurveSource;
+  const waterCurve = new RouteCurve(
+    waterCurveSource.map(([x, y, z]) => vec3(x, y, z)),
+    isSceneryRoute(opts.route) ? !!opts.route.isClosedLoop : false,
+  );
+  const waterEdgesForProgress = isSceneryRoute(opts.route) ? opts.route.waterEdgesForProgress : undefined;
+  // #742 VP-22 FR2 — the water and bank strips close the gap between legs
+  // that run beside each other. Fleet lanes and course furniture keep the
+  // measured shores (`waterEdgesForProgress`).
+  const parallelLegs = bridgeParallelLegs(waterCurve, waterEdgesForProgress, {
+    isLand: islandLand(isSceneryRoute(opts.route) ? opts.route.lakePolygons : undefined),
+  });
+  const stripEdgesForProgress = parallelLegs.edgesForProgress;
+  const tierCaps = tierCapsFor(opts.tier);
+  const polygonLakesRaw =
+    isSceneryRoute(opts.route) && opts.route.lakePolygons ? opts.route.lakePolygons : [];
+  // #493 Phase 5 / FR9 / AC7 — decimate each outer ring to the tier's
+  // vertex budget before the pass tessellates. Deterministic + area-
+  // preserving (polygonSimplify.ts); a ring already under the cap is
+  // returned by reference, so a small lake pays nothing.
+  const polygonLakes = simplifyPolygons(polygonLakesRaw, tierCaps.polygonWaterMaxVertices);
+  const useLakePolygonWater = isPolygonWaterEnabled() && polygonLakes.length > 0;
+  // #742 FR3 — the whole route's water: scenery and bank furniture
+  // standing on any part of it are taken out.
+  // A smoke page with no route lays its scenery out around the fallback
+  // ribbon: nothing is taken out there.
+  const hasRouteCurve = waterCurveSource !== fallbackCurveSource;
+  const routeWater = routeWaterFootprint(buildWaterStrip(waterCurve, { edgesForProgress: stripEdgesForProgress }));
+  const rejectOnWater = hasRouteCurve ? routeWater : { contains: () => false };
+  // #742 FR5 — where the lake polygons are drawn, the banks laid along the
+  // racing line give way to them: the lake's own shore is the bank.
+  const bankFootprint = useLakePolygonWater ? withLakes(routeWater, polygonLakes) : routeWater;
+  const surfaceLakes = lakeWater(isSceneryRoute(opts.route) ? opts.route.lakePolygons ?? [] : []);
+  let rejectedOnWater = 0;
+
   // D7-a of #555: wire the scenery pass unconditionally.
-  const sceneryPoolInputs: PoolInput[] = isSceneryRoute(opts.route) ? opts.route.pools : [];
+  const offWater = poolsOffWater(isSceneryRoute(opts.route) ? opts.route.pools : [], rejectOnWater);
+  rejectedOnWater += offWater.rejected;
+  const sceneryPoolInputs: PoolInput[] = offWater.pools;
   // Scenery pool telemetry starts fresh on each scene build so a reattach
   // doesn't double-count pools from the dead device.
   telemetry.scenery.pools = [];
@@ -521,7 +569,6 @@ export const createRideScene = async (
   // route carries no `buildings`, which is what happens for a fallback
   // enrichment. Tier gates then decide whether to build the pass + cast
   // shadows (D8).
-  const tierCaps = tierCapsFor(opts.tier);
   const rawBuildingSpecs: BuildingSpec[] =
     tierCaps.drawBuildings && isSceneryRoute(opts.route) && opts.route.buildings
       ? opts.route.buildings
@@ -875,17 +922,6 @@ export const createRideScene = async (
     });
   };
 
-  // Build the water/bank curve + edges fn FIRST so every geometry pass
-  // that follows the river (water strip, bank strips lit + depth, boat
-  // placement, course furniture, camera) can share one spline.
-  const waterCurveSource = isSceneryRoute(opts.route) && opts.route.curvePoints && opts.route.curvePoints.length >= 2
-    ? opts.route.curvePoints
-    : [[0, 0, 0] as [number, number, number], [0, 0, -200] as [number, number, number]];
-  const waterCurve = new RouteCurve(
-    waterCurveSource.map(([x, y, z]) => vec3(x, y, z)),
-    isSceneryRoute(opts.route) ? !!opts.route.isClosedLoop : false,
-  );
-  const waterEdgesForProgress = isSceneryRoute(opts.route) ? opts.route.waterEdgesForProgress : undefined;
 
   const shadowTelemetry: ShadowTelemetry = telemetry.shadows as ShadowTelemetry;
   const shadowStage = createShadowStage({
@@ -897,7 +933,8 @@ export const createRideScene = async (
     boatPass,
     telemetry: shadowTelemetry,
     bankCurve: waterCurve,
-    bankEdgesForProgress: waterEdgesForProgress,
+    bankEdgesForProgress: stripEdgesForProgress,
+    bankFootprint,
     // #591-fu P1c: tier-gated flora + GLB-scenery shadow casters. Each
     // input stays null below medium so the depth stage adds nothing on
     // basic/low; at medium+ the stage picks up every solid-flora pool
@@ -938,21 +975,14 @@ export const createRideScene = async (
     lightingUniforms,
     shadow: shadowResources,
     curve: waterCurve,
-    edgesForProgress: waterEdgesForProgress,
+    edgesForProgress: stripEdgesForProgress,
+    footprint: bankFootprint,
     grass: { profile: bankGrassProfile, strength: bankGrassStrength },
   });
   // #493 Phase 3b — if the enrichment carried lake polygons AND the kill
   // switch isn't disabled, draw polygon water in place of the strip. The
   // strip stays wired so a route whose enrichment lacks polygons (rivers,
   // offline fallbacks) renders exactly as before.
-  const polygonLakesRaw =
-    isSceneryRoute(opts.route) && opts.route.lakePolygons ? opts.route.lakePolygons : [];
-  // #493 Phase 5 / FR9 / AC7 — decimate each outer ring to the tier's
-  // vertex budget before the pass tessellates. Deterministic + area-
-  // preserving (polygonSimplify.ts); a ring already under the cap is
-  // returned by reference, so a small lake pays nothing.
-  const polygonLakes = simplifyPolygons(polygonLakesRaw, tierCaps.polygonWaterMaxVertices);
-  const useLakePolygonWater = isPolygonWaterEnabled() && polygonLakes.length > 0;
   const polygonWaterPass = useLakePolygonWater
     ? createWaterPolygonPass({
         device,
@@ -1009,7 +1039,7 @@ export const createRideScene = async (
       lightingUniforms,
       shadow: shadowResources,
       curve: waterCurve,
-      edgesForProgress: waterEdgesForProgress,
+      edgesForProgress: stripEdgesForProgress,
     });
   const buildingsPass = createBuildingsPass({
     device,
@@ -1155,6 +1185,7 @@ export const createRideScene = async (
   telemetry.route.hasCurve = true;
   telemetry.route.totalDistance = totalDistanceMeters;
   telemetry.route.curveLength = curveLength;
+  telemetry.route.selfParallel = parallelLegs.selfParallel;
 
   // #685 wire-up — compose per-route extras from the three sources
   // (`composePlacementsForRoute`): tier-r llm-cad (fetched from the
@@ -1212,6 +1243,12 @@ export const createRideScene = async (
   for (const model of COURSE_FURNITURE_MODELS) byModel.set(model, []);
   const ASSET_SCALE = 0.001;
   for (const place of furniture) {
+    // #742 FR3 — bank furniture on another leg's water is not placed.
+    // Spans and buoys belong on the water.
+    if (place.kind === 'furniture' && rejectOnWater.contains(place.position[0], place.position[2])) {
+      rejectedOnWater += 1;
+      continue;
+    }
     const trs = mat4();
     const rot = mat4();
     const t = mat4();
@@ -1242,7 +1279,14 @@ export const createRideScene = async (
   const routeGlbInstanceMats = new Map<string, Mat4[]>();
   for (const group of sceneryGlbList) {
     const mats: Mat4[] = [];
+    // #742 FR3 — bridges and buoys belong on the water; any other model
+    // well inside some part of the route's water is not placed.
+    const onWaterByDesign = group.id in BRIDGE_SPANS || group.id.includes('buoy');
     for (const inst of group.instances) {
+      if (!onWaterByDesign && rejectOnWater.contains(inst.position[0], inst.position[2], GLB_WATER_MARGIN_METRES)) {
+        rejectedOnWater += 1;
+        continue;
+      }
       const trs = mat4();
       const rot = mat4();
       const t = mat4();
@@ -1282,6 +1326,7 @@ export const createRideScene = async (
         scale: inst.scale / ASSET_SCALE,
       }))),
   ];
+  telemetry.route.rejectedOnWater = rejectedOnWater;
   telemetry.route.spans = bridgeSpans.map((span) => ({
     id: span.id,
     x: span.position[0],
@@ -1827,6 +1872,8 @@ export const createRideScene = async (
     telemetry.boat.x = boatPlacement.world[0];
     telemetry.boat.y = boatPlacement.world[1];
     telemetry.boat.z = boatPlacement.world[2];
+    // #742 FR6 — the surface under the hull, every frame.
+    telemetry.clearance.surface = surfaceAt(routeWater, surfaceLakes, boatPlacement.world[0], boatPlacement.world[2]);
     telemetry.boat.heading = boatPlacement.heading;
     telemetry.boat.distanceMeters = boatPlacement.distanceMeters;
     telemetry.boat.progress = boatPlacement.progress;
