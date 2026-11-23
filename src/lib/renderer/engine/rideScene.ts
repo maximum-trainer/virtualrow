@@ -63,6 +63,7 @@ import {
   type WaterDetectionSummary,
 } from './waterDetectionSummary';
 import { createSceneryMeshPass } from '../passes/sceneryMesh';
+import { revealAlpha, SCENERY_VISIBILITY_METRES } from '../passes/sceneryReveal';
 import { loadGlb } from '../../scenery/glbLoader';
 import {
   placeFurniture,
@@ -494,6 +495,8 @@ export const createRideScene = async (
   telemetry.scenery.registered = 0;
   telemetry.scenery.failed = 0;
   telemetry.scenery.failedIds = [];
+  telemetry.scenery.frame = 0;
+  telemetry.scenery.reveals = [];
   const scenePools: InstancePool[] = sceneryPoolInputs.map((input) => createInstancePool(device, input));
 
   // #566 P6 — buildings pool. Per D5-b we skip the pool entirely when the
@@ -838,7 +841,7 @@ export const createRideScene = async (
     // the raw colour buffer; buildings (tier-D) pass through unchanged.
     return decoderPool.decode(id, url, applyVegetationGain);
   };
-  const registerSceneryModel = (id: string, decoded: DecodedScenery): void => {
+  const registerSceneryModel = (id: string, decoded: DecodedScenery, revealAt?: number): void => {
     sceneryMeshPass.register({
       id,
       positions: decoded.positions,
@@ -848,6 +851,7 @@ export const createRideScene = async (
       baseColor: decoded.baseColor,
       maxInstances: COURSE_FURNITURE_MAX_INSTANCES,
       castsShadow: !SHADOW_NEUTRAL_MODEL_IDS.has(id),
+      ...(revealAt !== undefined ? { revealAt } : {}),
     });
   };
 
@@ -1328,7 +1332,14 @@ export const createRideScene = async (
   /** #726 FR5 — register at most one decoded model this frame. */
   const registerNextScenery = (): void => {
     sceneryRegistrations.drainOne(({ id, decoded }) => {
-      registerSceneryModel(id, decoded);
+      // #726 FR3 — fade it in from this frame rather than pop it in.
+      registerSceneryModel(id, decoded, frame.time);
+      telemetry.scenery.reveals.push({
+        id,
+        registeredAtFrame: telemetry.scenery.frame,
+        registeredAt: frame.time,
+        revealAlpha: 0,
+      });
       sceneryMeshPass.setInstances(id, sceneryInstanceMats.get(id) ?? []);
       sceneryLoading.delete(id);
       sceneryLoaded.add(id);
@@ -1525,6 +1536,10 @@ export const createRideScene = async (
     // Pass the boat's position along the current lap (already wrapped by
     // `placeBoat` when the frame is looping) together with the loop flag so
     // the stream planner wraps its lookahead window around the seam.
+    telemetry.scenery.frame += 1;
+    for (const r of telemetry.scenery.reveals) {
+      if (r.revealAlpha < 1) r.revealAlpha = revealAlpha(frame.time, r.registeredAt, 0);
+    }
     registerNextScenery();
     streamScenery(boatPlacement.progress * totalDistanceMeters, !!rideFrame?.loop);
     const ghostInfo = placeGhost(
@@ -1854,7 +1869,7 @@ export const createRideScene = async (
     const up = vec3(0, 1, 0);
     mat4LookAt(frame.view, eye, target, up);
     const fovY = (cameraRig.fov * Math.PI) / 180;
-    projectionWithInsets(frame.proj, fovY, width, height, viewportInsets, 0.1, 2000);
+    projectionWithInsets(frame.proj, fovY, width, height, viewportInsets, 0.1, SCENERY_VISIBILITY_METRES);
     mat4Multiply(frame.viewProj, frame.proj, frame.view);
     // #733 VP-15 FR3 telemetry: where the player boat lands on screen, and
     // the area the HUD leaves clear, so a spec can check one is inside the

@@ -4,6 +4,7 @@ import { createSceneryMeshPass, SCENERY_INSTANCE_BYTES, type SceneryMeshInput } 
 import sceneryMeshDepthWgsl from '../sceneryMeshDepth.wgsl?raw';
 import sceneryMeshWgsl from '../sceneryMesh.wgsl?raw';
 import { mat4, mat4Identity } from '../../math/mat4';
+import { ALWAYS_REVEALED, SCENERY_REVEAL_SECONDS, SCENERY_VISIBILITY_METRES } from '../sceneryReveal';
 
 // jsdom doesn't ship the WebGPU globals; the pass only reads
 // GPUBufferUsage.*, so a numeric stub is enough for coverage.
@@ -65,6 +66,7 @@ const makeInput = (over: Partial<SceneryMeshInput> = {}): SceneryMeshInput => ({
   baseColor: over.baseColor ?? [0.3, 0.5, 0.4, 1],
   ...(over.colors ? { colors: over.colors } : {}),
   maxInstances: over.maxInstances ?? 4,
+  ...(over.revealAt !== undefined ? { revealAt: over.revealAt } : {}),
 });
 
 describe('createSceneryMeshPass', () => {
@@ -304,6 +306,64 @@ describe('createSceneryMeshPass', () => {
     const ceiling = Number(match![1]);
     expect(ceiling).toBeGreaterThan(0);
     expect(ceiling).toBeLessThanOrEqual(0.5);
+  });
+
+  // #726 VP-08 FR3 — a model streamed in mid-ride fades in over 1.5 s,
+  // driven by a per-mesh reveal uniform at group 1 binding 2.
+  describe('reveal fade (#726 FR3)', () => {
+    type Desc = { entries: { binding: number; resource: { buffer: unknown } }[] };
+    const revealWrites = (queue: GPUQueue) =>
+      (queue.writeBuffer as unknown as { mock: { calls: [GPUBuffer, number, Float32Array][] } }).mock.calls.filter(
+        ([, , data]) => data instanceof Float32Array && data.length === 4 && data[1] === SCENERY_REVEAL_SECONDS,
+      );
+
+    it('binds one reveal uniform at binding 2 in both bind groups', () => {
+      const { device, bindGroups } = makeDevice();
+      const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+      p.register(makeInput({ id: 'boathouse' }));
+      const meshGroups = (bindGroups as Desc[]).filter((d) => d.entries.some((e) => e.binding === 1));
+      expect(meshGroups).toHaveLength(2);
+      const reveal = meshGroups.map((d) => d.entries.find((e) => e.binding === 2)?.resource.buffer);
+      expect(reveal[0]).toBeDefined();
+      expect(reveal[1]).toBe(reveal[0]);
+    });
+
+    it('writes the registration time when the model is revealed mid-ride', () => {
+      const { device, queue } = makeDevice();
+      const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+      p.register(makeInput({ id: 'boathouse', revealAt: 42.5 }));
+      const w = revealWrites(queue);
+      expect(w).toHaveLength(1);
+      expect(Array.from(w[0][2])).toEqual([42.5, SCENERY_REVEAL_SECONDS, SCENERY_VISIBILITY_METRES, 0]);
+    });
+
+    it('draws a mesh registered without revealAt at full opacity from the first frame', () => {
+      const { device, queue } = makeDevice();
+      const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+      p.register(makeInput({ id: 'boat' }));
+      expect(revealWrites(queue)[0][2][0]).toBe(ALWAYS_REVEALED);
+    });
+
+    it('destroys the reveal buffer on dispose', () => {
+      const created: GPUBuffer[] = [];
+      const { device } = makeDevice();
+      (device.createBuffer as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => {
+        const b = makeBuffer();
+        created.push(b);
+        return b;
+      });
+      const p = createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+      p.register(makeInput({ id: 'boathouse', revealAt: 1 }));
+      p.dispose();
+      for (const b of created) expect(b.destroy).toHaveBeenCalled();
+    });
+
+    it('the fragment shader dithers instances out until their reveal alpha reaches 1', () => {
+      expect(sceneryMeshWgsl).toMatch(/@group\(1\)\s*@binding\(2\)\s*var<uniform>\s*reveal\s*:\s*vec4<f32>/);
+      expect(sceneryMeshWgsl).toMatch(/frame\.time\s*-\s*reveal\.x/);
+      expect(sceneryMeshWgsl).toMatch(/in\.worldDist\s*>\s*reveal\.z/);
+      expect(sceneryMeshWgsl).toMatch(/discard/);
+    });
   });
 
   it('encode is a no-op after dispose', () => {
