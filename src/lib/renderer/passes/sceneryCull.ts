@@ -87,7 +87,8 @@ export const createSceneryCuller = (device: GPUDevice): SceneryCuller => {
       const indirect = device.createBuffer({
         label: `cull-indirect:${pool.kind}:${pool.speciesIndex}`,
         size: INDIRECT_DRAW_ARGS_SIZE,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST,
+        // COPY_SRC: #737 FR4 reads the culled instanceCount back for telemetry.
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
       });
       const bindGroup = device.createBindGroup({
         label: `cull:${pool.kind}:${pool.speciesIndex}`,

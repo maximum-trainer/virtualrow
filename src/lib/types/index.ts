@@ -551,6 +551,12 @@ declare global {
     /** `false` leaves the billboard foliage out, so a spec can measure its cost (#333). */
     __VIRTUALROW_FOLIAGE?: boolean;
     /**
+     * `true` lets the engine attach on a software adapter (SwiftShader) for a
+     * visual check, like `?review=1` (#737 FR5). Never the default; health
+     * still reports `isSoftware: true`.
+     */
+    __VIRTUALROW_ALLOW_SOFTWARE?: boolean;
+    /**
      * `true` turns on the density-field grass pass on `medium+` tiers (#496).
      * Phase 1 defaults undefined (off) so visual baselines don't move; Phase 2
      * flips the sense and removes the single-tuft `InstancedMesh` branch.

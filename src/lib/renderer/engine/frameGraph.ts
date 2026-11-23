@@ -62,6 +62,11 @@ export interface Pass {
    * if the pass has no work this frame.
    */
   encode(ctx: FrameContext): void;
+  /**
+   * Optional: called once the frame's command buffer has been submitted,
+   * e.g. to `mapAsync` a readback buffer the pass copied into (#737 FR4).
+   */
+  afterSubmit?(): void;
   /** Release GPU resources. Safe to call more than once. */
   dispose(): void;
 }
@@ -116,6 +121,7 @@ export const createFrameGraph = (passes: Pass[], timer?: GpuFrameTimer | null): 
       timer?.resolve(encoder);
       device.queue.submit([encoder.finish()]);
       timer?.readback();
+      for (const pass of passes) pass.afterSubmit?.();
     },
     dispose() {
       if (disposed) return;

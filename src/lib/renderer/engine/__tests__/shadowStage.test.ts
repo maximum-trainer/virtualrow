@@ -17,6 +17,7 @@ const emptyTelemetry = () => ({
   lastSplits: [] as number[],
   draws: 0,
   triangles: 0,
+  instances: 0,
   atlasBytes: 0,
 });
 
@@ -155,6 +156,54 @@ describe('shadowStage (#566 P6 — buildings cast through the same atlas)', () =
       telemetry: emptyTelemetry(),
     });
     expect(stage.buildings).toBeDefined();
+    stage.dispose();
+    pool.dispose();
+    buildings.dispose();
+  });
+
+  it('counts this frame\'s shadow draws, triangles and instances, and zeroes them when unarmed (#737 FR2)', () => {
+    const device = makeMockDevice();
+    const atlas = makeAtlasOnMock(device);
+    const pool = createInstancePool(device, {
+      kind: 'foliage',
+      speciesIndex: 0,
+      chunkIndex: 0,
+      positions: new Float32Array([0, 0, 0, 1, 0, 1]),
+      bounds: { cx: 0, cy: 0, cz: 0, radius: 1 },
+    });
+    const buildings = createBuildingPool(device, buildSmokeBuildings({ count: 3 }));
+    const stage = createShadowStage({
+      device,
+      atlas,
+      scenePools: [pool],
+      buildingsPool: buildings,
+      telemetry: emptyTelemetry(),
+    });
+    const ctx = {
+      device,
+      encoder: device.createCommandEncoder(),
+      swapView: {} as GPUTextureView,
+      outputView: {} as GPUTextureView,
+      depthView: {} as GPUTextureView,
+      width: 1,
+      height: 1,
+      frame: {} as unknown as import('../frameGraph').FrameUniforms,
+      colorCleared: false,
+      depthCleared: false,
+    };
+    stage.payload.cascadeCount = 2;
+    stage.payload.cascades[0] = { viewProj: new Float32Array(16) };
+    stage.payload.cascades[1] = { viewProj: new Float32Array(16) };
+    stage.encode(ctx);
+    // Per cascade: the bank (1) + one scenery-pool draw (2 instances) + one buildings draw (3).
+    expect(stage.telemetry.draws).toBe(6);
+    expect(stage.telemetry.instances).toBe(12);
+    expect(stage.telemetry.triangles).toBeGreaterThan(0);
+    stage.payload.cascadeCount = 0;
+    stage.encode(ctx);
+    expect(stage.telemetry.draws).toBe(0);
+    expect(stage.telemetry.triangles).toBe(0);
+    expect(stage.telemetry.instances).toBe(0);
     stage.dispose();
     pool.dispose();
     buildings.dispose();

@@ -130,6 +130,58 @@ describe('sceneryPass', () => {
     for (const p of pools) p.dispose();
   });
 
+  it('counts dispatches and draws per frame, not since mount (#737 FR2)', () => {
+    const device = makeMockDevice();
+    const frameUniforms = makeUniformBuffer(device);
+    const pools = makePools(device);
+    const pass = createSceneryPass({ device, format: 'bgra8unorm', frameUniforms, sproutUniforms: frameUniforms, pools });
+    pass.encode(makeFrameCtx(device));
+    pass.encode(makeFrameCtx(device));
+    expect(pass.telemetry.dispatchCount).toBe(3);
+    expect(pass.telemetry.drawCount).toBe(3);
+    expect(pass.telemetry.spriteDraws).toBe(3);
+    pass.dispose();
+    for (const p of pools) p.dispose();
+  });
+
+  it('reads back how many instances each pool\'s cull kept (#737 FR4)', async () => {
+    const device = makeMockDevice();
+    const kept = new Uint32Array([7, 0, 3]);
+    const copies: Array<[number, number, number]> = [];
+    const realCreate = device.createBuffer.bind(device);
+    let readBuffer: GPUBuffer | null = null;
+    device.createBuffer = ((desc: GPUBufferDescriptor) => {
+      const b = realCreate(desc);
+      if (desc.usage & GPUBufferUsage.MAP_READ) {
+        readBuffer = b;
+        (b as unknown as { getMappedRange: () => ArrayBuffer }).getMappedRange = () => kept.buffer.slice(0);
+      }
+      return b;
+    }) as typeof device.createBuffer;
+    const frameUniforms = makeUniformBuffer(device);
+    const pools = makePools(device);
+    const pass = createSceneryPass({ device, format: 'bgra8unorm', frameUniforms, sproutUniforms: frameUniforms, pools });
+    expect(readBuffer).not.toBeNull();
+    expect(pass.telemetry.pools.map((p) => p.drawn)).toEqual([-1, -1, -1]);
+    const ctx = makeFrameCtx(device);
+    (ctx.encoder as unknown as { copyBufferToBuffer: unknown }).copyBufferToBuffer = (
+      _src: GPUBuffer, srcOffset: number, dst: GPUBuffer, dstOffset: number, size: number,
+    ) => { if (dst === readBuffer) copies.push([srcOffset, dstOffset, size]); };
+    pass.encode(ctx);
+    // instanceCount is the second u32 of each pool's indirect args.
+    expect(copies).toEqual([[4, 0, 4], [4, 4, 4], [4, 8, 4]]);
+    pass.afterSubmit?.();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(pass.telemetry.pools.map((p) => p.drawn)).toEqual([7, 0, 3]);
+    // Not every frame: the next copy waits out the interval.
+    copies.length = 0;
+    pass.encode(ctx);
+    expect(copies).toEqual([]);
+    pass.dispose();
+    for (const p of pools) p.dispose();
+  });
+
   it('uses the default max distance when none is supplied', () => {
     expect(DEFAULT_MAX_DISTANCE).toBe(320);
   });

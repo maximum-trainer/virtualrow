@@ -123,7 +123,16 @@ export interface SceneryMeshSnapshot {
   readonly castsShadow: boolean;
 }
 
+/** #737 VP-19 FR2 — what the lit mesh pass drew this frame. */
+export interface SceneryMeshFrameStats {
+  draws: number;
+  instances: number;
+  triangles: number;
+}
+
 export interface SceneryMeshPass extends Pass {
+  /** #737 FR2 — this frame's counts, reset at the start of every `encode`. */
+  readonly stats: SceneryMeshFrameStats;
   register(input: SceneryMeshInput): void;
   /**
    * Write `instances.length` instance records for `id`; clamps to the
@@ -370,6 +379,14 @@ export const createSceneryMeshPass = ({
     }
   };
 
+  const stats: SceneryMeshFrameStats = { draws: 0, instances: 0, triangles: 0 };
+  const draw = (pass: GPURenderPassEncoder, mesh: RegisteredMesh, count: number, first = 0): void => {
+    pass.drawIndexed(mesh.indexCount, count, 0, 0, first);
+    stats.draws += 1;
+    stats.instances += count;
+    stats.triangles += Math.floor(mesh.indexCount / 3) * count;
+  };
+
   /** Draw each run of instances whose translucent flag equals `want`. */
   const drawRuns = (pass: GPURenderPassEncoder, mesh: RegisteredMesh, want: 0 | 1): void => {
     let i = 0;
@@ -377,13 +394,14 @@ export const createSceneryMeshPass = ({
       if (mesh.translucent[i] !== want) { i += 1; continue; }
       const first = i;
       while (i < mesh.instanceCount && mesh.translucent[i] === want) i += 1;
-      pass.drawIndexed(mesh.indexCount, i - first, 0, 0, first);
+      draw(pass, mesh, i - first, first);
     }
   };
 
   let disposed = false;
   return {
     name: 'sceneryMesh',
+    stats,
     register,
     setInstances,
     writeColors,
@@ -420,6 +438,9 @@ export const createSceneryMeshPass = ({
       }
     },
     encode(ctx: FrameContext) {
+      stats.draws = 0;
+      stats.instances = 0;
+      stats.triangles = 0;
       if (disposed || registry.size === 0) return;
       let anyVisible = false;
       for (const mesh of registry.values()) {
@@ -450,7 +471,7 @@ export const createSceneryMeshPass = ({
         if (mesh.translucentCount > 0) translucentMeshes += 1;
         if (mesh.translucentCount === mesh.instanceCount) continue;
         bindMesh(mesh, mesh.bindGroup);
-        if (mesh.translucentCount === 0) pass.drawIndexed(mesh.indexCount, mesh.instanceCount);
+        if (mesh.translucentCount === 0) draw(pass, mesh, mesh.instanceCount);
         else drawRuns(pass, mesh, 0);
       }
       // #728 FR2 — translucent instances last, over everything opaque

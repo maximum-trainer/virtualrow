@@ -24,7 +24,8 @@ import type { GPUBackend, PerformanceMode } from '../../components/rower3d/const
 export const STALL_THRESHOLD_MS = 2000;
 
 export interface RenderStatsContext {
-  backend: GPUBackend;
+  /** `webgpu` from the engine (#737 FR3); the R3F-era values otherwise. */
+  backend: GPUBackend | 'webgpu';
   performanceMode: PerformanceMode;
   fps?: number;
   p95Ms?: number;
