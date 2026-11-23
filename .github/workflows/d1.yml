@@ -109,7 +109,7 @@ jobs:
           fi
       - name: Apply migrations (${{ steps.env.outputs.db }} --remote)
         working-directory: workers/api
-        run: npx wrangler d1 migrations apply ${{ steps.env.outputs.db }} --remote
+        run: npx wrangler d1 migrations apply ${{ steps.env.outputs.db }} --remote --env ${{ steps.env.outputs.wrangler_env }}
       - name: Deploy Worker (--env ${{ steps.env.outputs.wrangler_env }})
         id: deploy
         working-directory: workers/api
