@@ -109,6 +109,7 @@ import { computeCascades } from './cascadedShadows';
 import { createPlacement, placeBoat, placeGhost, strokeAmplitude } from './characterPlacement';
 import { createStrokeClock, resetStrokeClock, stepStrokeClock } from './strokeClock';
 import { createDistanceSmoother } from './distanceSmoother';
+import { SIM_DT_CLAMP_MS, createFramePacing, recordFrameDt, summariseFramePacing } from './framePacing';
 import type { RideFrame } from './rideFrame';
 import { RouteCurve } from '../math/curve';
 import { GHOST_LANE_OFFSET_M, gapMeters, ghostStroke } from '../../../components/rower3d/ghost';
@@ -368,6 +369,13 @@ export interface RideSceneHandle {
   setConditions(conditions: unknown): void;
   /** #733 VP-15 — the HUD's covered area changed; reframe on the next frame. */
   setViewportInsets(insets: unknown): void;
+  /**
+   * #737 VP-19 FR6 — the page is visible again after being hidden. The next
+   * frame restarts the simulation clocks (stroke, wake, fleet, distance
+   * smoothing) from where the row is now instead of fast-forwarding them
+   * over the hidden time.
+   */
+  resume(): void;
   /**
    * Release every GPU resource this scene owns, including the device
    * session that owns the `GPUDevice`. Safe to call more than once.
@@ -1544,9 +1552,26 @@ export const createRideScene = async (
   let heldFrame: { time: number; ride: RideFrame | null; smoothed?: RideFrame | null } | null = null;
   // #724 — test mode: pin the boat at a distance along the route (null rows).
   let seekMeters: number | null = null;
+  // #737 VP-19 FR1/FR3 — the real interval between drawn frames, and the
+  // pacing window over it. FR6: `resume()` after a hidden tab sets
+  // `resumePending`, so the next frame restarts the simulation clocks
+  // instead of fast-forwarding them over the time the page was hidden.
+  let lastDrawMs = -1;
+  let resumePending = false;
+  const pacing = createFramePacing();
 
   const drawFrame = (): void => {
     if (disposed) return;
+    const drawStartMs = now();
+    const realDtMs = lastDrawMs < 0 ? 0 : drawStartMs - lastDrawMs;
+    lastDrawMs = drawStartMs;
+    const resuming = resumePending;
+    resumePending = false;
+    if (resuming) {
+      lastSpeedTime = -1;
+      lastStrokeTime = -1;
+      lastFleetTime = -1;
+    }
     // #584 FR3 — cpuMs is the CPU-side encode time. Measured end-to-end so
     // the frame-graph internal work (pass encodes + submit) plus the engine's
     // uniform packs are inside the window. Follow-up: when `timestamp-query`
@@ -1561,6 +1586,11 @@ export const createRideScene = async (
     }
     const rideFrame: RideFrame | null =
       holdFrame && heldFrame ? heldFrame.ride : opts.getFrame ? opts.getFrame() : null;
+    if (resuming) {
+      lastWakeTime = frame.time;
+      lastOarSplashTime = frame.time;
+      if (rideFrame) distanceSmoother.reset(rideFrame.distanceMeters ?? 0, now());
+    }
     if (holdFrame && !heldFrame) heldFrame = { time: frame.time, ride: rideFrame };
     if (!holdFrame) heldFrame = null;
 
@@ -2031,7 +2061,12 @@ export const createRideScene = async (
     graph.run(device, sceneView, depthView, width, height, frame, outputView);
 
     telemetry.frameStats.frame += 1;
-    telemetry.frameStats.dtMs = 0;
+    telemetry.frameStats.dtMs = realDtMs;
+    // FR6: what the simulation stepped by. The first frame back from a
+    // hidden tab restarts the clocks, so it steps by nothing.
+    telemetry.frameStats.simDtMs = resuming ? 0 : Math.min(realDtMs, SIM_DT_CLAMP_MS);
+    if (!resuming && realDtMs > 0) recordFrameDt(pacing, realDtMs);
+    summariseFramePacing(pacing, telemetry.framePacing);
     telemetry.frameStats.cpuMs = now() - cpuStart;
     // #584 AC3: the GPU-side frame time, read back one frame behind by the
     // timer's bracket passes. Stays 0 when the adapter has no `timestamp-query`.
@@ -2217,6 +2252,9 @@ export const createRideScene = async (
   return {
     device,
     frameOnce,
+    resume() {
+      resumePending = true;
+    },
     setAppearance,
     setConditions,
     setViewportInsets,

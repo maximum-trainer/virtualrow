@@ -6,6 +6,8 @@
  * The UI thread's host leaves these to the engine (no sink callback).
  */
 
+import type { FramePacingSummary } from './framePacing';
+
 export interface Rower3DRenderStats {
   draws: number;
   /** Alias of `draws` for the legacy spec harness. Kept in sync via a getter. */
@@ -27,7 +29,13 @@ export interface Rower3DRenderStats {
 
 export interface Rower3DFrameStats {
   frame: number;
+  /** #737 FR1 — the real interval since the previous drawn frame. */
   dtMs: number;
+  /**
+   * #737 FR6 — the step the simulation took this frame: `dtMs` clamped to
+   * 100 ms, and 0 on the first frame back from a hidden tab.
+   */
+  simDtMs: number;
   /**
    * GPU-side frame time read back from the `timestamp-query` feature when
    * the adapter has it (D6-c of #584 FR3). Zero when the feature is absent.
@@ -328,6 +336,8 @@ export interface Rower3DConditions {
 export interface TelemetryHandles {
   renderStats: Rower3DRenderStats;
   frameStats: Rower3DFrameStats;
+  /** #737 FR3 — `__ROWER3D_FRAME_PACING`, refreshed every few frames. */
+  framePacing: FramePacingSummary;
   camera: Rower3DCamera;
   contextState: Rower3DContextState;
   pos: Rower3DPos;
@@ -383,7 +393,8 @@ export const createTelemetry = (forceRender: () => void): TelemetryHandles => {
   });
   const handles: TelemetryHandles = {
     renderStats: renderStats as Rower3DRenderStats,
-    frameStats: { frame: 0, dtMs: 0, gpuMs: 0, cpuMs: 0 },
+    frameStats: { frame: 0, dtMs: 0, simDtMs: 0, gpuMs: 0, cpuMs: 0 },
+    framePacing: { samples: 0, p50: 0, p95: 0, p99: 0, max: 0, over25ms: 0, over50ms: 0, longestStallMs: 0 },
     camera: { x: 0, y: 0, z: 0, lookX: 0, lookY: 0, lookZ: 0, fov: 58 },
     contextState: { kind: 'pending', backend: 'none' },
     pos: { x: 0, y: 0, z: 0, progress: 0 },
@@ -462,6 +473,7 @@ export const createTelemetry = (forceRender: () => void): TelemetryHandles => {
   if (w) {
     w['__ROWER3D_RENDER_STATS'] = handles.renderStats;
     w['__ROWER3D_FRAME_STATS'] = handles.frameStats;
+    w['__ROWER3D_FRAME_PACING'] = handles.framePacing;
     w['__ROWER3D_CAMERA'] = handles.camera;
     w['__ROWER3D_CONTEXT_STATE'] = handles.contextState;
     w['__ROWER3D_POS'] = handles.pos;
@@ -518,6 +530,7 @@ export const releaseTelemetry = (): void => {
   for (const key of [
     '__ROWER3D_RENDER_STATS',
     '__ROWER3D_FRAME_STATS',
+    '__ROWER3D_FRAME_PACING',
     '__ROWER3D_CAMERA',
     '__ROWER3D_CONTEXT_STATE',
     '__ROWER3D_POS',

@@ -781,3 +781,96 @@ describe('nothing stranded behind the start (#757)', () => {
     renderer.dispose();
   });
 });
+
+// #737 VP-19 — frame timing the gates can read: the real interval between
+// frames (FR1), a pacing window over it (FR3), and no lurch when a hidden
+// tab comes back (FR6).
+describe('frame timing (#737 VP-19)', () => {
+  type Timing = WithTest & {
+    _telemetry: {
+      frameStats: { frame: number; dtMs: number; simDtMs: number };
+      framePacing: { samples: number; p50: number; max: number; over50ms: number; longestStallMs: number };
+    };
+  };
+  const rowing = () => ({
+    paceSPer500: 120,
+    distanceMeters: 100,
+    cadence: 24,
+    isPlaying: true,
+    holdBoat: false,
+    finished: false,
+    intensityFactor: 1,
+    elapsedSeconds: 30,
+    ghost: null,
+  });
+  let clock = 0;
+  let realNow: () => number;
+  beforeEach(() => {
+    clock = 1_000;
+    realNow = performance.now.bind(performance);
+    performance.now = () => clock;
+  });
+  afterEach(() => {
+    performance.now = realNow;
+  });
+
+  it('publishes the real interval between frames as dtMs (FR1)', async () => {
+    const renderer = (await attach(makeMockCanvas(), { testMode: true, getFrame: rowing })) as unknown as Timing;
+    clock += 16.7;
+    renderer._frameOnce();
+    expect(renderer._telemetry.frameStats.dtMs).toBeCloseTo(16.7, 6);
+    expect(renderer._telemetry.frameStats.simDtMs).toBeCloseTo(16.7, 6);
+    clock += 250;
+    renderer._frameOnce();
+    expect(renderer._telemetry.frameStats.dtMs).toBeCloseTo(250, 6);
+    expect(renderer._telemetry.frameStats.simDtMs).toBe(100);
+    renderer.dispose();
+  });
+
+  it('publishes __ROWER3D_FRAME_PACING over the drawn frames (FR3)', async () => {
+    const renderer = (await attach(makeMockCanvas(), { testMode: true, getFrame: rowing })) as unknown as Timing;
+    for (let i = 0; i < 59; i += 1) {
+      clock += 16.7;
+      renderer._frameOnce();
+    }
+    clock += 80;
+    renderer._frameOnce();
+    const pacing = (globalThis as unknown as { window: Record<string, unknown> }).window[
+      '__ROWER3D_FRAME_PACING'
+    ] as Timing['_telemetry']['framePacing'];
+    expect(pacing).toBe(renderer._telemetry.framePacing);
+    expect(pacing.samples).toBe(60);
+    expect(pacing.max).toBeCloseTo(80, 6);
+    expect(pacing.over50ms).toBe(1);
+    expect(pacing.p50).toBeCloseTo(16.7, 1);
+    renderer.dispose();
+    expect((globalThis as unknown as { window: Record<string, unknown> }).window['__ROWER3D_FRAME_PACING']).toBeUndefined();
+  });
+
+  it('Scenario: returning to the tab does not lurch (FR6)', async () => {
+    const renderer = (await attach(makeMockCanvas(), { testMode: true, getFrame: rowing })) as unknown as Timing;
+    for (let i = 0; i < 30; i += 1) {
+      clock += 16.7;
+      renderer._frameOnce();
+    }
+    const setVisibility = (state: 'hidden' | 'visible') => {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
+      document.dispatchEvent(new Event('visibilitychange'));
+    };
+    setVisibility('hidden');
+    clock += 10_000;
+    setVisibility('visible');
+    renderer._frameOnce();
+    expect(renderer._telemetry.frameStats.simDtMs).toBeLessThanOrEqual(100);
+    expect(renderer._telemetry.frameStats.simDtMs).toBe(0);
+    // The hidden time is not a stall the pacing gate should fail on.
+    clock += 16.7;
+    for (let i = 0; i < 15; i += 1) {
+      renderer._frameOnce();
+      clock += 16.7;
+    }
+    expect(renderer._telemetry.framePacing.longestStallMs).toBeLessThan(100);
+    renderer.dispose();
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+  });
+});
