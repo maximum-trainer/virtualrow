@@ -134,6 +134,17 @@ export interface Rower3DSceneryEntry {
   drawn: number;
 }
 
+/** #726 FR3 — one kit model's fade-in, as the shader runs it. */
+export interface Rower3DSceneryReveal {
+  id: string;
+  /** `scenery.frame` on the frame the model registered. */
+  registeredAtFrame: number;
+  /** `frame.time` (seconds) it registered at. */
+  registeredAt: number;
+  /** Fade progress this frame, 0..1, before the per-instance distance skip. */
+  revealAlpha: number;
+}
+
 export interface Rower3DScenery {
   pools: Rower3DSceneryEntry[];
   dispatchCount: number;
@@ -147,6 +158,10 @@ export interface Rower3DScenery {
   /** #726 FR6 — kit models whose fetch or decode failed, and which. */
   failed: number;
   failedIds: string[];
+  /** #726 FR3 — frames drawn since the scene was built. */
+  frame: number;
+  /** #726 FR3 — models streamed in mid-ride, in registration order. */
+  reveals: Rower3DSceneryReveal[];
 }
 
 /**
@@ -375,6 +390,8 @@ export const createTelemetry = (forceRender: () => void): TelemetryHandles => {
       registered: 0,
       failed: 0,
       failedIds: [],
+      frame: 0,
+      reveals: [],
     },
     shadows: {
       cascades: 0,

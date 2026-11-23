@@ -28,6 +28,10 @@ struct SceneryInstance {
   fx: vec4<f32>,
 };
 @group(1) @binding(1) var<storage, read> instances: array<SceneryInstance>;
+// #726 VP-08 FR3 — per mesh: x the frame time it was registered, y the fade
+// length in seconds, z the visibility distance beyond which there is no
+// fade (`sceneryReveal.ts` holds the same curve on the CPU).
+@group(1) @binding(2) var<uniform> reveal: vec4<f32>;
 
 struct VsIn {
   @location(0) position: vec3<f32>,
@@ -63,6 +67,18 @@ fn vs_main(in: VsIn, @builtin(instance_index) ii: u32) -> VsOut {
 
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+  // #726 FR3 — a model streamed in mid-ride dithers in over `reveal.y`
+  // seconds instead of popping in at full opacity. Interleaved gradient
+  // noise on the pixel picks which fragments survive, so the opaque pass
+  // keeps writing depth and needs no sorting.
+  let revealA = select(clamp((frame.time - reveal.x) / reveal.y, 0.0, 1.0), 1.0, in.worldDist > reveal.z);
+  if (revealA < 1.0) {
+    let px = floor(in.clip.xy);
+    let noise = fract(52.9829189 * fract(0.06711056 * px.x + 0.00583715 * px.y));
+    if (noise >= revealA) {
+      discard;
+    }
+  }
   let sun = normalize(frame.sunDir);
   let n = normalize(in.worldNormal);
   // Hemisphere ambient (sky above, ground below) + half-lambert for the

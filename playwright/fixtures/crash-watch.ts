@@ -59,7 +59,7 @@ const readTelemetry = async (page: Page): Promise<TelemetryEvent[]> => {
  * `enrichmentOffline` fixture). Exported for a spec that opens its own context.
  */
 export const blockEnrichmentHosts = () => {
-  const ENRICHMENT_HOSTS = /^https:\/\/(overpass-api\.de|api\.opentopodata\.org)\//;
+  const ENRICHMENT_HOSTS = /^https:\/\/(overpass-api\.de|overpass\.kumi\.systems|api\.open-meteo\.com|api\.opentopodata\.org)\//;
   const scope = window as unknown as { __E2E_ENRICHMENT_NETWORK?: boolean; __E2E_ENRICHMENT_REFUSED?: string[] };
   const realFetch = window.fetch.bind(window);
   window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
@@ -112,7 +112,7 @@ type CrashWatchFixtures = {
   /**
    * Keep route enrichment off the network (#493).
    *
-   * Overpass and OpenTopoData are third-party services: a spec that waited on
+   * Overpass and Open-Meteo are third-party services: a spec that waited on
    * them would pass or fail with their load, and their answers would move the
    * scene under the visual baselines. Every call to them is refused in the
    * page, as a failed fetch, so enrichment takes its fallback the same way it

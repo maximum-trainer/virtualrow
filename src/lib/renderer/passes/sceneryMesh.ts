@@ -11,6 +11,7 @@
 import type { FrameContext, Pass } from '../engine/frameGraph';
 import type { Mat4 } from '../math/mat4';
 import sceneryMeshWgsl from './sceneryMesh.wgsl?raw';
+import { ALWAYS_REVEALED, packRevealUniform, SCENERY_REVEAL_UNIFORM_BYTES } from './sceneryReveal';
 
 /**
  * One instance record: a mat4 model, a tint vec4 and an effect vec4
@@ -70,6 +71,13 @@ export interface SceneryMeshInput {
    * draws them exactly the same regardless.
    */
   castsShadow?: boolean;
+  /**
+   * #726 FR3 — frame time (seconds, `frame.time`) the model became
+   * available. Its instances fade in over `SCENERY_REVEAL_SECONDS` from
+   * then. Omit it for a mesh that should draw fully from its first frame
+   * (the boat, the crew, models placed before the ride starts).
+   */
+  revealAt?: number;
 }
 
 interface RegisteredMesh {
@@ -82,6 +90,8 @@ interface RegisteredMesh {
   indexFormat: 'uint16' | 'uint32';
   indexCount: number;
   instanceBuffer: GPUBuffer;
+  /** #726 FR3 — {revealTime, fadeSeconds, visibility, pad}. */
+  revealBuffer: GPUBuffer;
   maxInstances: number;
   instanceCount: number;
   /** #728 — per instance, whether it draws in the translucent pass. */
@@ -273,17 +283,25 @@ export const createSceneryMeshPass = ({
       size: Math.max(1, input.maxInstances) * SCENERY_INSTANCE_BYTES,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
+    const revealBuffer = device.createBuffer({
+      label: `sceneryMesh:${input.id}-reveal`,
+      size: SCENERY_REVEAL_UNIFORM_BYTES,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(revealBuffer, 0, packRevealUniform(input.revealAt ?? ALWAYS_REVEALED) as BufferSource);
+    const meshEntries: GPUBindGroupEntry[] = [
+      { binding: 1, resource: { buffer: instanceBuffer } },
+      { binding: 2, resource: { buffer: revealBuffer } },
+    ];
     const bindGroup = device.createBindGroup({
       label: `sceneryMesh:${input.id}-bg`,
       layout: meshLayout,
-      entries: [
-        { binding: 1, resource: { buffer: instanceBuffer } },
-      ],
+      entries: meshEntries,
     });
     const translucentBindGroup = device.createBindGroup({
       label: `sceneryMesh:${input.id}-translucent-bg`,
       layout: translucentMeshLayout,
-      entries: [{ binding: 1, resource: { buffer: instanceBuffer } }],
+      entries: meshEntries,
     });
     registry.set(input.id, {
       id: input.id,
@@ -295,6 +313,7 @@ export const createSceneryMeshPass = ({
       indexFormat: input.indices instanceof Uint32Array ? 'uint32' : 'uint16',
       indexCount: input.indices.length,
       instanceBuffer,
+      revealBuffer,
       maxInstances: Math.max(1, input.maxInstances),
       instanceCount: 0,
       translucent: new Uint8Array(Math.max(1, input.maxInstances)),
@@ -456,6 +475,7 @@ export const createSceneryMeshPass = ({
         mesh.colorBuffer.destroy();
         mesh.indexBuffer.destroy();
         mesh.instanceBuffer.destroy();
+        mesh.revealBuffer.destroy();
       }
       registry.clear();
     },

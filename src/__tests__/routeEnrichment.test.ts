@@ -2,7 +2,7 @@ import { runDetectionInline } from '../lib/services/routeDetectionRunner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WaterRoute } from '../lib/types/index';
 import {
-  OPEN_TOPO_DATA_URL,
+  ELEVATION_API_URL,
   OVERPASS_API_URL,
   OVERPASS_MIRROR_URL,
   buildOverpassWaterQuery,
@@ -133,22 +133,23 @@ const createFetchStub = (options: FetchStubOptions = {}) => {
         await new Promise((resolve) => setTimeout(resolve, delayMs));
       }
 
-      if (url.startsWith(OPEN_TOPO_DATA_URL)) {
+      if (url.startsWith(ELEVATION_API_URL)) {
         elevationRequests.push(url);
         if (elevationStatus < 200 || elevationStatus >= 300) {
-          return respond(elevationStatus, { error: 'Too Many Requests' });
+          return respond(elevationStatus, { error: true, reason: 'Too Many Requests' });
         }
-        const locations = (new URL(url).searchParams.get('locations') ?? '')
-          .split('|')
-          .filter(Boolean);
+        // #741 D1 — Open-Meteo's elevation API: comma-separated `latitude`
+        // and `longitude` lists in, `{ elevation: number[] }` out.
+        const params = new URL(url).searchParams;
+        const lats = (params.get('latitude') ?? '').split(',').filter(Boolean);
+        const lngs = (params.get('longitude') ?? '').split(',').filter(Boolean);
+        const locations = lats.map((lat, i) => `${lat},${lngs[i] ?? ''}`);
         const offset = nextElevationIndex;
         nextElevationIndex += locations.length;
         return respond(200, {
-          results: Array.from(
+          elevation: Array.from(
             { length: elevationResultCount ?? locations.length },
-            (_, position) => ({
-              elevation: elevationFor(offset + position, locations[position] ?? ''),
-            }),
+            (_, position) => elevationFor(offset + position, locations[position] ?? ''),
           ),
         });
       }
@@ -555,7 +556,25 @@ describe('RouteEnrichmentService', () => {
     expect(enrichment.elevations).toEqual([5, 5, 5, 5]);
   });
 
-  it('substitutes 0 for null elevations (OpenTopoData no-data cells)', async () => {
+  // #741 FR2 / D1 — Open-Meteo sends CORS headers, so the lookup works
+  // from the browser (OpenTopoData's public API failed on every route).
+  it('asks the Open-Meteo elevation API with matching latitude and longitude lists', async () => {
+    const stub = createFetchStub();
+    const service = new RouteEnrichmentService(stub.fetch, localStorage);
+
+    await service.enrichRoute(routeFixture);
+
+    const requests = stub.elevationCalls();
+    expect(requests.length).toBeGreaterThan(0);
+    expect(ELEVATION_API_URL).toBe('https://api.open-meteo.com/v1/elevation');
+    const params = new URL(requests[0]).searchParams;
+    const lats = params.get('latitude')!.split(',').map(Number);
+    const lngs = params.get('longitude')!.split(',').map(Number);
+    expect(lats).toEqual(routeFixture.coordinates.map((c) => c.lat));
+    expect(lngs).toEqual(routeFixture.coordinates.map((c) => c.lng));
+  });
+
+  it('substitutes 0 for null elevations (no-data cells)', async () => {
     const stub = createFetchStub({
       elevationFor: (index) => (index === 1 ? null : 12),
     });
@@ -738,7 +757,7 @@ describe('RouteEnrichmentService', () => {
         (): typeof fetch => {
           const ok = createFetchStub().fetch;
           return (async (input: RequestInfo | URL, init?: RequestInit) => {
-            if (String(input).includes('opentopodata')) throw new TypeError('Failed to fetch');
+            if (String(input).startsWith(ELEVATION_API_URL)) throw new TypeError('Failed to fetch');
             return ok(input, init);
           }) as typeof fetch;
         },
