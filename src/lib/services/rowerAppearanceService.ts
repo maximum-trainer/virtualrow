@@ -78,6 +78,12 @@ export const sanitizeAppearance = (value: unknown): RowerAppearancePreference =>
 export interface RowerAppearanceService {
   read(): RowerAppearancePreference;
   write(appearance: RowerAppearancePreference): void;
+  /**
+   * Reconcile with the server copy (#477). Resolves to the appearance to show
+   * when the server's copy won, or null when the local copy stands. Only the
+   * Worker-synced adapter implements it.
+   */
+  sync?(): Promise<RowerAppearancePreference | null>;
 }
 
 /**
