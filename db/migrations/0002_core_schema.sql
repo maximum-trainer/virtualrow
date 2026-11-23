@@ -17,6 +17,9 @@ CREATE TABLE user_profile (
   user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   appearance TEXT CHECK (appearance IS NULL OR json_valid(appearance)),
   colours TEXT CHECK (colours IS NULL OR json_valid(colours)),
+  -- Per-field client timestamps (epoch ms) so last-write-wins runs per field.
+  appearance_updated_at INTEGER,
+  colours_updated_at INTEGER,
   updated_at INTEGER NOT NULL
 );
 
