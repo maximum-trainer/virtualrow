@@ -312,7 +312,7 @@ export const attach: RideAttach = async (canvas, opts = {}) => {
     const handle = await createRideScene(canvas, session.state.device, telemetry, sceneOpts, session);
     // #803 — let the GPU process finish compiling and uploading before the
     // ride shows as ready, so the first strokes do not freeze behind it.
-    if (handle) await warmUpScene(handle, WARM_UP_TIMEOUT_MS);
+    if (handle) await warmUpScene(handle, { timeoutMs: WARM_UP_TIMEOUT_MS });
     return handle;
   };
 

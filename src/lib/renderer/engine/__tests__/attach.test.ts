@@ -68,10 +68,12 @@ describe('attach', () => {
       _liveDevice: { __log: { drainedAfterSubmits: number[] } };
     };
     expect(renderer._telemetry.contextState.kind).toBe('ready');
-    // The first wait comes after at least one submitted frame.
+    // The mock GPU drains instantly, so the warm-up draws two frames and
+    // waits after each one's submit.
     const drained = renderer._liveDevice.__log.drainedAfterSubmits;
-    expect(drained.length).toBeGreaterThanOrEqual(1);
+    expect(drained.length).toBeGreaterThanOrEqual(2);
     expect(drained[0]).toBeGreaterThanOrEqual(1);
+    expect(drained[1]).toBeGreaterThan(drained[0]);
     renderer.dispose();
   });
 
