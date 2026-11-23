@@ -49,8 +49,9 @@ npm run test:fit-csv     # Optional FIT structural gate via Garmin's FitCSVTool.
 npm run test:mutation    # StrykerJS mutation testing scoped to the engine's plan layer,
                          #   the smoothing/physics helper on the engine seam, and the FIT
                          #   encoder (#588 FR4 / D3-a). Config in stryker.config.mjs; HTML
-                         #   report at reports/mutation/mutation.html. CI runs this on
-                         #   every build via the `mutation` job and uploads the report.
+                         #   report at reports/mutation/mutation.html. CI runs this four times
+                         #   a day on main via `mutation.yml` (not on PRs, 2026-11-23) and
+                         #   uploads the report.
                          #   Baseline survived-mutant count (first full run, 2026-11-01):
                          #   recorded in the `mutation-report` artifact of the first PR
                          #   build after #588 FR4 lands — read from the HTML's totals
