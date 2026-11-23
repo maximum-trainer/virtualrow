@@ -1,9 +1,12 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   AO_MAX_DARKENING,
   CA_MAX_OFFSET_UV,
   EXPOSURE_ADAPT_TAU_S,
   EXPOSURE_CLAMP_EV,
+  EXPOSURE_KEY,
   adaptLogLuminance,
   applyAmbientOcclusion,
   autoExposureScale,
@@ -40,7 +43,14 @@ describe('auto-exposure (FR2)', () => {
     const limit = Math.pow(2, EXPOSURE_CLAMP_EV);
     expect(autoExposureScale(100)).toBeCloseTo(1 / limit, 6);
     expect(autoExposureScale(1e-6)).toBeCloseTo(limit, 6);
-    expect(autoExposureScale(0.18)).toBeCloseTo(1, 6);
+    expect(autoExposureScale(EXPOSURE_KEY)).toBeCloseTo(1, 6);
+  });
+
+  it('keys on the authored daylight level, the same number as the shader (#732)', () => {
+    const wgsl = readFileSync(resolve(__dirname, '../../passes/composite.wgsl'), 'utf8');
+    const key = Number(/const EXPOSURE_KEY: f32 = ([0-9.]+);/.exec(wgsl)?.[1]);
+    expect(key).toBe(EXPOSURE_KEY);
+    expect(EXPOSURE_KEY).toBe(0.3);
   });
 
   it('adapts over at least 1.5 s', () => {

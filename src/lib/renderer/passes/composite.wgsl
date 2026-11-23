@@ -8,7 +8,7 @@ struct CompositeUniforms {
   vignetteStrength: f32,
   lutSize: f32,
   aoEnabled: f32,
-  // #574: when non-zero, divide the scene by `exp(avgLogLum) / 0.18`
+  // #574: when non-zero, divide the scene by `exp(avgLogLum) / EXPOSURE_KEY`
   // (middle-grey target key) before tonemap. The 1-pixel `exposureTex`
   // carries the measured log-luminance of the last-encoded scene.
   autoExposureEnabled: f32,
@@ -120,6 +120,11 @@ fn caScale(uv: vec2<f32>) -> f32 {
 // #732 FR2: auto-exposure moves the authored exposure by at most ±0.7 EV.
 const EXPOSURE_MIN: f32 = 0.61557221; // 2^-0.7
 const EXPOSURE_MAX: f32 = 1.62450479; // 2^0.7
+// #732: what the authored daylight scene meters at (lower 60%, centre
+// weighted), so that scene keeps its authored exposure. Middle grey (0.18)
+// pulled high 29% darker than medium on a real GPU; 0.30 matched it within
+// 4% with sharpness and fringing equal (laptop sweep, 2026-11-23).
+const EXPOSURE_KEY: f32 = 0.30;
 // #732 FR3: SSAO darkens by at most 35%.
 const AO_FLOOR: f32 = 0.65;
 
@@ -146,12 +151,12 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   }
   if (u.autoExposureEnabled > 0.5) {
     // Pull the single-pixel log-luminance texel (metered below the sky and
-    // adapted over time, #732 FR2). The key value 0.18 is the middle-grey
-    // convention from Reinhard's auto-exposure. Clamped to ±0.7 EV so a
+    // adapted over time, #732 FR2). The key is EXPOSURE_KEY, the metered
+    // level of the authored daylight scene. Clamped to ±0.7 EV so a
     // bright sky can no longer pull the whole scene down.
     let avgLogLum = textureLoad(exposureTex, vec2<i32>(0, 0), 0).r;
     let avgLum = max(exp(avgLogLum), 1e-4);
-    let exposureScale = clamp(0.18 / avgLum, EXPOSURE_MIN, EXPOSURE_MAX);
+    let exposureScale = clamp(EXPOSURE_KEY / avgLum, EXPOSURE_MIN, EXPOSURE_MAX);
     combined = combined * exposureScale;
   }
   // #730: after auto-exposure, so the bias survives its normalisation.
