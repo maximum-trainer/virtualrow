@@ -458,6 +458,8 @@ export class RouteService {
         // up as it does any curated tag. `unknown` earns no tag — the list
         // does not grow an entry for a guess (AC4.2).
         waterTagOrUndefined(data.name),
+        // #756 FR4: sea courses are marked so the scene can draw one shore.
+        waterBodyFromName(data.name) === 'open_water' ? 'coastal' : undefined,
       ].filter((tag): tag is string => Boolean(tag)),
       source: 'rownative',
       externalId: data.id,

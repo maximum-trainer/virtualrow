@@ -27,7 +27,9 @@ describe('waterBodyFromName', () => {
       for (const name of [
         'Mortlake',
         'Mortlake to Putney',
-        'Lakeside Regatta',
+        // Was 'Lakeside Regatta'; since #756 a regatta course is a lake by its
+        // own word, so the guard uses a name with no other water word.
+        'Lakeside Sprint',
         'Blakeney',
       ]) {
         expect(waterBodyFromName(name), name).not.toBe('lake');
@@ -119,5 +121,38 @@ describe('waterBodyFromName', () => {
       expect(waterBodyFromName('   ')).toBe('unknown');
       expect(waterBodyFromName('2000m')).toBe('unknown');
     });
+  });
+});
+
+// #756 FR2/FR3: sea and regatta water.
+describe('waterBodyFromName: sea and regatta courses (#756)', () => {
+  it.each([
+    ['CCRC - Catterline to Stonehaven', 'open_water'],
+    ['North Sea Challenge', 'open_water'],
+    ['Firth of Forth', 'open_water'],
+    ['Puget Sound Row', 'open_water'],
+    ['Dublin Bay', 'open_water'],
+    ['Thames Estuary', 'open_water'],
+    ['Munich Regatta', 'lake'],
+    ['Regattastrecke Oberschleissheim', 'lake'],
+    ['Duisburg Regattabahn', 'lake'],
+    ['Nottingham rowing lake', 'lake'],
+  ])('%s is %s', (name, type) => {
+    expect(waterBodyFromName(name)).toBe(type);
+  });
+
+  it('keeps the existing guards', () => {
+    expect(waterBodyFromName('Mortlake to Putney')).toBe('unknown');
+    expect(waterBodyFromName('Harbour River Head')).toBe('river');
+    expect(waterBodyFromName('Bay Lake')).toBe('lake');
+    // Whole words only: "seaside" and "Sounding" are not water words.
+    expect(waterBodyFromName('Seaside Sprint')).toBe('unknown');
+    expect(waterBodyFromName('Soundings Head')).toBe('unknown');
+  });
+
+  it('reads the coastal club prefix only at the start, and only without another water word', () => {
+    expect(waterBodyFromName('ccrc - Stonehaven Return')).toBe('open_water');
+    expect(waterBodyFromName('Not CCRC - Stonehaven')).toBe('unknown');
+    expect(waterBodyFromName('CCRC - River Dee')).toBe('river');
   });
 });

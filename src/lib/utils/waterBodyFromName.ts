@@ -37,8 +37,26 @@ const VOCABULARY: ReadonlyArray<{ type: WaterBodyType; words: readonly string[] 
   // catch `Windermere` would catch `Mortlake` with it. OSM or a manual tag is
   // the route to a correct answer for those (AC3.6).
   { type: 'lake',      words: ['lake', 'lakes', 'loch', 'lochs', 'lough', 'llyn',
-                               'lagoon', 'lac', 'lago', 'meer', 'jarvi', 'tarn', 'pond'] },
+                               'lagoon', 'lac', 'lago', 'meer', 'jarvi', 'tarn', 'pond',
+                               // #756 FR2: a regatta course is a still-water
+                               // course (Munich, Duisburg, ...). "Rowing lake"
+                               // already matches through `lake`.
+                               'regatta', 'regattastrecke', 'regattabahn'] },
+  // #756 FR2: sea and coastal water, lowest precedence, so "Harbour River
+  // Head" stays a river and "Bay Lake" stays a lake.
+  { type: 'open_water', words: ['sea', 'bay', 'harbour', 'harbor', 'coast', 'coastal',
+                                'ocean', 'sound', 'firth', 'fjord', 'estuary'] },
 ];
+
+/**
+ * #756 FR3: clubs whose course names carry no water word but are all on the
+ * sea. A name starting with one of these, and with no other water word, is
+ * open water. Data, not code: add a club here.
+ *
+ * Source: the rownative.icu course list, 2026-11-22 review (courses 175 and
+ * 177, the CCRC coastal series on the Aberdeenshire coast).
+ */
+export const COASTAL_CLUB_PREFIXES: readonly string[] = ['CCRC -'];
 
 /**
  * Tokenise a name into words. Diacritics are folded first (AC3.5), then
@@ -58,5 +76,9 @@ const wordsIn = (name: string): Set<string> =>
 
 export const waterBodyFromName = (name: string): WaterBodyType => {
   const words = wordsIn(name);
-  return VOCABULARY.find(({ words: w }) => w.some((word) => words.has(word)))?.type ?? 'unknown';
+  const fromWords = VOCABULARY.find(({ words: w }) => w.some((word) => words.has(word)))?.type;
+  if (fromWords) return fromWords;
+  const trimmed = name.trim().toUpperCase();
+  if (COASTAL_CLUB_PREFIXES.some((prefix) => trimmed.startsWith(prefix.toUpperCase()))) return 'open_water';
+  return 'unknown';
 };

@@ -514,6 +514,14 @@ export async function resolveCourseGeometry(
     }
   }
 
+  // #756 FR1: a gate chain that goes nowhere fails here, before any network
+  // lookup. The reason is in the course file itself, so the rower should not
+  // wait half a minute for a waterway search to be told so.
+  const chain = orderedGateCenters(gates);
+  if (chain.length >= 2 && polylineLengthMeters(chain) < DEGENERATE_CHAIN_LENGTH_M) {
+    throw new RownativeGeometryUnavailableError(course.id, course.name ?? `Course ${course.id}`);
+  }
+
   // 3. OSM waterway centrelines, when a provider is supplied. Network-tolerant
   //    by contract: any failure falls through to the gate chain.
   if (options.osmProvider && gates.length >= 2) {
@@ -545,11 +553,8 @@ export async function resolveCourseGeometry(
 
   // 4. The gate centroid chain — today's behaviour, honestly labelled. A chain
   //    of fewer than two gates is a broken course file rather than an
-  //    out-and-back, and is left for the caller to report as such.
-  const chain = orderedGateCenters(gates);
-  if (chain.length >= 2 && polylineLengthMeters(chain) < DEGENERATE_CHAIN_LENGTH_M) {
-    throw new RownativeGeometryUnavailableError(course.id, course.name ?? `Course ${course.id}`);
-  }
+  //    out-and-back, and is left for the caller to report as such. A
+  //    degenerate chain was refused above, before the lookup.
 
   // Straight legs between gate centres, with each turn rounded so the boat,
   // camera and water ribbon do not pivot on the spot at a gate (#743).
