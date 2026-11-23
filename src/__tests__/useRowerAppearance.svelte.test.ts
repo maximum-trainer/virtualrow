@@ -48,3 +48,22 @@ describe('RowerAppearanceStore', () => {
     expect(service.write).toHaveBeenLastCalledWith(DEFAULT_ROWER_APPEARANCE);
   });
 });
+
+describe('RowerAppearanceStore sync (#477)', () => {
+  it('shows the server copy when the service reports it won', async () => {
+    const service = stubService();
+    const winner = { ...DEFAULT_ROWER_APPEARANCE, top: 'crimson' };
+    (service as RowerAppearanceService).sync = vi.fn(async () => winner);
+    const store = new RowerAppearanceStore(service);
+    await store.sync();
+    expect(store.appearance).toEqual(winner);
+  });
+
+  it('keeps the local copy when sync returns null', async () => {
+    const service = stubService({ ...DEFAULT_ROWER_APPEARANCE, top: 'crimson' });
+    (service as RowerAppearanceService).sync = vi.fn(async () => null);
+    const store = new RowerAppearanceStore(service);
+    await store.sync();
+    expect(store.appearance.top).toBe('crimson');
+  });
+});
