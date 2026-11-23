@@ -161,12 +161,10 @@ import {
   streamLookaheadMeters,
   type CurveDistanceSample,
 } from './sceneryStreamPlan';
-import {
-  paintFoliage,
-  FOLIAGE_SHAPES,
-  FOLIAGE_VARIANT_COUNT,
-} from '../../scenery/foliageTexture';
-import { buildFoliageMips } from '../../scenery/foliageMips';
+import { FOLIAGE_SHAPES, FOLIAGE_VARIANT_COUNT } from '../../scenery/foliageTexture';
+import { createFoliageAtlasPainter } from '../../scenery/foliageAtlasPaint';
+import FoliageAtlasWorker from '../../scenery/foliageAtlasWorker?worker';
+import { uploadFoliageAtlas } from './foliageAtlasUpload';
 import { mergeSceneryInstances } from '../../scenery/mergeSceneryInstances';
 import { spanCeilingAt, type SpanCeilingSource } from '../../scenery/bridgeSpan';
 import { BRIDGE_SPANS } from '../../scenery/bridgeSpans.generated';
@@ -180,7 +178,7 @@ import { shaderGrassStrengthFor } from './shaderGrass';
 import type { PerformanceMode } from '../../scenery/sceneryPlacement';
 import type { SceneryProfile } from '../../services/routeEnrichmentService';
 import { createShadowStage, type ShadowTelemetry } from './shadowStage';
-import { measureAttach, measureAttachAsync } from './attachMeasure';
+import { measureAttachAsync } from './attachMeasure';
 import { tierCapsFor } from './tierCaps';
 import { publishSpeedMps, type Rower3DFleet, type TelemetryHandles } from './telemetry';
 import { createPostFx, type PostFxCaps } from './postFx';
@@ -635,36 +633,21 @@ export const createRideScene = async (
     mipLevelCount: foliageAtlasMips,
     usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
   });
-  // writeTexture is on the real GPUQueue but not on the attach-test mock;
-  // skipping the upload leaves the atlas blank there, which is fine — no
-  // test depends on the leaf texture's content.
-  // #729 FR5 — timed as `vr:attach:atlas`.
-  measureAttach('atlas', () => {
-    if (typeof device.queue.writeTexture === 'function') {
-      for (let s = 0; s < FOLIAGE_SHAPES.length; s += 1) {
-        for (let v = 0; v < FOLIAGE_VARIANT_COUNT; v += 1) {
-          const layer = s * FOLIAGE_VARIANT_COUNT + v;
-          const pixels = paintFoliage(FOLIAGE_SHAPES[s], foliageAtlasSize, v);
-          device.queue.writeTexture(
-            { texture: foliageAtlasTex, origin: { x: 0, y: 0, z: layer }, mipLevel: 0 },
-            pixels as BufferSource,
-            { bytesPerRow: foliageAtlasSize * 4, rowsPerImage: foliageAtlasSize },
-            { width: foliageAtlasSize, height: foliageAtlasSize, depthOrArrayLayers: 1 },
-          );
-          const mips = buildFoliageMips(pixels, foliageAtlasSize);
-          for (let m = 0; m < mips.length; m += 1) {
-            const { size, pixels: mipPixels } = mips[m];
-            device.queue.writeTexture(
-              { texture: foliageAtlasTex, origin: { x: 0, y: 0, z: layer }, mipLevel: m + 1 },
-              mipPixels as BufferSource,
-              { bytesPerRow: size * 4, rowsPerImage: size },
-              { width: size, height: size, depthOrArrayLayers: 1 },
-            );
-          }
-        }
-      }
-    }
-  });
+  // #729 FR2 — painted in a worker (inline under SSR / jsdom) while the
+  // boat and the crew load, then uploaded in one write per mip level.
+  // Awaited before the passes are built, below. Timed as `vr:attach:atlas`.
+  const foliagePainter = createFoliageAtlasPainter(
+    typeof Worker === 'undefined' ? {} : { workerFactory: () => new FoliageAtlasWorker({ name: 'foliage-atlas' }) },
+  );
+  // A queue without writeTexture (the attach-test mock) gets no upload, so
+  // there is nothing to paint either.
+  const foliageAtlasReady =
+    typeof device.queue.writeTexture === 'function'
+      ? measureAttachAsync('atlas', async () => {
+          const atlas = await foliagePainter.paint(foliageAtlasSize);
+          uploadFoliageAtlas(device.queue, foliageAtlasTex, atlas);
+        }).finally(() => foliagePainter.dispose())
+      : Promise.resolve();
   const foliageAtlasView = foliageAtlasTex.createView({ dimension: '2d-array' });
   const foliageSampler = device.createSampler({
     label: 'foliage',
@@ -727,6 +710,7 @@ export const createRideScene = async (
   // Chrome compiles them off the GPU process's main thread, in parallel,
   // and the ride only reports ready once they are all compiled. The
   // passes are therefore created together and awaited as one batch.
+  await foliageAtlasReady;
   const [sceneryPass, boatPass, sceneryMeshPass] = await measureAttachAsync('pipelines', () => Promise.all([
     createSceneryPass({
       device,
