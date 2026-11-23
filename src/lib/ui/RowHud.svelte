@@ -18,6 +18,7 @@
   import { formatSplit, formatTime } from '../utils/formatters';
   import { formatGap } from '../../components/rower3d/ghost';
   import type { FullscreenControl } from './fullscreenControl';
+  import type { CameraView } from './cameraView.svelte';
   import './RowHud.css';
 
   interface Props {
@@ -47,6 +48,12 @@
      * so the HUD stays uncluttered on a non-looped row.
      */
     lap?: { currentLap: number; completed: number } | null;
+    /**
+     * #815 — the camera view and how to move to the next one (the ride page
+     * passes its `CameraViewStore`, the same one `V` cycles). Omitted, the
+     * corner shows the fullscreen button alone.
+     */
+    camera?: { readonly view: CameraView; cycle: () => void } | null;
   }
 
   let {
@@ -64,7 +71,15 @@
     fullscreen,
     ghost = null,
     lap = null,
+    camera = null,
   }: Props = $props();
+
+  const CAMERA_VIEW_LABEL: Record<CameraView, string> = {
+    chase: 'Chase',
+    side: 'Side',
+    bow: 'Bow',
+    high: 'High',
+  };
 
   /**
    * How wide the window is, kept current.
@@ -92,8 +107,8 @@
   });
 
   /**
-   * `F` for fullscreen, alongside the `V` the camera rig already answers to
-   * (#328).
+   * `F` for fullscreen, alongside the `V` that cycles the camera (#328; the
+   * camera button in the corner does the same, #815).
    *
    * Ignored while the rower is typing, because the row screen is not the only
    * thing on the page: the debug panel and the workout builder both have
@@ -142,6 +157,19 @@
 
 <div class="row-hud">
   <div class="row-hud-actions">
+    {#if camera}
+      <button
+        type="button"
+        class="btn-hud-action btn-hud-camera"
+        onclick={camera.cycle}
+        title="Camera: {camera.view} (V)"
+        aria-label="Camera: {camera.view} (press V to cycle)"
+        data-view={camera.view}
+      >
+        <span class="btn-hud-camera-icon" aria-hidden="true">🎥</span>
+        <span class="btn-hud-camera-label">{CAMERA_VIEW_LABEL[camera.view]}</span>
+      </button>
+    {/if}
     <button
       type="button"
       class="btn-hud-action btn-hud-fullscreen"
