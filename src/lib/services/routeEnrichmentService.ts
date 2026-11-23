@@ -806,6 +806,7 @@ const inferRouteWaterBodyType = (route: WaterRoute): WaterBodyType => {
   if (route.tags.includes('lake')) return 'lake';
   if (route.tags.includes('reservoir')) return 'reservoir';
   if (route.tags.includes('river')) return 'river';
+  if (route.tags.includes('open_water')) return 'open_water';
   return waterBodyFromName(route.name);
 };
 
