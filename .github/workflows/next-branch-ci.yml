@@ -6,6 +6,9 @@ name: CI (Svelte + WebGPU)
 # (`playwright-e2e-clean.yml`), retired with the React scene at the cutover.
 #   * `preflight` runs lint, build, unit suite, shuffled run, coverage gate.
 #   * `smoke` boots the SvelteKit scaffold.
+#   * Mutation testing moved out to its own scheduled workflow,
+#     `mutation.yml`, four times a day (Dan, 2026-11-23): it outgrew the
+#     40-minute cap and was cancelling every PR build.
 #   * `e2e-shards` runs the Playwright specs that pass on SwiftShader today
 #     (the "software-adapter"-safe subset defined in playwright.config.next.ts).
 #   * `webgpu-engine` runs the engine smokes against the shared canvas on the
@@ -307,44 +310,4 @@ jobs:
             playwright-report
             test-results
           if-no-files-found: ignore
-          retention-days: 14
-
-  # #588 FR4 / AC4 (D3-a + D10 "every build"): StrykerJS mutation testing
-  # scoped to the engine's plan layer, the smoothing/physics helper on the
-  # engine seam, and the FIT encoder (`stryker.config.mjs`). Dan's
-  # directive is to run it on every build, so this gates main / PRs here.
-  # NFR3 cap: `timeout-minutes` keeps a hung mutant from monopolising the
-  # wall clock. Report lands under `reports/mutation/mutation.html` and is
-  # uploaded on every run (not only failures) so the HTML survives a green
-  # run and can be compared PR-over-PR.
-  mutation:
-    name: Mutation testing (#588 FR4)
-    needs: preflight
-    runs-on: ubuntu-24.04
-    env:
-      CI: true
-    # 25 min stopped holding once the plan layer grew past ~1,950 mutants
-    # (#773/#774 on main both cancelled at ~46%). 40 min plus 4 workers
-    # (the hosted runner's core count) leaves room for the VP-xx growth.
-    timeout-minutes: 40
-    steps:
-      - uses: actions/checkout@v7
-      - name: Setup Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: '24'
-          cache: 'npm'
-      - name: Install dependencies
-        run: npm ci
-      - name: StrykerJS
-        # The CI script runs 4 workers, one per core of the hosted
-        # ubuntu-24.04 runner (16 GB holds them). The HTML report writes even on a green run so
-        # the artifact upload below can carry it in both cases.
-        run: npm run test:mutation:ci
-      - name: Upload mutation HTML report
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: mutation-report
-          path: reports/mutation
           retention-days: 14
