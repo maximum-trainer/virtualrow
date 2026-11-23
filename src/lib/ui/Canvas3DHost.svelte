@@ -15,8 +15,9 @@
   the non-3D specs that assert around the canvas keep passing.
 -->
 <script lang="ts">
-  import { onMount, untrack } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import type { RideAttach, RideRenderer, RideFrame, RideGhostMarker, RideViewportInsets } from './rideCanvas';
+  import { CROSSFADE_MS } from './rideCanvas';
   import { crashReporterService } from '../services/crashReporterService';
 
   export type CanvasBackend = 'stub' | 'live' | 'unavailable';
@@ -136,7 +137,14 @@
   });
 
   let container = $state<HTMLDivElement | undefined>(undefined);
-  let canvas = $state<HTMLCanvasElement | undefined>(undefined);
+  // #741 VP-21 FR5 — a scene rebuilt for late route data is attached to a
+  // second canvas laid over the first and faded in over CROSSFADE_MS, while
+  // the old scene keeps drawing; then the old one goes. Outside that half
+  // second there is exactly one canvas, so the specs see the DOM they know.
+  type Slot = { key: number; el?: HTMLCanvasElement; incoming: boolean; shown: boolean };
+  let slots = $state<Slot[]>([{ key: 0, incoming: false, shown: true }]);
+  let nextSlotKey = 1;
+  const canvas = $derived(slots[0]?.el);
   // 'stub' until the engine attaches; 'live' once it does; 'unavailable' if the
   // engine declined (returned null).
   let backend = $state<CanvasBackend>('stub');
@@ -169,11 +177,14 @@
   let currentHandle: RideRenderer | null = null;
   let attachedRoute: unknown = undefined;
 
-  const startAttach = (routeForAttach: unknown): void => {
-    if (!attach || !canvas) return;
+  const startAttach = (
+    routeForAttach: unknown,
+    target: HTMLCanvasElement | undefined = canvas,
+    adopt: (r: RideRenderer | null) => boolean = () => true,
+  ): void => {
+    if (!attach || !target) return;
     const mine = (generation += 1);
     attachedRoute = routeForAttach;
-    const target = canvas;
     const run = attach;
     // Wrap in Promise.resolve(fn).then so a sync throw inside `attach` lands
     // in the catch path alongside a rejected promise, instead of escaping the
@@ -205,6 +216,7 @@
           r?.dispose();
           return;
         }
+        if (!adopt(r)) return;
         currentHandle = r;
         liveHandle = r;
         setBackend(r ? 'live' : 'unavailable', r ? undefined : 'attach-returned-null');
@@ -229,6 +241,10 @@
     return () => {
       mounted = false;
       generation += 1;
+      if (fadeTimer) clearTimeout(fadeTimer);
+      fadeTimer = null;
+      fadingOut?.dispose();
+      fadingOut = null;
       releaseCurrent();
     };
   });
@@ -243,10 +259,54 @@
     untrack(() => {
       if (!mounted || next === attachedRoute) return;
       if (backend === 'unavailable') return;
-      releaseCurrent();
-      startAttach(next);
+      if (!currentHandle) {
+        // Nothing on screen yet: build the newer scene in place.
+        releaseCurrent();
+        startAttach(next);
+        return;
+      }
+      crossfadeTo(next);
     });
   });
+
+  let fadeTimer: ReturnType<typeof setTimeout> | null = null;
+  // The scene being faded out, disposed when the fade ends (or on unmount).
+  let fadingOut: RideRenderer | null = null;
+
+  /** #741 FR5 — build `next` on a canvas over the live one, then fade it in. */
+  const crossfadeTo = (next: unknown): void => {
+    let slot = slots.find((s) => s.incoming);
+    if (!slot) {
+      slots.push({ key: nextSlotKey++, incoming: true, shown: false });
+      slot = slots[slots.length - 1];
+    }
+    const incomingKey = slot.key;
+    // The new canvas is in the DOM after this microtask's render.
+    void tick().then(() => {
+      const target = slots.find((s) => s.key === incomingKey)?.el;
+      if (!mounted || !target) return;
+      startAttach(next, target, (r) => {
+        const incoming = slots.find((s) => s.key === incomingKey);
+        if (!r || !incoming) {
+          // Declined or gone: keep the scene on screen, drop the canvas.
+          r?.dispose();
+          slots = slots.filter((s) => s.key !== incomingKey);
+          return false;
+        }
+        if (fadeTimer) clearTimeout(fadeTimer);
+        fadingOut?.dispose();
+        fadingOut = currentHandle;
+        incoming.shown = true;
+        fadeTimer = setTimeout(() => {
+          fadeTimer = null;
+          fadingOut?.dispose();
+          fadingOut = null;
+          slots = slots.filter((s) => s.key === incomingKey).map((s) => ({ ...s, incoming: false }));
+        }, CROSSFADE_MS);
+        return true;
+      });
+    });
+  };
 </script>
 
 <div class="rower3d-canvas-container" bind:this={container}>
@@ -254,7 +314,15 @@
   <div class="rower3d-fallback-marker" data-loaded="true" style="display: none;"></div>
   <div class="rower3d-gpu-backend" data-backend={backend} style="display: none;"></div>
 
-  <canvas class="rower3d-canvas" bind:this={canvas}></canvas>
+  {#each slots as slot (slot.key)}
+    <canvas
+      class="rower3d-canvas"
+      class:rower3d-canvas-incoming={slot.incoming}
+      class:rower3d-canvas-shown={slot.shown}
+      style:--crossfade-ms="{CROSSFADE_MS}ms"
+      bind:this={slot.el}
+    ></canvas>
+  {/each}
 
   {#if ghostMarker}
     <div
@@ -275,3 +343,18 @@
     </div>
   {/if}
 </div>
+
+<style>
+  /* #741 FR5 — the rebuilt scene, over the live one until it has faded in. */
+  .rower3d-canvas-incoming {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    transition: opacity var(--crossfade-ms) linear;
+  }
+  .rower3d-canvas-incoming.rower3d-canvas-shown {
+    opacity: 1;
+  }
+</style>

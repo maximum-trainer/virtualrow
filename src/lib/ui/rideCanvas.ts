@@ -180,3 +180,6 @@ export type RideAttach = (
   canvas: HTMLCanvasElement,
   options?: RideRendererOptions,
 ) => RideRenderer | null | Promise<RideRenderer | null>;
+
+/** #741 VP-21 FR5 — how long a scene rebuilt for late route data takes to fade in over the old one. */
+export const CROSSFADE_MS = 500;

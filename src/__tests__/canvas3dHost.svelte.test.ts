@@ -2,7 +2,7 @@ import { render } from '@testing-library/svelte';
 import { describe, it, expect, vi } from 'vitest';
 
 import Canvas3DHost from '../lib/ui/Canvas3DHost.svelte';
-import type { RideAttach } from '../lib/ui/rideCanvas';
+import { CROSSFADE_MS, type RideAttach } from '../lib/ui/rideCanvas';
 
 // #542 P1 (F5): the ride-canvas seam host. P1 ships a bare canvas; the engine
 // track attaches via the `attach` prop.
@@ -122,13 +122,32 @@ describe('Canvas3DHost', () => {
       await flush();
       expect(attach).toHaveBeenCalledTimes(1);
 
-      await rerender({ attach, route: enriched, tier: 'medium', rebuildOnRouteChange: true });
-      await flush();
+      vi.useFakeTimers();
+      try {
+        await rerender({ attach, route: enriched, tier: 'medium', rebuildOnRouteChange: true });
+        await flush();
+
+        // #741 FR5: built on a second canvas over the first; the old scene
+        // keeps drawing while the new one fades in.
+        expect(attach).toHaveBeenCalledTimes(2);
+        expect(attach.mock.calls[1][1]).toMatchObject({ route: enriched, tier: 'medium' });
+        const canvases = container.querySelectorAll('canvas.rower3d-canvas');
+        expect(canvases).toHaveLength(2);
+        expect(attach.mock.calls[1][0]).toBe(canvases[1]);
+        expect(canvases[1].classList.contains('rower3d-canvas-incoming')).toBe(true);
+        expect(canvases[1].classList.contains('rower3d-canvas-shown')).toBe(true);
+        expect(disposeA).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(CROSSFADE_MS);
+        await flush();
+      } finally {
+        vi.useRealTimers();
+      }
 
       expect(disposeA).toHaveBeenCalledTimes(1);
-      expect(attach).toHaveBeenCalledTimes(2);
-      expect(attach.mock.calls[1][1]).toMatchObject({ route: enriched, tier: 'medium' });
+      expect(container.querySelectorAll('canvas.rower3d-canvas')).toHaveLength(1);
       expect(attach.mock.calls[1][0]).toBe(container.querySelector('canvas.rower3d-canvas'));
+      expect(container.querySelector('canvas.rower3d-canvas-incoming')).toBeNull();
       expect(disposeB).not.toHaveBeenCalled();
       expect(
         container.querySelector('.rower3d-gpu-backend')?.getAttribute('data-backend'),
@@ -206,6 +225,8 @@ describe('Canvas3DHost', () => {
       await flush();
       resolvers[1]();
       await flush();
+      // 'a' goes once 'c' has faded in over it (#741 FR5).
+      await new Promise((r) => setTimeout(r, CROSSFADE_MS + 20));
 
       expect(disposes[0]).toHaveBeenCalledTimes(1);
       expect(disposes[1]).toHaveBeenCalledTimes(1);
@@ -213,6 +234,41 @@ describe('Canvas3DHost', () => {
 
       unmount();
       expect(disposes[2]).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps the old scene when the rebuilt one is declined (#741 FR5)', async () => {
+      const disposeA = vi.fn();
+      const attach = vi
+        .fn<RideAttach>()
+        .mockImplementationOnce(() => ({ dispose: disposeA }))
+        .mockImplementationOnce(() => null);
+      const { rerender, container } = render(Canvas3DHost, { attach, route: { id: 'a' }, rebuildOnRouteChange: true });
+      await flush();
+      await rerender({ attach, route: { id: 'b' }, rebuildOnRouteChange: true });
+      await flush();
+      await flush();
+
+      expect(attach).toHaveBeenCalledTimes(2);
+      expect(disposeA).not.toHaveBeenCalled();
+      expect(container.querySelectorAll('canvas.rower3d-canvas')).toHaveLength(1);
+      expect(container.querySelector('.rower3d-gpu-backend')?.getAttribute('data-backend')).toBe('live');
+    });
+
+    it('disposes both scenes if the host unmounts mid-fade (#741 FR5)', async () => {
+      const disposeA = vi.fn();
+      const disposeB = vi.fn();
+      const attach = vi
+        .fn<RideAttach>()
+        .mockImplementationOnce(() => ({ dispose: disposeA }))
+        .mockImplementationOnce(() => ({ dispose: disposeB }));
+      const { rerender, unmount } = render(Canvas3DHost, { attach, route: { id: 'a' }, rebuildOnRouteChange: true });
+      await flush();
+      await rerender({ attach, route: { id: 'b' }, rebuildOnRouteChange: true });
+      await flush();
+      unmount();
+
+      expect(disposeA).toHaveBeenCalledTimes(1);
+      expect(disposeB).toHaveBeenCalledTimes(1);
     });
   });
 
