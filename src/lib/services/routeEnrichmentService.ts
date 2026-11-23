@@ -10,6 +10,9 @@ import {
 export const OPEN_TOPO_DATA_BATCH_LIMIT = 100;
 export const ROUTE_SEGMENT_LENGTH_METERS = 50;
 export const ROUTE_ENRICHMENT_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+/** #741 FR5 — which Overpass query an enrichment is waiting on. */
+export type EnrichmentPhase = 'water' | 'scenery';
+
 export const OPEN_TOPO_DATA_URL = 'https://api.opentopodata.org/v1/srtm30m';
 import { findCrossings, type Crossing } from '../utils/bridgeCrossings';
 import { mapOsmTagsToSceneryProfile } from '../utils/sceneryFromTags';
@@ -1589,7 +1592,16 @@ export class RouteEnrichmentService {
     }
   }
 
-  async enrichRoute(route: WaterRoute): Promise<RouteEnrichmentData> {
+  /**
+   * `onPhase` (#741 FR5) hears which Overpass query is running, so the Row
+   * screen can say "Reading the water…" then "Dressing the banks…". It is
+   * not called for a cached answer, nor for a caller joining a request
+   * already in flight.
+   */
+  async enrichRoute(
+    route: WaterRoute,
+    onPhase?: (phase: EnrichmentPhase) => void,
+  ): Promise<RouteEnrichmentData> {
     const cached = this.readCached(route.id);
     if (cached.data && !cached.stale) {
       return cached.data;
@@ -1634,10 +1646,12 @@ export class RouteEnrichmentService {
         // to draw, so its failure still falls back), then the buildings and
         // land use. A scenery failure keeps the real water, and is not cached
         // so the next selection asks again.
+        onPhase?.('water');
         const waterElements = await this.postOverpass(
           buildOverpassWaterQuery(route.coordinates),
           OVERPASS_WATER_TIMEOUT_MS,
         );
+        onPhase?.('scenery');
         const scenery = await this.postOverpass(
           buildOverpassSceneryQuery(route.coordinates),
           OVERPASS_SCENERY_TIMEOUT_MS,

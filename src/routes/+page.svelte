@@ -27,7 +27,8 @@
   import { getRoutesStore } from '$lib/ui/routesContext';
   import { getSessionStore } from '$lib/ui/sessionContext';
   import { getDeepLink } from '$lib/ui/deepLinkContext';
-  import { routeGeometrySource } from '$lib/ui/routesStore.svelte';
+  import { enrichmentStatusCopy, routeGeometrySource } from '$lib/ui/routesStore.svelte';
+  import { StartGate } from '$lib/ui/startGate.svelte';
   import { sharedConditionsStore } from '$lib/ui/useConditions.svelte';
   import { debugPreferencesStore } from '$lib/services/debugPreferencesStore';
   import BluetoothDevice from '$lib/ui/BluetoothDevice.svelte';
@@ -45,6 +46,18 @@
   const auth = getAuth();
   const services = getServices();
   const routes = getRoutesStore();
+
+  // #741 VP-21 FR5 — Start and the demo row wait for the route's map data,
+  // with a "start now with simple scenery" escape. A change of route drops
+  // a held start.
+  const startGate = new StartGate();
+  $effect(() => {
+    startGate.update(routes.selectedRouteEnrichmentLoading);
+  });
+  $effect(() => {
+    void routes.selectedRoute?.id;
+    return () => startGate.cancel();
+  });
   const session = getSessionStore();
   const ride = getRideSession();
   const deepLink = getDeepLink();
@@ -199,7 +212,21 @@
           </div>
 
           {#if routes.selectedRouteEnrichmentLoading}
-            <p class="route-enrichment-status">Loading route data…</p>
+            <p class="route-enrichment-status" role="status">
+              {enrichmentStatusCopy(routes.routeEnrichmentPhase[route.id])}
+            </p>
+            {#if startGate.pending}
+              <p class="route-enrichment-wait">
+                Your row starts as soon as the map data is in.
+                <button
+                  type="button"
+                  class="btn btn-start-now-simple"
+                  onclick={() => startGate.startNow()}
+                >
+                  Start now with simple scenery
+                </button>
+              </p>
+            {/if}
           {/if}
 
           <!-- Decided before the row, not during it (#338). -->
@@ -234,7 +261,10 @@
 
           <button
             class="btn btn-start-workout"
-            onclick={() => session.startWorkout(routes.selectedRoute, isGuestSession)}
+            onclick={() =>
+              startGate.request('workout', routes.selectedRouteEnrichmentLoading, () =>
+                session.startWorkout(routes.selectedRoute, isGuestSession),
+              )}
             disabled={!session.selectedRowerConnected || !session.hrConnected}
           >
             {#if session.selectedRowerConnected && session.hrConnected}
@@ -261,7 +291,10 @@
             <div class="demo-row-cta">
               <button
                 class="btn btn-try-demo"
-                onclick={() => session.startDemo(routes.selectedRoute, isGuestSession, demoCtaVisible)}
+                onclick={() =>
+                  startGate.request('demo', routes.selectedRouteEnrichmentLoading, () =>
+                    session.startDemo(routes.selectedRoute, isGuestSession, demoCtaVisible),
+                  )}
                 type="button"
               >
                 ▶ Try a demo row — no rowing machine needed

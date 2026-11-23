@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { flushSync } from 'svelte';
 
-import { RoutesStore } from '../lib/ui/routesStore.svelte';
+import { RoutesStore, enrichmentStatusCopy } from '../lib/ui/routesStore.svelte';
 import type { Services } from '../lib/ports';
 import type { WaterRoute } from '../lib/types/index';
 
@@ -400,5 +400,31 @@ describe('RoutesStore prefetch (#741 FR6)', () => {
 
     // 'a' was the selection; the prefetch only had 'b' left.
     expect(calls).toEqual(['a', 'b']);
+  });
+});
+
+// #741 FR5 — the Row screen says which part of the route data it is reading.
+describe('RoutesStore enrichment phase (#741 FR5)', () => {
+  it('follows the selected route through the water and scenery phases', async () => {
+    const services = stubServices([route('a')]);
+    let finish: () => void = () => {};
+    services.routeEnrichmentService.enrichRoute = vi.fn(
+      async (_r: WaterRoute, onPhase?: (p: 'water' | 'scenery') => void) => {
+        onPhase?.('water');
+        await new Promise<void>((resolve) => (finish = resolve));
+        onPhase?.('scenery');
+        return {} as never;
+      },
+    ) as never;
+    const store = new RoutesStore(services);
+    store.load();
+    store.selectRoute(store.routes[0]);
+
+    expect(store.routeEnrichmentPhase['a']).toBe('water');
+    expect(enrichmentStatusCopy(store.routeEnrichmentPhase['a'])).toBe('Reading the water…');
+    finish();
+    await Promise.resolve();
+    expect(enrichmentStatusCopy('scenery')).toBe('Dressing the banks…');
+    expect(enrichmentStatusCopy(undefined)).toBe('Loading route data…');
   });
 });

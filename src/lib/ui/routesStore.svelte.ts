@@ -41,6 +41,14 @@ export function extractRouteStatus(tags: string[] | undefined): string | undefin
   return tags?.find((t) => t.startsWith('status:'))?.replace('status:', '');
 }
 
+/** #741 FR5 — what the Row screen says while a route's map data loads. */
+export const enrichmentStatusCopy = (phase: 'water' | 'scenery' | undefined): string =>
+  phase === 'water'
+    ? 'Reading the water…'
+    : phase === 'scenery'
+      ? 'Dressing the banks…'
+      : 'Loading route data…';
+
 /** Runs `cb` when the browser is idle; returns a cancel. Injected in tests. */
 export type IdleSchedule = (cb: () => void) => () => void;
 
@@ -74,6 +82,8 @@ export class RoutesStore {
   routeDetailOpen = $state<WaterRoute | null>(null);
   routeEnrichments = $state<Record<string, RouteEnrichmentData>>({});
   routeEnrichmentLoading = $state<Record<string, boolean>>({});
+  /** #741 FR5 — which part of a loading route's map data is being read. */
+  routeEnrichmentPhase = $state<Record<string, 'water' | 'scenery'>>({});
 
   // Import panel.
   isImportOpen = $state(false);
@@ -209,7 +219,9 @@ export class RoutesStore {
     }
     this.routeEnrichmentLoading = { ...this.routeEnrichmentLoading, [route.id]: true };
     void this.#enrichment
-      .enrichRoute(route)
+      .enrichRoute(route, (phase) => {
+        this.routeEnrichmentPhase = { ...this.routeEnrichmentPhase, [route.id]: phase };
+      })
       .then((enrichment) => {
         this.routeEnrichments = { ...this.routeEnrichments, [route.id]: enrichment };
       })

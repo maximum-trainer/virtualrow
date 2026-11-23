@@ -706,6 +706,17 @@ body {
   color: var(--color-text-muted);
 }
 
+/* #741 FR5 — a start held for the route's map data, and its escape. */
+.route-enrichment-wait {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  align-items: center;
+  margin: var(--space-xs) 0 0;
+  font-size: 0.85rem;
+  color: var(--color-text-secondary);
+}
+
 .route-info-overlay .route-meta-compact {
   display: flex;
   flex-wrap: wrap;
