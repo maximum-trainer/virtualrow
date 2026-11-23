@@ -21,6 +21,7 @@
   import '../index.css';
   import '../App.css';
   import { startTelemetry } from '$lib/utils/telemetryBoot';
+  import { startTelemetryShipping } from '$lib/utils/telemetryShipping';
   import { checkBootCrash, reportFromErrorBoundary } from '$lib/utils/crashBoot';
   import { crashReporterService } from '$lib/services/crashReporterService';
   import { setServices } from '$lib/ui/servicesContext';
@@ -54,6 +55,8 @@
   if (typeof window !== 'undefined') {
     startTelemetry();
     const BUILD_SHA = (import.meta.env.VITE_BUILD_SHA as string | undefined) ?? 'dev';
+    // #421: ship the log to the Worker when VITE_API_BASE_URL is baked in.
+    startTelemetryShipping({ build: BUILD_SHA });
     checkBootCrash(crashReporterService, { buildSha: BUILD_SHA });
     // #473 AC2 test seam: an e2e spec forces an error-boundary trip via this
     // hook; production boundaries make the same call from their own error path.
