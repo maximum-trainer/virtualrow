@@ -142,6 +142,11 @@ export interface Rower3DScenery {
   spriteDraws: number;
   solidDraws: number;
   solidTriangles: number;
+  /** #726 FR5 — kit models registered with the mesh pass so far. */
+  registered: number;
+  /** #726 FR6 — kit models whose fetch or decode failed, and which. */
+  failed: number;
+  failedIds: string[];
 }
 
 /**
@@ -367,6 +372,9 @@ export const createTelemetry = (forceRender: () => void): TelemetryHandles => {
       spriteDraws: 0,
       solidDraws: 0,
       solidTriangles: 0,
+      registered: 0,
+      failed: 0,
+      failedIds: [],
     },
     shadows: {
       cascades: 0,
