@@ -11,6 +11,9 @@ import {
 export const ELEVATION_BATCH_LIMIT = 100;
 export const ROUTE_SEGMENT_LENGTH_METERS = 50;
 export const ROUTE_ENRICHMENT_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+/** #741 FR5 — which Overpass query an enrichment is waiting on. */
+export type EnrichmentPhase = 'water' | 'scenery';
+
 /**
  * #741 FR2 / D1 — Open-Meteo's elevation API (Copernicus DEM, 90 m). It sends
  * CORS headers, so it works from the browser; the public OpenTopoData API
@@ -1592,7 +1595,16 @@ export class RouteEnrichmentService {
     }
   }
 
-  async enrichRoute(route: WaterRoute): Promise<RouteEnrichmentData> {
+  /**
+   * `onPhase` (#741 FR5) hears which Overpass query is running, so the Row
+   * screen can say "Reading the water…" then "Dressing the banks…". It is
+   * not called for a cached answer, nor for a caller joining a request
+   * already in flight.
+   */
+  async enrichRoute(
+    route: WaterRoute,
+    onPhase?: (phase: EnrichmentPhase) => void,
+  ): Promise<RouteEnrichmentData> {
     const cached = this.readCached(route.id);
     if (cached.data && !cached.stale) {
       return cached.data;
@@ -1637,10 +1649,12 @@ export class RouteEnrichmentService {
         // to draw, so its failure still falls back), then the buildings and
         // land use. A scenery failure keeps the real water, and is not cached
         // so the next selection asks again.
+        onPhase?.('water');
         const waterElements = await this.postOverpass(
           buildOverpassWaterQuery(route.coordinates),
           OVERPASS_WATER_TIMEOUT_MS,
         );
+        onPhase?.('scenery');
         const scenery = await this.postOverpass(
           buildOverpassSceneryQuery(route.coordinates),
           OVERPASS_SCENERY_TIMEOUT_MS,

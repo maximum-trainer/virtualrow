@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { flushSync } from 'svelte';
 
-import { RoutesStore } from '../lib/ui/routesStore.svelte';
+import { RoutesStore, enrichmentStatusCopy } from '../lib/ui/routesStore.svelte';
 import type { Services } from '../lib/ports';
 import type { WaterRoute } from '../lib/types/index';
 
@@ -89,7 +89,7 @@ describe('RoutesStore', () => {
   });
 
   it('selecting a route enriches it and marks it loading until done', async () => {
-    const services = stubServices([route('1')]);
+    const services = stubServices([route('7')]);
     let resolveEnrich: (v: unknown) => void = () => {};
     (services.routeEnrichmentService.enrichRoute as ReturnType<typeof vi.fn>).mockReturnValue(
       new Promise((res) => {
@@ -98,19 +98,20 @@ describe('RoutesStore', () => {
     );
     const store = new RoutesStore(services);
     store.load();
+    store.setAthlete('user-1');
 
     const stop = $effect.root(() => {
-      store.selectRoute(route('1'));
+      store.selectRoute(route('7'));
       flushSync();
-      expect(store.selectedRoute?.id).toBe('1');
-      expect(store.routeEnrichmentLoading['1']).toBe(true);
+      expect(store.selectedRoute?.id).toBe('7');
+      expect(store.routeEnrichmentLoading['7']).toBe(true);
     });
     cleanup = stop;
 
     resolveEnrich({ lakes: [] });
     await Promise.resolve();
     await Promise.resolve();
-    expect(store.routeEnrichmentLoading['1']).toBe(false);
+    expect(store.routeEnrichmentLoading['7']).toBe(false);
   });
 
   // #542 AC2 — `rownative-track-attach.spec.ts` reads `window.__SELECTED_ROUTE`
@@ -296,32 +297,34 @@ describe('RoutesStore.importFile', () => {
 // only when the cache is empty or stale (App.tsx's enrichment effect).
 describe('RoutesStore enrichment on select', () => {
   it('uses fresh cached enrichment without fetching', () => {
-    const services = stubServices([route('1')]);
+    const services = stubServices([route('7')]);
     (services.routeEnrichmentService.readCached as ReturnType<typeof vi.fn>).mockReturnValue({
       data: { lakes: [] },
       stale: false,
     });
     const store = new RoutesStore(services);
     store.load();
+    store.setAthlete('user-1');
     const stop = $effect.root(() => {
-      store.selectRoute(route('1'));
+      store.selectRoute(route('7'));
       flushSync();
-      expect(store.routeEnrichmentLoading['1']).toBe(false);
+      expect(store.routeEnrichmentLoading['7']).toBe(false);
     });
     stop();
     expect(services.routeEnrichmentService.enrichRoute).not.toHaveBeenCalled();
   });
 
   it('refreshes stale cached enrichment in the background', () => {
-    const services = stubServices([route('1')]);
+    const services = stubServices([route('7')]);
     (services.routeEnrichmentService.readCached as ReturnType<typeof vi.fn>).mockReturnValue({
       data: { lakes: [] },
       stale: true,
     });
     const store = new RoutesStore(services);
     store.load();
+    store.setAthlete('user-1');
     const stop = $effect.root(() => {
-      store.selectRoute(route('1'));
+      store.selectRoute(route('7'));
       flushSync();
     });
     stop();
@@ -390,6 +393,7 @@ describe('RoutesStore prefetch (#741 FR6)', () => {
     }) as never;
     const store = new RoutesStore(services);
     store.load();
+    store.setAthlete('user-1');
     store.selectRoute(store.routes[0]);
 
     const run = store.prefetchEnrichments(immediate);
@@ -400,5 +404,80 @@ describe('RoutesStore prefetch (#741 FR6)', () => {
 
     // 'a' was the selection; the prefetch only had 'b' left.
     expect(calls).toEqual(['a', 'b']);
+  });
+});
+
+// #741 FR5 — the Row screen says which part of the route data it is reading.
+describe('RoutesStore enrichment phase (#741 FR5)', () => {
+  it('follows the selected route through the water and scenery phases', async () => {
+    const services = stubServices([route('a')]);
+    let finish: () => void = () => {};
+    services.routeEnrichmentService.enrichRoute = vi.fn(
+      async (_r: WaterRoute, onPhase?: (p: 'water' | 'scenery') => void) => {
+        onPhase?.('water');
+        await new Promise<void>((resolve) => (finish = resolve));
+        onPhase?.('scenery');
+        return {} as never;
+      },
+    ) as never;
+    const store = new RoutesStore(services);
+    store.load();
+    store.setAthlete('user-1');
+    store.selectRoute(store.routes[0]);
+
+    expect(store.routeEnrichmentPhase['a']).toBe('water');
+    expect(enrichmentStatusCopy(store.routeEnrichmentPhase['a'])).toBe('Reading the water…');
+    finish();
+    await Promise.resolve();
+    expect(enrichmentStatusCopy('scenery')).toBe('Dressing the banks…');
+    expect(enrichmentStatusCopy(undefined)).toBe('Loading route data…');
+  });
+});
+
+// Dan, 2026-11-23: the demo route and a guest (not signed in) need no
+// external map data; neither asks Overpass or Open-Meteo, and so neither
+// waits for it before a row.
+describe('RoutesStore map data for the demo route and guests', () => {
+  it('a guest selecting a route makes no enrichment call and is not held', () => {
+    const services = stubServices([route('7')]);
+    const store = new RoutesStore(services);
+    store.load();
+    store.setAthlete(null);
+    store.selectRoute(store.routes[0]);
+    expect(services.routeEnrichmentService.enrichRoute).not.toHaveBeenCalled();
+    expect(store.selectedRouteEnrichmentLoading).toBe(false);
+  });
+
+  it('the demo route makes no enrichment call when signed in either', () => {
+    const services = stubServices([route('1')]);
+    const store = new RoutesStore(services);
+    store.load();
+    store.setAthlete('user-1');
+    store.selectRoute(store.routes[0]);
+    expect(services.routeEnrichmentService.enrichRoute).not.toHaveBeenCalled();
+  });
+
+  it('enriches the selected route once the guest signs in', () => {
+    const services = stubServices([route('7')]);
+    const store = new RoutesStore(services);
+    store.load();
+    store.selectRoute(store.routes[0]);
+    expect(services.routeEnrichmentService.enrichRoute).not.toHaveBeenCalled();
+    store.setAthlete('user-1');
+    expect(services.routeEnrichmentService.enrichRoute).toHaveBeenCalledTimes(1);
+  });
+
+  it('the prefetch leaves the demo route out', async () => {
+    const services = stubServices([route('1'), route('7')]);
+    const store = new RoutesStore(services);
+    store.load();
+    store.setAthlete('user-1');
+    await store.prefetchEnrichments((cb) => {
+      queueMicrotask(cb);
+      return () => {};
+    });
+    expect(
+      (services.routeEnrichmentService.enrichRoute as ReturnType<typeof vi.fn>).mock.calls.map((c) => (c[0] as WaterRoute).id),
+    ).toEqual(['7']);
   });
 });

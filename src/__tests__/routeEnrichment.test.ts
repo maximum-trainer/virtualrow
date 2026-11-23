@@ -623,6 +623,17 @@ describe('RouteEnrichmentService', () => {
   // the water shape, shore widths, buildings and crossings.
   // #741 VP-21 FR4 — the water first, then the scenery, each retried once
   // on the mirror; a scenery failure keeps the real water.
+  // #741 FR5 — the Row screen says which part of the wait it is in.
+  it('reports the water phase, then the scenery phase', async () => {
+    const stub = createFetchStub();
+    const service = new RouteEnrichmentService(stub.fetch, localStorage);
+    const phases: string[] = [];
+
+    await service.enrichRoute(routeFixture, (phase) => phases.push(phase));
+
+    expect(phases).toEqual(['water', 'scenery']);
+  });
+
   describe('two Overpass queries (#741 FR4)', () => {
     it('asks for the water, then the scenery, and merges them', async () => {
       const stub = createFetchStub();
