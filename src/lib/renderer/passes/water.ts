@@ -15,6 +15,7 @@ import waterWgsl from './water.wgsl?raw';
 
 import type { ShadowResources } from './bank';
 import { renderPipelineAsync } from '../engine/pipelineAsync';
+import { sceneMultisample } from '../engine/msaa';
 
 export interface WaterPassOptions {
   device: GPUDevice;
@@ -46,6 +47,7 @@ export const createWaterPass = async ({
   const code = SHADOW_UNIFORMS_WGSL + SAMPLE_SHADOW_WGSL + HORIZON_HAZE_WGSL + SKY_COLOUR_WGSL + WATER_SURFACE_WGSL + waterWgsl;
   const module = device.createShaderModule({ label: 'water', code });
   const pipeline = await renderPipelineAsync(device, {
+    multisample: sceneMultisample(device),
     label: 'water',
     layout: 'auto',
     vertex: {

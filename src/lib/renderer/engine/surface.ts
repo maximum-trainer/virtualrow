@@ -4,6 +4,7 @@
  */
 
 import type { BuildingTierCaps } from './tierCaps';
+import type { AntialiasMode } from './msaa';
 
 export type SurfaceCaps = Pick<BuildingTierCaps, 'maxPixelRatio' | 'maxBackingPixels'>;
 
@@ -53,7 +54,7 @@ export interface Rower3DSurface {
   scale: number;
   width: number;
   height: number;
-  antialias: 'fxaa' | 'none';
+  antialias: AntialiasMode;
 }
 
 /**

@@ -12,6 +12,7 @@
 import type { PoolCullResources } from './sceneryCull';
 import sceneryWgsl from './scenery.wgsl?raw';
 import { renderPipelineAsync } from '../engine/pipelineAsync';
+import { sceneMultisample } from '../engine/msaa';
 
 export interface ScenerySignature {
   module: GPUShaderModule;
@@ -47,6 +48,7 @@ export const createScenerySignature = async (
     ],
   });
   const pipeline = await renderPipelineAsync(device, {
+    multisample: sceneMultisample(device),
     label: 'scenery',
     layout: device.createPipelineLayout({ bindGroupLayouts: [frameLayout, poolLayout] }),
     vertex: { module, entryPoint: 'vs_main' },

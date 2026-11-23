@@ -60,6 +60,12 @@ export interface MockGPULog {
   indirectDraws: number;
   /** #803 — `log.submits` at each `queue.onSubmittedWorkDone()` call. */
   drainedAfterSubmits: number[];
+  /** #731 — (label, sampleCount) of every texture created. */
+  createdTextures: { label: string; sampleCount: number }[];
+  /** #731 — (label, multisample count) of every render pipeline created. */
+  pipelineSampleCounts: { label: string; count: number }[];
+  /** #731 — render passes that resolve a colour attachment, by label. */
+  resolvingPasses: string[];
 }
 
 export interface MockDevice extends GPUDevice {
@@ -78,6 +84,9 @@ export const makeMockDevice = (): MockDevice => {
     drainedAfterSubmits: [],
     computeDispatches: 0,
     indirectDraws: 0,
+    createdTextures: [],
+    pipelineSampleCounts: [],
+    resolvingPasses: [],
   };
 
   let resolveLost: (reason: GPUDeviceLostInfo) => void = () => undefined;
@@ -147,8 +156,11 @@ export const makeMockDevice = (): MockDevice => {
   };
 
   const encoder = {
-    beginRenderPass: (desc: GPURenderPassDescriptor) =>
-      makePass((desc.label ?? 'pass') as string),
+    beginRenderPass: (desc: GPURenderPassDescriptor) => {
+      const colours = [...(desc.colorAttachments ?? [])] as (GPURenderPassColorAttachment | null)[];
+      if (colours.some((c) => c?.resolveTarget)) log.resolvingPasses.push((desc.label ?? 'pass') as string);
+      return makePass((desc.label ?? 'pass') as string);
+    },
     beginComputePass: (desc?: GPUComputePassDescriptor) =>
       makeComputePassEncoder((desc?.label ?? 'compute') as string),
     copyBufferToBuffer: () => undefined,
@@ -172,6 +184,7 @@ export const makeMockDevice = (): MockDevice => {
     createRenderPipeline: (desc: GPURenderPipelineDescriptor) => {
       const p = makePipeline((desc.label ?? '') as string);
       log.createdPipelines.push((desc.label ?? '') as string);
+      log.pipelineSampleCounts.push({ label: (desc.label ?? '') as string, count: desc.multisample?.count ?? 1 });
       return p;
     },
     createComputePipeline: (desc: GPUComputePipelineDescriptor) => {
@@ -180,11 +193,13 @@ export const makeMockDevice = (): MockDevice => {
       return p;
     },
     createBindGroup: () => ({}) as unknown as GPUBindGroup,
-    createTexture: () =>
-      ({
+    createTexture: (desc?: GPUTextureDescriptor) => {
+      log.createdTextures.push({ label: (desc?.label ?? '') as string, sampleCount: desc?.sampleCount ?? 1 });
+      return ({
         createView: () => ({}) as GPUTextureView,
         destroy: () => undefined,
-      }) as unknown as GPUTexture,
+      }) as unknown as GPUTexture;
+    },
     createSampler: () => ({ label: 'sampler' }) as unknown as GPUSampler,
     createCommandEncoder: () => encoder,
     destroy: () => undefined,

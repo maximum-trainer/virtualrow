@@ -79,7 +79,7 @@ const medium = {
   castFleetShadows: true,
   maxPixelRatio: 1.5,
   maxBackingPixels: 2_100_000,
-  antialias: 'fxaa',
+  antialias: 'msaa',
 };
 const high = {
   drawBuildings: true,
@@ -105,7 +105,7 @@ const high = {
   castFleetShadows: true,
   maxPixelRatio: 2.0,
   maxBackingPixels: 3_700_000,
-  antialias: 'fxaa',
+  antialias: 'msaa',
 };
 const extraHigh = {
   drawBuildings: true,
@@ -131,7 +131,7 @@ const extraHigh = {
   castFleetShadows: true,
   maxPixelRatio: 2.0,
   maxBackingPixels: 8_300_000,
-  antialias: 'fxaa',
+  antialias: 'msaa',
 };
 
 describe('tierCaps (P6 D8 + P7 D9 + P8 D8)', () => {

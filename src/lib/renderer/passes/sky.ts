@@ -3,6 +3,7 @@
 import type { FrameContext, Pass } from '../engine/frameGraph';
 import skyWgsl from './sky.wgsl?raw';
 import { renderPipelineAsync } from '../engine/pipelineAsync';
+import { sceneMultisample } from '../engine/msaa';
 import { SKY_COLOUR_WGSL } from '../engine/shaderSnippets';
 
 export interface SkyPassOptions {
@@ -16,6 +17,7 @@ export interface SkyPassOptions {
 export const createSkyPass = async ({ device, format, frameUniforms, lightingUniforms }: SkyPassOptions): Promise<Pass> => {
   const module = device.createShaderModule({ label: 'sky', code: SKY_COLOUR_WGSL + skyWgsl });
   const pipeline = await renderPipelineAsync(device, {
+    multisample: sceneMultisample(device),
     label: 'sky',
     layout: 'auto',
     vertex: { module, entryPoint: 'vs_main' },

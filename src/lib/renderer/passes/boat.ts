@@ -13,6 +13,7 @@ import type { BoatMeshBuffers } from '../plan/boatMesh';
 import { BOAT_FLOATS_PER_VERTEX, BOAT_BONE_COUNT } from '../plan/boatMesh';
 import boatWgsl from './boat.wgsl?raw';
 import { renderPipelineAsync } from '../engine/pipelineAsync';
+import { sceneMultisample } from '../engine/msaa';
 
 const BOAT_UNIFORM_BYTES = 16 * 4 + 4 * 4 + 4 * 4; // model + tint + flags
 const BOAT_SKIN_BYTES = BOAT_BONE_COUNT * 16 * 4;
@@ -141,6 +142,7 @@ export const createBoatPass = async (opts: BoatPassOptions): Promise<BoatPass> =
   const { device, format, frameUniforms, mesh } = opts;
   const module = device.createShaderModule({ label: 'boat', code: boatWgsl });
   const pipeline = await renderPipelineAsync(device, {
+    multisample: sceneMultisample(device),
     label: 'boat',
     layout: 'auto',
     vertex: {

@@ -11,6 +11,7 @@
  */
 
 import { DEFAULT_TIER, KNOWN_TIERS, type PerformanceTier } from './shadowConfig';
+import type { AntialiasMode } from './msaa';
 
 export interface BuildingTierCaps {
   drawBuildings: boolean;
@@ -45,8 +46,11 @@ export interface BuildingTierCaps {
    */
   maxPixelRatio: number;
   maxBackingPixels: number;
-  /** #731 FR3 — edge anti-aliasing: FXAA in the composite pass. */
-  antialias: 'fxaa' | 'none';
+  /**
+   * #731 FR3 — edge anti-aliasing: 4x MSAA on the scene colour and depth at
+   * medium and up, FXAA after the composite on basic and low.
+   */
+  antialias: AntialiasMode;
   drawDof: boolean;
   /** #574 — auto-exposure (1×1 luminance render + composite divisor).
    *  On at `high` + `extra-high`; off below so a weaker GPU doesn't take
@@ -182,7 +186,7 @@ const CAPS: Record<PerformanceTier, BuildingTierCaps> = {
     castFleetShadows: true,
     maxPixelRatio: 1.5,
     maxBackingPixels: 2_100_000,
-    antialias: 'fxaa',
+    antialias: 'msaa',
   },
   high: {
     drawBuildings: true,
@@ -208,7 +212,7 @@ const CAPS: Record<PerformanceTier, BuildingTierCaps> = {
     castFleetShadows: true,
     maxPixelRatio: 2.0,
     maxBackingPixels: 3_700_000,
-    antialias: 'fxaa',
+    antialias: 'msaa',
   },
   'extra-high': {
     drawBuildings: true,
@@ -234,7 +238,7 @@ const CAPS: Record<PerformanceTier, BuildingTierCaps> = {
     castFleetShadows: true,
     maxPixelRatio: 2.0,
     maxBackingPixels: 8_300_000,
-    antialias: 'fxaa',
+    antialias: 'msaa',
   },
 };
 

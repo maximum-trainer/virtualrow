@@ -15,6 +15,7 @@
 import type { FrameContext, Pass } from '../engine/frameGraph';
 import rainWgsl from './rainOverlay.wgsl?raw';
 import { renderPipelineAsync } from '../engine/pipelineAsync';
+import { sceneMultisample } from '../engine/msaa';
 
 export interface RainOverlayPassOptions {
   device: GPUDevice;
@@ -29,6 +30,7 @@ export const createRainOverlayPass = async ({
 }: RainOverlayPassOptions): Promise<Pass> => {
   const module = device.createShaderModule({ label: 'rain-overlay', code: rainWgsl });
   const pipeline = await renderPipelineAsync(device, {
+    multisample: sceneMultisample(device),
     label: 'rain-overlay',
     layout: 'auto',
     vertex: { module, entryPoint: 'vs_main' },

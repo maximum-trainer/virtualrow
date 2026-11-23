@@ -16,6 +16,7 @@ import { SAMPLE_SHADOW_WGSL, SHADOW_UNIFORMS_WGSL } from '../engine/shaderSnippe
 import { buildCellLayout, frustumPlanes, maxScale, meshRadius, visibleRuns, type CellLayout } from '../plan/instanceCells';
 import { ALWAYS_REVEALED, packRevealUniform, SCENERY_REVEAL_UNIFORM_BYTES } from './sceneryReveal';
 import { renderPipelineAsync } from '../engine/pipelineAsync';
+import { sceneMultisample } from '../engine/msaa';
 
 /**
  * One instance record: a mat4 model, a tint vec4 and an effect vec4
@@ -308,6 +309,7 @@ export const createSceneryMeshPass = async ({
     { arrayStride: 16, attributes: [{ shaderLocation: 2, offset: 0, format: 'float32x4' }] },
   ];
   const pipeline = await renderPipelineAsync(device, {
+    multisample: sceneMultisample(device),
     label: 'sceneryMesh',
     layout: 'auto',
     vertex: { module, entryPoint: 'vs_main', buffers: vertexBuffers },
@@ -319,6 +321,7 @@ export const createSceneryMeshPass = async ({
   // it. It tests against the scene's depth but does not write it, so the
   // water and the player's boat stay visible through it.
   const translucentPipeline = await renderPipelineAsync(device, {
+    multisample: sceneMultisample(device),
     label: 'sceneryMesh-translucent',
     layout: 'auto',
     vertex: { module, entryPoint: 'vs_main', buffers: vertexBuffers },

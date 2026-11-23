@@ -185,6 +185,7 @@ import { shaderGrassStrengthFor } from './shaderGrass';
 import type { PerformanceMode } from '../../scenery/sceneryPlacement';
 import type { SceneryProfile } from '../../services/routeEnrichmentService';
 import { createShadowStage, type ShadowTelemetry } from './shadowStage';
+import { createMsaaResolvePass, sceneSampleCountFor, setSceneSampleCount } from './msaa';
 import { measureAttachAsync } from './attachMeasure';
 import { chromaticAberrationEnabled, tierCapsFor } from './tierCaps';
 import { publishSpeedMps, type TelemetryHandles } from './telemetry';
@@ -558,6 +559,34 @@ export const createRideScene = async (
     format: 'depth32float',
     usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
   });
+
+  // #731 FR3 — 4x MSAA at medium and up: the scene passes draw into these
+  // 4-sample targets, and `msaaResolvePass` resolves them into the
+  // single-sample HDR and depth textures above before post-FX. Every scene
+  // pipeline reads the count through `sceneMultisample(device)`, so it is
+  // recorded before any pass is built.
+  const sceneSampleCount = sceneSampleCountFor(surfaceCaps.antialias);
+  setSceneSampleCount(device, sceneSampleCount);
+  const createMsaaTargets = (w: number, h: number) =>
+    sceneSampleCount > 1
+      ? {
+          colour: device.createTexture({
+            label: 'scene-hdr-msaa',
+            size: { width: w, height: h },
+            format,
+            sampleCount: sceneSampleCount,
+            usage: GPUTextureUsage.RENDER_ATTACHMENT,
+          }),
+          depth: device.createTexture({
+            label: 'depth-msaa',
+            size: { width: w, height: h },
+            format: 'depth32float',
+            sampleCount: sceneSampleCount,
+            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+          }),
+        }
+      : null;
+  let msaaTargets = createMsaaTargets(pixelWidth, pixelHeight);
 
   const frameUniforms = createFrameUniformBuffer(device);
   const lightingUniforms = createLightingUniformBuffer(device);
@@ -1216,7 +1245,7 @@ export const createRideScene = async (
         ?.__VIRTUALROW_POSTFX_DOF,
     autoExposure: tierCaps.drawAutoExposure,
     chromaticAberration: chromaticAberrationEnabled(tierCaps),
-    // #731 FR3 — every tier anti-aliases with FXAA for now (MSAA is phase 2).
+    // #731 FR3 — FXAA on basic and low; medium and up use MSAA instead.
     fxaa: tierCaps.antialias === 'fxaa',
   };
   const [
@@ -1244,6 +1273,12 @@ export const createRideScene = async (
     oarSplashPassPending,
     createPostFx({ device, sceneFormat: format, outputFormat, caps: postCaps }),
   ]));
+  const msaaResolvePass = msaaTargets ? await createMsaaResolvePass(device) : null;
+  msaaResolvePass?.setTargets({
+    sceneView: sceneTexture.createView(),
+    msaaDepthTexture: msaaTargets!.depth,
+    depthView: depthTexture.createView(),
+  });
   postFx.setInputs({
     sceneView: sceneTexture.createView(),
     sceneTexture,
@@ -1273,6 +1308,7 @@ export const createRideScene = async (
     ...(rainPass ? [rainPass] : []),
     ...(wakePass ? [wakePass] : []),
     ...(oarSplashPass ? [oarSplashPass] : []),
+    ...(msaaResolvePass ? [msaaResolvePass] : []),
     postFx.pass,
   ];
   // #584 AC3: GPU frame-time timer. null on adapters without `timestamp-query`
@@ -1726,6 +1762,16 @@ export const createRideScene = async (
       width: w,
       height: h,
     });
+    if (msaaTargets) {
+      msaaTargets.colour.destroy();
+      msaaTargets.depth.destroy();
+      msaaTargets = createMsaaTargets(w, h);
+      msaaResolvePass?.setTargets({
+        sceneView: sceneTexture.createView(),
+        msaaDepthTexture: msaaTargets!.depth,
+        depthView: depthTexture.createView(),
+      });
+    }
   };
 
   let lastDistanceMeters = 0;
@@ -2340,8 +2386,8 @@ export const createRideScene = async (
 
     const outputTexture = context.getCurrentTexture();
     const outputView = outputTexture.createView();
-    const sceneView = sceneTexture.createView();
-    const depthView = depthTexture.createView();
+    const sceneView = (msaaTargets ? msaaTargets.colour : sceneTexture).createView();
+    const depthView = (msaaTargets ? msaaTargets.depth : depthTexture).createView();
     graph.run(device, sceneView, depthView, pixelWidth, pixelHeight, frame, outputView);
     if (pixelProbe?.pending) pixelProbe.capture(outputTexture);
 
@@ -2592,6 +2638,8 @@ export const createRideScene = async (
       postFx.dispose();
       sceneTexture.destroy();
       depthTexture.destroy();
+      msaaTargets?.colour.destroy();
+      msaaTargets?.depth.destroy();
       frameUniforms.destroy();
       lightingUniforms.destroy();
       shadowUniformsBuf.destroy();
