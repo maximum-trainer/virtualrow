@@ -3,7 +3,8 @@
 import type { FrameContext, Pass } from '../engine/frameGraph';
 import type { RouteCurve } from '../math/curve';
 import { SAMPLE_SHADOW_WGSL, SHADOW_UNIFORMS_WGSL } from '../engine/shaderSnippets';
-import { buildBankStrips } from '../plan/bankStrip';
+import { buildBankStrips, indexUpload } from '../plan/bankStrip';
+import type { WaterFootprint } from '../plan/waterFootprint';
 import type { WaterEdges } from '../plan/waterStrip';
 import { paintBiomeDensityR8 } from '../../scenery/biomeDensity';
 import { BANK_ATLAS_SIZE, paintBankAtlas } from '../../scenery/bankAtlas';
@@ -40,6 +41,8 @@ export interface BankPassOptions {
   edgesForProgress?: (progress: number) => WaterEdges;
   /** Biome-density grass modulation. Omitted → chunk off (strength 0, fallback tile). */
   grass?: BankGrassConfig;
+  /** #742 — the water the bank gives way to (default: the route's own ribbon). */
+  footprint?: WaterFootprint | null;
 }
 
 export const createBankPass = ({
@@ -51,6 +54,7 @@ export const createBankPass = ({
   curve = null,
   edgesForProgress,
   grass,
+  footprint,
 }: BankPassOptions): Pass => {
   const code = SHADOW_UNIFORMS_WGSL + SAMPLE_SHADOW_WGSL + bankWgsl;
   const module = device.createShaderModule({ label: 'bank', code });
@@ -174,7 +178,7 @@ export const createBankPass = ({
     ],
   });
 
-  const geom = buildBankStrips({ curve, edgesForProgress });
+  const geom = buildBankStrips({ curve, edgesForProgress, footprint });
   const positionBuffer = device.createBuffer({
     label: 'bank-pos',
     size: geom.positions.byteLength,
@@ -189,10 +193,10 @@ export const createBankPass = ({
   device.queue.writeBuffer(sideBuffer, 0, geom.sides as BufferSource);
   const indexBuffer = device.createBuffer({
     label: 'bank-idx',
-    size: geom.indices.byteLength,
+    size: indexUpload(geom.indices).byteLength,
     usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
   });
-  device.queue.writeBuffer(indexBuffer, 0, geom.indices as BufferSource);
+  device.queue.writeBuffer(indexBuffer, 0, indexUpload(geom.indices) as BufferSource);
 
   let disposed = false;
   return {

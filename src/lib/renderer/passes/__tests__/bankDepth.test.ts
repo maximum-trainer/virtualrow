@@ -54,6 +54,20 @@ describe('createBankDepthPipeline', () => {
     p.dispose();
   });
 
+  // #742 FR4/FR5 — the shadow caster gives way to the same water the lit
+  // bank does, and draws none of the triangles it drops.
+  it('casts no bank over the water footprint it is given', () => {
+    const curve = new RouteCurve([vec3(0, 0, 0), vec3(0, 0, -200)], false);
+    const whole = createBankDepthPipeline(makeDevice(), { curve, footprint: null });
+    const allWater = { quads: 0, contains: () => true };
+    const d = makeDevice();
+    const none = createBankDepthPipeline(d, { curve, footprint: allWater });
+    expect(whole.indexCount).toBeGreaterThan(0);
+    expect(none.indexCount).toBe(0);
+    whole.dispose();
+    none.dispose();
+  });
+
   it('passes `edgesForProgress` through to the bank strip builder', () => {
     const d = makeDevice();
     const curve = new RouteCurve([vec3(0, 0, 0), vec3(0, 0, -200)], false);

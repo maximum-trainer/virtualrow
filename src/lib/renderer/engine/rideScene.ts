@@ -124,7 +124,7 @@ import {
   type FleetState,
 } from './fleet';
 import { DEFAULT_WATER_HALF_WIDTH_M, buildWaterStrip } from '../plan/waterStrip';
-import { poolsOffWater, routeWaterFootprint, surfaceAt } from '../plan/waterFootprint';
+import { lakeWater, poolsOffWater, routeWaterFootprint, surfaceAt, withLakes } from '../plan/waterFootprint';
 import { FLEET_INSTANCE_CAPACITY } from '../passes/boat';
 import { assetUrl } from '../../utils/assetUrl';
 import { createSceneryPass } from './sceneryPass';
@@ -508,6 +508,15 @@ export const createRideScene = async (
     isLand: islandLand(isSceneryRoute(opts.route) ? opts.route.lakePolygons : undefined),
   });
   const stripEdgesForProgress = parallelLegs.edgesForProgress;
+  const tierCaps = tierCapsFor(opts.tier);
+  const polygonLakesRaw =
+    isSceneryRoute(opts.route) && opts.route.lakePolygons ? opts.route.lakePolygons : [];
+  // #493 Phase 5 / FR9 / AC7 — decimate each outer ring to the tier's
+  // vertex budget before the pass tessellates. Deterministic + area-
+  // preserving (polygonSimplify.ts); a ring already under the cap is
+  // returned by reference, so a small lake pays nothing.
+  const polygonLakes = simplifyPolygons(polygonLakesRaw, tierCaps.polygonWaterMaxVertices);
+  const useLakePolygonWater = isPolygonWaterEnabled() && polygonLakes.length > 0;
   // #742 FR3 — the whole route's water: scenery and bank furniture
   // standing on any part of it are taken out.
   // A smoke page with no route lays its scenery out around the fallback
@@ -515,7 +524,10 @@ export const createRideScene = async (
   const hasRouteCurve = waterCurveSource !== fallbackCurveSource;
   const routeWater = routeWaterFootprint(buildWaterStrip(waterCurve, { edgesForProgress: stripEdgesForProgress }));
   const rejectOnWater = hasRouteCurve ? routeWater : { contains: () => false };
-  const surfaceLakes = isSceneryRoute(opts.route) ? opts.route.lakePolygons ?? [] : [];
+  // #742 FR5 — where the lake polygons are drawn, the banks laid along the
+  // racing line give way to them: the lake's own shore is the bank.
+  const bankFootprint = useLakePolygonWater ? withLakes(routeWater, polygonLakes) : routeWater;
+  const surfaceLakes = lakeWater(isSceneryRoute(opts.route) ? opts.route.lakePolygons ?? [] : []);
   let rejectedOnWater = 0;
 
   // D7-a of #555: wire the scenery pass unconditionally.
@@ -531,7 +543,6 @@ export const createRideScene = async (
   // route carries no `buildings`, which is what happens for a fallback
   // enrichment. Tier gates then decide whether to build the pass + cast
   // shadows (D8).
-  const tierCaps = tierCapsFor(opts.tier);
   const rawBuildingSpecs: BuildingSpec[] =
     tierCaps.drawBuildings && isSceneryRoute(opts.route) && opts.route.buildings
       ? opts.route.buildings
@@ -894,6 +905,7 @@ export const createRideScene = async (
     telemetry: shadowTelemetry,
     bankCurve: waterCurve,
     bankEdgesForProgress: stripEdgesForProgress,
+    bankFootprint,
     // #591-fu P1c: tier-gated flora + GLB-scenery shadow casters. Each
     // input stays null below medium so the depth stage adds nothing on
     // basic/low; at medium+ the stage picks up every solid-flora pool
@@ -935,20 +947,13 @@ export const createRideScene = async (
     shadow: shadowResources,
     curve: waterCurve,
     edgesForProgress: stripEdgesForProgress,
+    footprint: bankFootprint,
     grass: { profile: bankGrassProfile, strength: bankGrassStrength },
   });
   // #493 Phase 3b — if the enrichment carried lake polygons AND the kill
   // switch isn't disabled, draw polygon water in place of the strip. The
   // strip stays wired so a route whose enrichment lacks polygons (rivers,
   // offline fallbacks) renders exactly as before.
-  const polygonLakesRaw =
-    isSceneryRoute(opts.route) && opts.route.lakePolygons ? opts.route.lakePolygons : [];
-  // #493 Phase 5 / FR9 / AC7 — decimate each outer ring to the tier's
-  // vertex budget before the pass tessellates. Deterministic + area-
-  // preserving (polygonSimplify.ts); a ring already under the cap is
-  // returned by reference, so a small lake pays nothing.
-  const polygonLakes = simplifyPolygons(polygonLakesRaw, tierCaps.polygonWaterMaxVertices);
-  const useLakePolygonWater = isPolygonWaterEnabled() && polygonLakes.length > 0;
   const polygonWaterPass = useLakePolygonWater
     ? createWaterPolygonPass({
         device,
