@@ -2153,3 +2153,11 @@ body {
   font-weight: 400;
   opacity: 0.8;
 }
+
+/* #747 FR3: why a course's own path (or an attached track) was not used. */
+.route-geometry-warning {
+  margin: 0.5rem 0 0;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  color: var(--color-warning-text, #92400e);
+}

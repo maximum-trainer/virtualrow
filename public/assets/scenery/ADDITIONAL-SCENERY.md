@@ -1,6 +1,7 @@
 # Additional scenery to capture — rownative course pass
 
-A pass over **all 169 rownative courses** (61 venues), recording the scenery the
+A pass over **every rownative course in the mirror at the time** (169 then, 61 venues;
+the mirror keeps growing, so read the live index for today's count), recording the scenery the
 current 114-model catalogue (see [README.md](README.md), issue #216) does **not**
 yet cover, plus specs for three new crew/craft models: a **female rower**, a
 **male rower**, and the **single scull** they row.

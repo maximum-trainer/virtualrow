@@ -76,6 +76,8 @@ export interface RownativeRouteImportData {
   /** rownative's own `distance_m`, kept for display only. */
   externalDistanceMeters?: number;
   status?: string;
+  /** #747 FR3: why a better line was refused, shown on the route card. */
+  geometryWarnings?: string[];
 }
 
 /**
@@ -197,6 +199,7 @@ export class RouteService {
       externalId: data.externalId,
       geometrySource: data.geometrySource,
       externalDistanceMeters: data.externalDistanceMeters,
+      ...(data.geometryWarnings?.length ? { geometryWarnings: data.geometryWarnings } : {}),
     };
 
     this.routes.push(newRoute);
@@ -465,6 +468,7 @@ export class RouteService {
       externalId: data.id,
       geometrySource: data.geometrySource,
       externalDistanceMeters: data.externalDistanceMeters,
+      geometryWarnings: data.geometryWarnings,
     });
   }
 
