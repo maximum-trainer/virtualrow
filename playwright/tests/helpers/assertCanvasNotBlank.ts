@@ -45,7 +45,7 @@ export async function assertCanvasNotBlank(
 
   const sampled = await readCanvasSamples(page, canvas, grid, minBrightness);
 
-  expect(sampled, `canvas readback should succeed (via ${sampled.via})`).toMatchObject({ error: undefined });
+  expect(sampled.error, `canvas readback should succeed (via ${sampled.via})`).toBeUndefined();
   const share = sampled.total === 0 ? 0 : sampled.nonBlank / sampled.total;
   expect(
     share,
@@ -256,7 +256,7 @@ export async function samplePerRegion(
     { regionList: Object.entries(regions), grid, minBrightness },
   );
 
-  expect(samples, 'canvas readback should succeed').toMatchObject({ error: undefined });
+  expect(samples.error, 'canvas readback should succeed').toBeUndefined();
   const regionCounts = samples.regions as Record<string, { total: number; nonBlank: number }>;
   for (const [name, region] of Object.entries(regions)) {
     const s = regionCounts[name];
