@@ -74,3 +74,18 @@ describe('layoutReeds / layoutRocks (#591-fu)', () => {
     }
   });
 });
+
+describe('the water width with no segments (#755 FR2)', () => {
+  it('reeds stand at the shore the enrichment width puts them at, not the 20 m default', () => {
+    const curve = straightCurve(400);
+    const narrow = layoutReeds({ curve });
+    const wide = layoutReeds({
+      curve,
+      enrichment: { waterWidthMeters: 600, segmentProfiles: [] } as unknown as Parameters<typeof layoutReeds>[0]['enrichment'],
+    });
+    expect(narrow.length).toBeGreaterThan(0);
+    expect(wide.length).toBeGreaterThan(0);
+    for (const r of narrow) expect(Math.abs(r.position[0])).toBeLessThan(60);
+    for (const r of wide) expect(Math.abs(r.position[0])).toBeGreaterThan(250);
+  });
+});

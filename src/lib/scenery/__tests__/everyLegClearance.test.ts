@@ -1,6 +1,6 @@
 // #760 — scenery stays out of every leg's racing corridor.
 import { describe, expect, it } from 'vitest';
-import { centrelineIndex, clearOfEveryLeg, EVERY_LEG_BEND_TOLERANCE_METRES } from '../everyLegClearance';
+import { beyondEveryLegShore, centrelineIndex, clearOfEveryLeg, EVERY_LEG_BEND_TOLERANCE_METRES } from '../everyLegClearance';
 import { keepClearHalfWidth } from '../laneClearance';
 import { BUILT_IN_FOOTPRINT_LOOKUP, footprintRadiusFor } from '../sceneryFootprints';
 
@@ -64,5 +64,19 @@ describe('clearOfEveryLeg', () => {
       { id: 'c02-bridge-road-concrete', position: [20, 0, -100] as [number, number, number] },
     ];
     expect(clearOfEveryLeg(onLine, index)).toHaveLength(2);
+  });
+});
+
+describe('beyondEveryLegShore (#755 FR3)', () => {
+  const index = centrelineIndex(outAndBack);
+  it('keeps only what is past the shore of every leg, footprint included', () => {
+    const items = [
+      { x: -310, z: -250, r: 0 }, // 310 m from the out leg, 350 m from the back leg: kept
+      { x: -290, z: -250, r: 0 }, // inside the out leg's 300 m: dropped
+      { x: 330, z: -250, r: 0 }, // 290 m from the back leg (its own side is the out leg): dropped
+      { x: -305, z: -250, r: 10 }, // its edge comes inside: dropped
+    ];
+    const kept = beyondEveryLegShore(items, index, 300, (i) => [i.x, i.z], (i) => i.r);
+    expect(kept).toEqual([items[0]]);
   });
 });

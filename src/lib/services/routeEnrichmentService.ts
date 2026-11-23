@@ -27,7 +27,7 @@ import type { RouteWaterClass } from '../utils/waterClassification';
 import { createWorkerDetectionRunner, type RouteDetectionRunner } from './routeDetectionRunner';
 import { LAKE_POLYGON_STORE_VERTICES, lakePolygonsForTier, type LakePolygon } from '../utils/lakePolygons';
 import { SCENE_SCALE } from '../utils/worldScale';
-import { waterBodyFromName } from '../utils/waterBodyFromName';
+import { resolveWaterType } from '../scenery/waterType';
 
 export const OVERPASS_API_URL = 'https://overpass-api.de/api/interpreter';
 /**
@@ -796,19 +796,13 @@ export const fallbackProfileForSegment = (
   return inferFallbackSceneryProfile(route);
 };
 
-const inferRouteWaterBodyType = (route: WaterRoute): WaterBodyType => {
+const inferRouteWaterBodyType = (route: WaterRoute): WaterBodyType =>
   // Tags are the curated signal: an explicit tag always wins over the name
   // (AC5.2). rownative writes the classified type as a tag at import time
-  // (#413, AC4.1), so a course imported before this change reaches the name
-  // fallback below and is corrected in place — no re-import needed (AC5.1).
-  if (route.tags.includes('canal')) return 'canal';
-  if (route.tags.includes('stream')) return 'stream';
-  if (route.tags.includes('lake')) return 'lake';
-  if (route.tags.includes('reservoir')) return 'reservoir';
-  if (route.tags.includes('river')) return 'river';
-  if (route.tags.includes('open_water')) return 'open_water';
-  return waterBodyFromName(route.name);
-};
+  // (#413, AC4.1), so a course imported before that reaches the name
+  // fallback and is corrected in place. One resolver for the scene and the
+  // fallback enrichment (#755 FR1).
+  resolveWaterType(route).waterType;
 
 /**
  * Pull OSM building footprints out of the elements returned by Overpass

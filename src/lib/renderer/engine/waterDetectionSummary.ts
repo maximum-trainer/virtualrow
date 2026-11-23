@@ -16,7 +16,9 @@ import {
   enrichmentSourceOf,
   type EnrichmentSource,
   type RouteEnrichmentData,
+  type WaterBodyType,
 } from '../../services/routeEnrichmentService';
+import type { WaterTypeSource } from '../../scenery/waterType';
 
 export type WaterWidthSource = 'measured' | 'tag' | 'default' | 'none';
 
@@ -28,6 +30,9 @@ export interface WaterDetectionSummary {
   widthSource: WaterWidthSource;
   /** #741 FR1 — what the scene was built from; absent with no enrichment at all. */
   enrichmentSource?: EnrichmentSource;
+  /** #755 FR6 — the water type the scene was laid out for, and where it came from. */
+  waterType?: WaterBodyType;
+  typeSource?: WaterTypeSource;
 }
 
 const EMPTY: WaterDetectionSummary = {

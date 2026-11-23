@@ -29,12 +29,16 @@
  * the scenery instancing (the engine mounts an empty scenery pass for an empty
  * `pools`, which is what it already does on the fallback route).
  */
-import { centrelineIndex, clearOfEveryLeg } from '../scenery/everyLegClearance';
+import { beyondEveryLegShore, centrelineIndex, clearOfEveryLeg } from '../scenery/everyLegClearance';
+import { BUILT_IN_FOOTPRINT_LOOKUP, footprintRadiusFor } from '../scenery/sceneryFootprints';
 import type { WaterRoute } from '../types/index';
 import {
   getWaterEdgesSceneUnitsForProgress,
   type RouteEnrichmentData,
+  type WaterBodyType,
 } from '../services/routeEnrichmentService';
+import { resolveWaterType, waterWidthForType } from '../scenery/waterType';
+import { DEFAULT_WATER_WIDTH_METERS } from '../scenery/waterHalfWidth';
 import { distanceBetweenLatLng, latLngToMeters } from '../utils/geoUtils';
 import type { OsmBuilding } from '../services/routeEnrichmentService';
 import { SCENE_SCALE } from '../utils/worldScale';
@@ -81,11 +85,23 @@ import {
 } from '../renderer/engine/waterDetectionSummary';
 
 /**
- * Default navigable water width in metres. Mirrors
- * `src/components/rower3d/constants.ts`'s `WATER_CHANNEL_WIDTH`, used when
- * the enrichment carries no explicit `waterWidthMeters` either.
+ * #755 FR2 — the stand-in the layouts read the water's width from when no
+ * map data has arrived: only the type and its width, no segments, so every
+ * other layout input behaves exactly as with no enrichment at all.
  */
-const DEFAULT_WATER_CHANNEL_WIDTH_METERS = 20;
+const OPEN_WATER_TYPES: ReadonlySet<WaterBodyType> = new Set(['lake', 'reservoir', 'open_water']);
+
+const waterOnlyEnrichment = (routeId: string, waterType: WaterBodyType): RouteEnrichmentData => ({
+  routeId,
+  elevations: [],
+  segmentProfiles: [],
+  waterBodyType: waterType,
+  waterWidthMeters: waterWidthForType(waterType),
+  waterColor: '',
+  waveIntensity: 0,
+  fetchedAt: 0,
+  source: 'fallback',
+});
 
 /** Mirrors `LOOP_CLOSURE_TOLERANCE_METERS` in the React curve builder. */
 export const LOOP_CLOSURE_TOLERANCE_METERS = 5;
@@ -241,14 +257,33 @@ export const toEngineRoute = (
   const totalDistanceMeters = route.distance > 0 ? route.distance * 1000 : undefined;
   const isClosedLoop = detectClosedLoop(route);
 
+  // #755 FR1/FR2 — the water type comes from the enrichment when it knows,
+  // else the route's tag, else its name, with no network. A curated demo
+  // track (Willowbrook) authors its own water per biome and keeps its
+  // layout; every other route without map data is laid out against the
+  // width its type implies.
+  const routeTrack = getRouteSceneryTrack(route.id);
+  const resolvedWater = routeTrack
+    ? { waterType: trackWaterForProfile(routeTrack, distinctProfiles(enrichment ?? null, routeTrack)[0] ?? 'fallback'), typeSource: 'tag' as const }
+    : resolveWaterType(route, enrichment);
+  const layoutEnrichment: RouteEnrichmentData | null =
+    enrichment ??
+    (routeTrack || resolvedWater.waterType === 'unknown' ? null : waterOnlyEnrichment(route.id, resolvedWater.waterType));
+  // FR3 — open water with no map data: the shore of every leg, not only the
+  // one a placement was laid out from, keeps the bank back.
+  const openShoreHalfWidth =
+    !enrichment && layoutEnrichment && OPEN_WATER_TYPES.has(resolvedWater.waterType)
+      ? layoutEnrichment.waterWidthMeters / 2
+      : null;
+
   // The water-edges fn is built even without enrichment so the engine can
   // use a width that reflects a `waterWidthMeters` carried on a fallback
   // enrichment (what the React scene does via defaultWaterWidthMeters).
   const fallbackWidthMeters =
-    enrichment?.waterWidthMeters ?? DEFAULT_WATER_CHANNEL_WIDTH_METERS / SCENE_SCALE;
+    layoutEnrichment?.waterWidthMeters ?? DEFAULT_WATER_WIDTH_METERS / SCENE_SCALE;
   const waterEdgesForProgress = (progress: number): WaterEdges =>
     getWaterEdgesSceneUnitsForProgress(
-      enrichment?.segmentProfiles,
+      layoutEnrichment?.segmentProfiles,
       fallbackWidthMeters,
       progress,
     );
@@ -266,10 +301,10 @@ export const toEngineRoute = (
       curvePoints.map(([x, y, z]) => vec3(x, y, z)),
       isClosedLoop,
     );
-    const track = getRouteSceneryTrack(route.id);
+    const track = routeTrack;
     const trees = layoutFoliage({
       curve,
-      enrichment: enrichment ?? null,
+      enrichment: layoutEnrichment,
       track,
       speciesTypes: FOLIAGE_SHAPES,
     });
@@ -278,21 +313,24 @@ export const toEngineRoute = (
     // solid-flora stage switches geometry on `speciesIndex` and the sprite
     // pass collapses the billboard to zero for 3/4, so no new pool kind is
     // needed.
-    const reeds = layoutReeds({ curve, enrichment: enrichment ?? null, track });
-    const rocks = layoutRocks({ curve, enrichment: enrichment ?? null, track });
-    const groundProps = [...trees, ...reeds, ...rocks];
+    const reeds = layoutReeds({ curve, enrichment: layoutEnrichment, track });
+    const rocks = layoutRocks({ curve, enrichment: layoutEnrichment, track });
+    const everyLeg = centrelineIndex(curvePoints);
+    const onShore = <T,>(items: readonly T[], at: (item: T) => readonly [number, number], radius?: (item: T) => number): T[] =>
+      openShoreHalfWidth === null ? [...items] : beyondEveryLegShore(items, everyLeg, openShoreHalfWidth, at, radius);
+    const groundProps = onShore([...trees, ...reeds, ...rocks], (t) => [t.position[0], t.position[2]]);
     const speciesCount = Math.max(FOLIAGE_SHAPES.length, ROCK_SPECIES + 1);
     const routeLength = (totalDistanceMeters ?? curve.approximateLength(32)) || 1;
     pools.push(...batchFoliagePools(groundProps, speciesCount, routeLength, FOLIAGE_CHUNK_METRES));
 
-    const landscape = layoutLandscape({ curve, enrichment: enrichment ?? null, track });
-    buildings = layoutToBuildingSpecs(landscape, SCENERY_PROFILES);
+    const landscape = layoutLandscape({ curve, enrichment: layoutEnrichment, track });
+    buildings = onShore(layoutToBuildingSpecs(landscape, SCENERY_PROFILES), (b) => [b.x, b.z], (b) => Math.hypot(b.halfWidth, b.halfDepth));
     // Real OSM buildings on top of the procedural facades (#549 slice 4).
     // Convert each footprint to an axis-aligned prism anchored at the
     // first route coordinate so lat/lng → scene metres uses one origin.
     const origin = route.coordinates?.[0];
-    if (origin && enrichment?.buildings?.length) {
-      for (const osm of enrichment.buildings) {
+    if (origin && layoutEnrichment?.buildings?.length) {
+      for (const osm of layoutEnrichment.buildings) {
         const spec = osmBuildingToSpec(osm, origin);
         if (spec) buildings.push(spec);
       }
@@ -311,30 +349,34 @@ export const toEngineRoute = (
     // tests and other no-arg callers deterministic at `'medium'`.
     const mode: PerformanceMode = tier;
     const budget = budgetFor(mode);
-    const profiles: SceneryProfile[] = distinctProfiles(enrichment ?? null, track);
+    const profiles: SceneryProfile[] = distinctProfiles(layoutEnrichment, track);
     const region = resolveRegion(route.coordinates ?? null);
     const resolvedByProfile = new Map<SceneryProfile, ResolvedScenery>();
     for (const profile of profiles) {
-      const waterType = track ? trackWaterForProfile(track, profile) : (enrichment?.waterBodyType ?? 'unknown');
+      const waterType = track ? trackWaterForProfile(track, profile) : resolvedWater.waterType;
       const treeSpecies = SCENERY_PROFILES[profile]?.trees.species ?? [];
       resolvedByProfile.set(profile, resolveSceneryModels(profile, waterType, treeSpecies, region));
     }
     const kitTrees = keepsKitTrees(mode);
-    const left = computePlacements({ curve, enrichment: enrichment ?? null, resolvedByProfile, budget, side: 'left', track, kitTrees });
-    const right = computePlacements({ curve, enrichment: enrichment ?? null, resolvedByProfile, budget, side: 'right', track, kitTrees });
+    const left = computePlacements({ curve, enrichment: layoutEnrichment, resolvedByProfile, budget, side: 'left', track, kitTrees });
+    const right = computePlacements({ curve, enrichment: layoutEnrichment, resolvedByProfile, budget, side: 'right', track, kitTrees });
     const requests = routeStructures({
       side: 'left',
       hasCurve: true,
       coordinates: route.coordinates ?? null,
-      crossings: enrichment?.crossings ?? null,
+      crossings: layoutEnrichment?.crossings ?? null,
       routeMeters: totalDistanceMeters,
     });
-    const terrain = buildTerrainProfile(enrichment?.elevations);
-    const structures: Placement[] = computeStructurePlacements(curve, requests, terrain, enrichment ?? null);
+    const terrain = buildTerrainProfile(layoutEnrichment?.elevations);
+    const structures: Placement[] = computeStructurePlacements(curve, requests, terrain, layoutEnrichment);
     const grouped = new Map<SceneryModelId, SceneryInstance[]>();
     // #760 — a bank placement on one leg must not stand in another leg's lane.
-    const everyLeg = centrelineIndex(curvePoints);
-    for (const p of [...clearOfEveryLeg(left, everyLeg), ...clearOfEveryLeg(right, everyLeg), ...structures]) {
+    const bank = onShore(
+      [...clearOfEveryLeg(left, everyLeg), ...clearOfEveryLeg(right, everyLeg)],
+      (p) => [p.position[0], p.position[2]],
+      (p) => footprintRadiusFor(p.id, BUILT_IN_FOOTPRINT_LOOKUP),
+    );
+    for (const p of [...bank, ...structures]) {
       const list = grouped.get(p.id) ?? [];
       list.push({ position: p.position, rotationY: p.rotationY, scale: p.scale });
       grouped.set(p.id, list);
@@ -346,7 +388,7 @@ export const toEngineRoute = (
   // (#496) will key its density tile off. A route may cover several profiles;
   // one tile per route is good enough for the current single-mesh bank, and
   // matches the single `fallback` the pass used before this change.
-  const routeProfiles = distinctProfiles(enrichment ?? null, getRouteSceneryTrack(route.id));
+  const routeProfiles = distinctProfiles(enrichment ?? null, routeTrack);
   const dominantProfile: SceneryProfile = routeProfiles[0] ?? 'fallback';
 
   // #493 Phase 3b — project the enrichment's lake polygons into scene XZ
@@ -375,7 +417,8 @@ export const toEngineRoute = (
     ...(lakePolygons.length > 0 ? { lakePolygons } : {}),
     ...(crossings && crossings.length > 0 ? { crossings } : {}),
     // #741 — what the engine publishes as __ROWER3D_WATER_DETECTION.
-    waterDetectionSummary: waterDetectionSummaryOf(enrichment),
+    // #755 FR6 — with the water type and where it came from.
+    waterDetectionSummary: { ...waterDetectionSummaryOf(enrichment), ...resolvedWater },
     waterEdgesForProgress,
     dominantProfile,
   };

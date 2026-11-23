@@ -23,6 +23,7 @@ type W = Window & {
   __ROWER3D_FORCE_RENDER?: () => void;
   __ROWER3D_CLEARANCE?: { surface?: string };
   __VIRTUALROW_WEBGPU_HEALTH?: { fallbackReason?: string };
+  __ROWER3D_WATER_DETECTION?: { waterType?: string; typeSource?: string };
 };
 
 test('the boat is on water every 10 m of the Lake Quinsigamond lap (#742)', async ({ page }) => {
@@ -37,6 +38,11 @@ test('the boat is on water every 10 m of the Lake Quinsigamond lap (#742)', asyn
     expect(health?.fallbackReason).toBeTruthy();
     return;
   }
+
+  // #755 FR6 — a lake course is drawn as a lake before any map data arrives.
+  const detection = await page.evaluate(() => (window as W).__ROWER3D_WATER_DETECTION);
+  expect(detection?.waterType).toBe('lake');
+  expect(['tag', 'name']).toContain(detection?.typeSource);
 
   const total = Number(await main.getAttribute('data-total-meters'));
   expect(total, 'the lap is about 8.7 km').toBeGreaterThan(8_000);
