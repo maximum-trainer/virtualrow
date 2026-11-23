@@ -94,6 +94,16 @@ export interface SceneryPass extends Pass {
 
 export const DEFAULT_MAX_DISTANCE = 320;
 
+/**
+ * #737 FR4 — frames between reads of each pool's culled instance count.
+ * A map is in flight for a frame or two, so per-frame reads would stall on
+ * the previous one anyway; twice a second at 60 Hz is plenty for telemetry.
+ */
+export const DRAWN_READBACK_FRAMES = 30;
+
+/** Byte offset of `instanceCount` in a `drawIndexedIndirect` args block. */
+const INDIRECT_INSTANCE_COUNT_OFFSET = 4;
+
 export const createSceneryPass = (opts: SceneryPassOptions): SceneryPass => {
   const { device, format, frameUniforms, sproutUniforms, pools } = opts;
   // 1×1 placeholder atlas so a caller without textures (unit tests) can still
@@ -155,6 +165,18 @@ export const createSceneryPass = (opts: SceneryPassOptions): SceneryPass => {
 
   const planes: FrustumPlanes = frustum();
 
+  // #737 FR4 — `drawn` per pool, read back from the cull's indirect args.
+  const drawnRead = resources.length > 0
+    ? device.createBuffer({
+      label: 'scenery-drawn-read',
+      size: resources.length * 4,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+    })
+    : null;
+  let framesUntilRead = 0;
+  let copied = false;
+  let mapping = false;
+
   let disposed = false;
 
   return {
@@ -164,6 +186,10 @@ export const createSceneryPass = (opts: SceneryPassOptions): SceneryPass => {
     signature,
     telemetry,
     encode(ctx: FrameContext) {
+      // #737 FR2 — counts are this frame's, not since mount.
+      telemetry.dispatchCount = 0;
+      telemetry.drawCount = 0;
+      telemetry.spriteDraws = 0;
       if (disposed) return;
       if (resources.length === 0) return;
 
@@ -202,10 +228,48 @@ export const createSceneryPass = (opts: SceneryPassOptions): SceneryPass => {
         telemetry.spriteDraws += 1;
       }
       pass.end();
+
+      // 3. #737 FR4 — now and then, copy each pool's culled count out.
+      if (drawnRead && !mapping && !copied) {
+        if (framesUntilRead <= 0) {
+          resources.forEach((r, i) => {
+            ctx.encoder.copyBufferToBuffer(r.cull.indirect, INDIRECT_INSTANCE_COUNT_OFFSET, drawnRead, i * 4, 4);
+          });
+          copied = true;
+          framesUntilRead = DRAWN_READBACK_FRAMES;
+        } else {
+          framesUntilRead -= 1;
+        }
+      }
+    },
+    afterSubmit() {
+      if (disposed || !drawnRead || !copied || mapping) return;
+      copied = false;
+      mapping = true;
+      drawnRead
+        .mapAsync(GPUMapMode.READ)
+        .then(() => {
+          try {
+            if (disposed) return;
+            const counts = new Uint32Array(drawnRead.getMappedRange().slice(0));
+            for (let i = 0; i < counts.length; i += 1) {
+              const entry = telemetry.pools[i];
+              if (entry) entry.drawn = counts[i];
+            }
+          } finally {
+            if (!disposed) drawnRead.unmap();
+            mapping = false;
+          }
+        })
+        .catch(() => {
+          // A lost device rejects the map; keep the last good counts.
+          mapping = false;
+        });
     },
     dispose() {
       if (disposed) return;
       disposed = true;
+      drawnRead?.destroy();
       for (const r of resources) {
         r.cull.dispose();
       }

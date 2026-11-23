@@ -59,7 +59,7 @@ describe('createBankDepthPipeline', () => {
   it('casts no bank over the water footprint it is given', () => {
     const curve = new RouteCurve([vec3(0, 0, 0), vec3(0, 0, -200)], false);
     const whole = createBankDepthPipeline(makeDevice(), { curve, footprint: null });
-    const allWater = { quads: 0, contains: () => true };
+    const allWater = { quads: 0, contains: () => true, shoreDistance: () => 10 };
     const d = makeDevice();
     const none = createBankDepthPipeline(d, { curve, footprint: allWater });
     expect(whole.indexCount).toBeGreaterThan(0);

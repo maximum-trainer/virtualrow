@@ -1,6 +1,7 @@
 /**
  * Device + adapter request, with the fallback rules from #498 (ported, not
- * imported, per D7-c of #550). Software adapters are rejected; a lost device
+ * imported, per D7-c of #550). Software adapters are rejected unless the page
+ * opts in for a visual check (#737 FR5); a lost device
  * is re-requested once; a second loss or no WebGPU surfaces as
  * `renderer-unavailable`.
  */
@@ -31,6 +32,21 @@ export const isSoftwareAdapter = (adapter: GPUAdapter): boolean => {
   return SOFTWARE_HINTS.some((hint) => haystack.includes(hint));
 };
 
+/**
+ * #737 VP-19 FR5 — whether this page asked to attach on a software adapter:
+ * `?review=1` in the URL, or `window.__VIRTUALROW_ALLOW_SOFTWARE = true`.
+ * For visual checks on CI and agents without a GPU; never the default.
+ */
+export const softwareAttachRequested = (win: Window | undefined): boolean => {
+  if (!win) return false;
+  if ((win as Window & { __VIRTUALROW_ALLOW_SOFTWARE?: unknown }).__VIRTUALROW_ALLOW_SOFTWARE === true) return true;
+  try {
+    return new URLSearchParams(win.location?.search ?? '').get('review') === '1';
+  } catch {
+    return false;
+  }
+};
+
 export const describeAdapter = (adapter: GPUAdapter): string => {
   const info = (adapter as GPUAdapter & { info?: GPUAdapterInfo }).info;
   if (!info) return 'unknown';
@@ -42,7 +58,7 @@ export const describeAdapter = (adapter: GPUAdapter): string => {
 
 export type DeviceState =
   | { kind: 'pending' }
-  | { kind: 'ready'; device: GPUDevice; adapter: GPUAdapter; software: false }
+  | { kind: 'ready'; device: GPUDevice; adapter: GPUAdapter; software: boolean }
   | { kind: 'unavailable'; reason: WebGPUFallbackReason };
 
 export interface DeviceSession {
@@ -60,6 +76,11 @@ export interface RequestDeviceOptions {
   onDeviceLost?(reason: WebGPUFallbackReason | null): void;
   /** True after the device has been re-requested once already. */
   isRetry?: boolean;
+  /**
+   * #737 FR5 — attach on a software adapter instead of declining it (see
+   * `softwareAttachRequested`). Health still reports `isSoftware: true`.
+   */
+  allowSoftware?: boolean;
 }
 
 /**
@@ -90,7 +111,7 @@ export const requestDevice = async (
 
   const software = isSoftwareAdapter(adapter);
   publishAdapter(describeAdapter(adapter), software);
-  if (software) {
+  if (software && !opts.allowSoftware) {
     publishFallback('software-adapter');
     return makeUnavailable('software-adapter');
   }
@@ -122,7 +143,7 @@ export const requestDevice = async (
 
   let disposed = false;
   const session: DeviceSession = {
-    state: { kind: 'ready', device, adapter, software: false },
+    state: { kind: 'ready', device, adapter, software },
     dispose() {
       if (disposed) return;
       disposed = true;

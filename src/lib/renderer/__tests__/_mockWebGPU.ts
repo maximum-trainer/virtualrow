@@ -148,6 +148,7 @@ export const makeMockDevice = (): MockDevice => {
       makePass((desc.label ?? 'pass') as string),
     beginComputePass: (desc?: GPUComputePassDescriptor) =>
       makeComputePassEncoder((desc?.label ?? 'compute') as string),
+    copyBufferToBuffer: () => undefined,
     finish: () => ({} as GPUCommandBuffer),
     label: '',
   } as unknown as GPUCommandEncoder;

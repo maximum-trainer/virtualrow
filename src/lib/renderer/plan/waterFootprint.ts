@@ -17,6 +17,12 @@ export interface WaterFootprint {
    * shoreline. A point on the shore (the bank's own inner edge) is not inside.
    */
   contains(x: number, z: number, margin?: number): boolean;
+  /**
+   * #737 VP-19 FR4 — metres from (x, z) to the nearer shoreline of the
+   * ribbon quad it lies in (the larger, where two quads overlap at a seam
+   * or where legs meet), or null when the point is not on the ribbon.
+   */
+  shoreDistance(x: number, z: number): number | null;
   /** Number of quads in the footprint. */
   readonly quads: number;
 }
@@ -82,24 +88,31 @@ export const routeWaterFootprint = (
       }
     }
   }
+  // Only the shorelines count (R_i→R_{i+1}, L_{i+1}→L_i): the cross
+  // edges are seams inside the ribbon, not its edge.
+  const shoreOf = (x: number, z: number, ring: readonly number[]): number => Math.min(
+    distanceToSegment(x, z, ring[2], ring[3], ring[4], ring[5]),
+    distanceToSegment(x, z, ring[6], ring[7], ring[0], ring[1]),
+  );
+  const shoreDistance = (x: number, z: number): number | null => {
+    const list = grid.get(key(Math.floor(x / cellMetres), Math.floor(z / cellMetres)));
+    if (!list) return null;
+    let best: number | null = null;
+    for (const q of list) {
+      const ring = rings[q];
+      if (!insideRing(x, z, ring)) continue;
+      const near = shoreOf(x, z, ring);
+      if (best === null || near > best) best = near;
+    }
+    return best;
+  };
   return {
     quads: rings.length,
     contains(x, z, margin = FOOTPRINT_EDGE_MARGIN_METRES) {
-      const list = grid.get(key(Math.floor(x / cellMetres), Math.floor(z / cellMetres)));
-      if (!list) return false;
-      for (const q of list) {
-        const ring = rings[q];
-        if (!insideRing(x, z, ring)) continue;
-        // Only the shorelines count for the margin (R_i→R_{i+1}, L_{i+1}→L_i):
-        // the cross edges are seams inside the ribbon, not its edge.
-        const near = Math.min(
-          distanceToSegment(x, z, ring[2], ring[3], ring[4], ring[5]),
-          distanceToSegment(x, z, ring[6], ring[7], ring[0], ring[1]),
-        );
-        if (near >= margin) return true;
-      }
-      return false;
+      const near = shoreDistance(x, z);
+      return near !== null && near >= margin;
     },
+    shoreDistance,
   };
 };
 
@@ -227,5 +240,7 @@ export const withLakes = (footprint: WaterFootprint, lakes: ReadonlyArray<LakeOu
   return {
     quads: footprint.quads,
     contains: (x, z, margin) => footprint.contains(x, z, margin) || inLake(x, z),
+    // A lake's own shore is not measured: open lake water has no ribbon edge.
+    shoreDistance: (x, z) => footprint.shoreDistance(x, z),
   };
 };

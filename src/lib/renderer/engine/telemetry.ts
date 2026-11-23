@@ -7,20 +7,50 @@
  */
 
 import type { FramePacingSummary } from './framePacing';
+import { OAR_REACH_METRES } from './clearance';
+import { emptyRenderGroups } from './frameRenderStats';
 
+/** #737 FR2 — one group's share of a frame. */
+export interface Rower3DRenderGroup {
+  draws: number;
+  instances: number;
+  triangles: number;
+}
+
+/** #737 FR2 — the frame by what drew it; `scene` is the lit groups together. */
+export interface Rower3DRenderGroups {
+  scene: Rower3DRenderGroup;
+  sceneryMesh: Rower3DRenderGroup;
+  sprites: Rower3DRenderGroup;
+  buildings: Rower3DRenderGroup;
+  shadows: Rower3DRenderGroup;
+}
+
+/**
+ * Every field is this frame's own (#737 FR2) except the `total*` ones,
+ * which accumulate since the scene was built. See `frameRenderStats.ts`.
+ */
 export interface Rower3DRenderStats {
+  /** Passes that ran this frame. */
   draws: number;
   /** Alias of `draws` for the legacy spec harness. Kept in sync via a getter. */
   readonly drawCalls: number;
+  /** Triangles submitted this frame, scene and shadows. */
   triangles: number;
+  /** Instances drawn this frame, scene and shadows. */
   instances: number;
   /**
-   * Per-pass counts for scenery (#555 FR6). Zero on `main`'s three scene;
-   * engine-written numbers from P3 onwards.
+   * Per-pass counts for scenery (#555 FR6): the cull dispatches, and the
+   * sprite + kit-mesh draws and triangles, this frame.
    */
   sceneryDispatch: number;
   sceneryDraws: number;
   sceneryTriangles: number;
+  /** #737 FR2 — the scenery counts summed since the scene was built. */
+  totalSceneryDispatch: number;
+  totalSceneryDraws: number;
+  totalSceneryTriangles: number;
+  groups: Rower3DRenderGroups;
   /** Shadow stage counts (#559 FR7). */
   shadowDraws: number;
   shadowTriangles: number;
@@ -120,8 +150,14 @@ export interface Rower3DRoute {
 }
 
 export interface Rower3DClearance {
+  /** #737 FR4 — the narrowest blade clearance (metres) over the row so far. */
   min: number;
+  /** #737 FR4 — frames that measured one (frames on the route's ribbon). */
   samples: number;
+  /** #737 FR4 — this frame's clearance; null off the ribbon (open lake water). */
+  current: number | null;
+  /** #737 FR4 — centreline to blade tip the clearance is measured from. */
+  oarReachM: number;
   /** #742 FR6 — what lies under the boat's hull this frame. */
   surface?: 'water' | 'land';
 }
@@ -203,6 +239,8 @@ export interface Rower3DShadows {
   lastSplits: number[];
   draws: number;
   triangles: number;
+  /** #737 FR2 — instances drawn into the cascades this frame. */
+  instances: number;
   atlasBytes: number;
 }
 
@@ -381,6 +419,10 @@ export const createTelemetry = (forceRender: () => void): TelemetryHandles => {
     sceneryDispatch: 0,
     sceneryDraws: 0,
     sceneryTriangles: 0,
+    totalSceneryDispatch: 0,
+    totalSceneryDraws: 0,
+    totalSceneryTriangles: 0,
+    groups: emptyRenderGroups(),
     shadowDraws: 0,
     shadowTriangles: 0,
     shadowAtlasBytes: 0,
@@ -399,7 +441,7 @@ export const createTelemetry = (forceRender: () => void): TelemetryHandles => {
     contextState: { kind: 'pending', backend: 'none' },
     pos: { x: 0, y: 0, z: 0, progress: 0 },
     route: { hasCurve: false, totalDistance: 0, curveLength: 0 },
-    clearance: { min: 0, samples: 0 },
+    clearance: { min: 0, samples: 0, current: null, oarReachM: OAR_REACH_METRES },
     foliage: { trees: 0, meshes: 0, drawn: 0 },
     scenery: {
       pools: [],
@@ -423,6 +465,7 @@ export const createTelemetry = (forceRender: () => void): TelemetryHandles => {
       lastSplits: [],
       draws: 0,
       triangles: 0,
+      instances: 0,
       atlasBytes: 0,
     },
     textures: { atlasKind: 'pending', atlasBytes: 0, mipsGenerated: 0, transcodedMs: 0 },

@@ -19,7 +19,7 @@
 
 /// <reference types="@webgpu/types" />
 
-import { requestDevice, type DeviceSession } from './device';
+import { requestDevice, softwareAttachRequested, type DeviceSession } from './device';
 import { publishFallback, type WebGPUFallbackReason } from './health';
 import type { RideFrame } from './rideFrame';
 import {
@@ -283,6 +283,8 @@ export const attach: RideAttach = async (canvas, opts = {}) => {
     const session: DeviceSession = await requestDevice(nav, {
       isRetry,
       onDeviceLost,
+      // #737 FR5 — `?review=1` / `__VIRTUALROW_ALLOW_SOFTWARE` renders on SwiftShader.
+      allowSoftware: softwareAttachRequested((globalThis as { window?: Window }).window),
     });
     if (session.state.kind !== 'ready') {
       const reason =
