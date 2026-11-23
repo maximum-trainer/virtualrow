@@ -17,14 +17,15 @@ test.use({ launchOptions: GPU_RIDE_LAUNCH_OPTIONS });
  *   Given 20 s of a demo row
  *   Then max(fov) - min(fov) over any 1 s window is < 0.5 degree
  *
- * `__ROWER3D_CAMERA.fov` is the FOV the frame was drawn with. It is sampled
- * once per animation frame inside the page, so the spec sees every frame.
+ * `__ROWER3D_CAMERA.fov` is the FOV the frame was drawn with. The harness's
+ * test mode does not free-run the render loop, so the spec draws a frame
+ * (`__ROWER3D_FORCE_RENDER`) and samples it on every animation frame.
  *
  * GPU runner only; without a hardware adapter the engine declines and the
  * spec asserts the fallback instead.
  */
 
-type W = Window & { __ROWER3D_CAMERA?: { fov: number } };
+type W = Window & { __ROWER3D_CAMERA?: { fov: number }; __ROWER3D_FORCE_RENDER?: () => void };
 
 test('the FOV holds steady through 20 s of rowing', async ({ page }) => {
   test.slow();
@@ -39,17 +40,21 @@ test('the FOV holds steady through 20 s of rowing', async ({ page }) => {
     await assertWellFormedDecline(page);
     return;
   }
-  // Let the row get up to speed first.
-  await page.waitForTimeout(5_000);
+  // Test mode does not free-run the render loop, so drive a frame on every
+  // animation frame for 30 s: 10 s for the countdown and to get up to speed,
+  // then 20 s sampled.
   const samples = await page.evaluate(
     () =>
       new Promise<{ t: number; fov: number }[]>((resolve) => {
+        const w = window as W;
         const out: { t: number; fov: number }[] = [];
         const t0 = performance.now();
         const tick = (now: number) => {
-          const fov = (window as W).__ROWER3D_CAMERA?.fov;
-          if (typeof fov === 'number') out.push({ t: now - t0, fov });
-          if (now - t0 < 20_000) requestAnimationFrame(tick);
+          w.__ROWER3D_FORCE_RENDER?.();
+          const t = now - t0;
+          const fov = w.__ROWER3D_CAMERA?.fov;
+          if (t >= 10_000 && typeof fov === 'number') out.push({ t, fov });
+          if (t < 30_000) requestAnimationFrame(tick);
           else resolve(out);
         };
         requestAnimationFrame(tick);
