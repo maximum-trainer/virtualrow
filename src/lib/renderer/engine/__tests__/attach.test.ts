@@ -62,6 +62,19 @@ describe('attach', () => {
     renderer.dispose();
   });
 
+  it('waits for the GPU to finish a warm-up frame before it reports ready (#803)', async () => {
+    const canvas = makeMockCanvas();
+    const renderer = (await attach(canvas, { testMode: true })) as unknown as WithTest & {
+      _liveDevice: { __log: { drainedAfterSubmits: number[] } };
+    };
+    expect(renderer._telemetry.contextState.kind).toBe('ready');
+    // The first wait comes after at least one submitted frame.
+    const drained = renderer._liveDevice.__log.drainedAfterSubmits;
+    expect(drained.length).toBeGreaterThanOrEqual(1);
+    expect(drained[0]).toBeGreaterThanOrEqual(1);
+    renderer.dispose();
+  });
+
   it('surfaces renderer-unavailable when getContext returns null', async () => {
     const canvas = makeMockCanvas();
     (canvas as unknown as { getContext(): null }).getContext = () => null;

@@ -19,6 +19,7 @@
 
 /// <reference types="@webgpu/types" />
 
+import { warmUpScene } from './warmUp';
 import { requestDevice, softwareAttachRequested, type DeviceSession } from './device';
 import { publishFallback, type WebGPUFallbackReason } from './health';
 import type { RideFrame } from './rideFrame';
@@ -36,6 +37,9 @@ import {
   type TelemetryHandles,
 } from './telemetry';
 
+
+/** #803 — the longest the warm-up waits for the GPU before the ride starts anyway. */
+const WARM_UP_TIMEOUT_MS = 3000;
 export interface RideRenderer {
   dispose(): void;
   /**
@@ -306,6 +310,9 @@ export const attach: RideAttach = async (canvas, opts = {}) => {
     // the ones the ride started with.
     const sceneOpts = { ...opts, conditions: currentConditions, viewportInsets: currentInsets } as unknown as Parameters<typeof createRideScene>[3];
     const handle = await createRideScene(canvas, session.state.device, telemetry, sceneOpts, session);
+    // #803 — let the GPU process finish compiling and uploading before the
+    // ride shows as ready, so the first strokes do not freeze behind it.
+    if (handle) await warmUpScene(handle, WARM_UP_TIMEOUT_MS);
     return handle;
   };
 
