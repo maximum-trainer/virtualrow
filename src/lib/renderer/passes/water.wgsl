@@ -95,5 +95,8 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     let glint = pow(max(dot(r, normalize(frame.sunDir)), 0.0), 48.0);
     shaded = shaded + lighting.sun.rgb * (glint * spec * lit);
   }
-  return vec4<f32>(shaded, 1.0);
+  // Dissolve into the sky at the horizon in step with the land
+  // (HORIZON_HAZE_WGSL), so distant water is not left as a hard blue line.
+  let camDist = length(in.worldPos.xz - frame.camPos.xz);
+  return vec4<f32>(shaded, horizonAlpha(camDist));
 }

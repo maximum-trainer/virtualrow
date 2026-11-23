@@ -14,6 +14,8 @@
  * passes build their bind-group layouts to match.
  */
 
+import { GROUND_HAZE_END_M, GROUND_HAZE_START_M } from '../plan/groundPlane';
+
 /**
  * `@group(1)` is the shadow bind group for lit passes with no other
  * per-draw group (bank / water). The scenery pass uses `@group(1)` for
@@ -64,13 +66,15 @@ fn sampleCascade(index: u32, worldPos: vec3<f32>) -> f32 {
   if (proj.x < -1.0 || proj.x > 1.0 || proj.y < -1.0 || proj.y > 1.0) {
     return 1.0;
   }
-  if (proj.z < -1.0 || proj.z > 1.0) {
+  if (proj.z < 0.0 || proj.z > 1.0) {
     return 1.0;
   }
   let lightUv = vec2<f32>(proj.x * 0.5 + 0.5, 1.0 - (proj.y * 0.5 + 0.5));
   let atlasUv = shadowAtlasUv(index, lightUv);
-  // depth maps have z range 0..1 after the viewport transform.
-  let refDepth = proj.z * 0.5 + 0.5 - 0.0025;
+  // WebGPU writes clip z straight to the depth buffer: the light projection
+  // already produces 0..1 (see mat4Ortho in cascadedShadows.ts), so there is
+  // no GL-style remap here.
+  let refDepth = proj.z - 0.0025;
   return textureSampleCompareLevel(shadowAtlas, shadowCmp, atlasUv, refDepth);
 }
 
@@ -102,3 +106,34 @@ fn sampleShadow(worldPos: vec3<f32>, viewSpaceZ: f32) -> f32 {
   return lit;
 }
 `;
+
+/**
+ * `horizonAlpha(distance) -> f32`: 1 near the camera, falling to 0 as the
+ * land and water dissolve into whatever was drawn behind them (sky, sun,
+ * clouds). Used as the fragment alpha by the ground, bank and water
+ * pipelines, which blend `src-alpha / one-minus-src-alpha`.
+ *
+ * Fading by alpha, not by mixing toward a fog colour, is what makes the
+ * horizon seamless: the sky is a screen-space gradient with clouds over it,
+ * so no single fog colour matches it at every camera pitch.
+ *
+ * The range comes from `plan/groundPlane.ts` so the plan and the shaders
+ * cannot drift apart.
+ */
+export const HORIZON_HAZE_WGSL = /* wgsl */ `
+const HAZE_START_M: f32 = ${GROUND_HAZE_START_M.toFixed(1)};
+const HAZE_END_M: f32 = ${GROUND_HAZE_END_M.toFixed(1)};
+fn horizonAlpha(dist: f32) -> f32 {
+  let h = smoothstep(HAZE_START_M, HAZE_END_M, dist);
+  // Ease out: most of the fade happens in the last third, so the middle
+  // distance keeps its colour.
+  return 1.0 - h * h;
+}
+`;
+
+/** The blend state every pass that outputs `horizonAlpha` must use. */
+export const HORIZON_BLEND: GPUBlendState = {
+  color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+  // Keep the target's alpha opaque whatever the fragment's is.
+  alpha: { srcFactor: 'zero', dstFactor: 'one', operation: 'add' },
+};

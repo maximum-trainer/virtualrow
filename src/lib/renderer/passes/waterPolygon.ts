@@ -1,7 +1,12 @@
 /// <reference types="@webgpu/types" />
 
 import type { FrameContext, Pass } from '../engine/frameGraph';
-import { SAMPLE_SHADOW_WGSL, SHADOW_UNIFORMS_WGSL } from '../engine/shaderSnippets';
+import {
+  HORIZON_BLEND,
+  HORIZON_HAZE_WGSL,
+  SAMPLE_SHADOW_WGSL,
+  SHADOW_UNIFORMS_WGSL,
+} from '../engine/shaderSnippets';
 import {
   buildPolygonWater,
   clipPolygonToDisc,
@@ -109,7 +114,7 @@ export const createWaterPolygonPass = ({
   const mesh = tessellateAll(polygons, discCentre, discRadius);
   if (mesh.indices.length === 0) return null;
 
-  const code = SHADOW_UNIFORMS_WGSL + SAMPLE_SHADOW_WGSL + waterWgsl;
+  const code = SHADOW_UNIFORMS_WGSL + SAMPLE_SHADOW_WGSL + HORIZON_HAZE_WGSL + waterWgsl;
   const module = device.createShaderModule({ label: 'water-polygon', code });
   const pipeline = device.createRenderPipeline({
     label: 'water-polygon',
@@ -124,7 +129,7 @@ export const createWaterPolygonPass = ({
         },
       ],
     },
-    fragment: { module, entryPoint: 'fs_main', targets: [{ format }] },
+    fragment: { module, entryPoint: 'fs_main', targets: [{ format, blend: HORIZON_BLEND }] },
     primitive: { topology: 'triangle-list', cullMode: 'none' },
     depthStencil: {
       depthWriteEnabled: true,

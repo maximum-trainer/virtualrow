@@ -26,6 +26,10 @@ struct Grass {
   strength: f32,
   tileMetres: f32,
   _pad: vec2<f32>,
+  // Linear-space mean of the grass half of the atlas. Far ground uses it in
+  // place of the tile, which has no mips and would shimmer at distance.
+  grassMean: vec3<f32>,
+  _pad2: f32,
 };
 
 @group(0) @binding(0) var<uniform> frame: Frame;
@@ -78,10 +82,82 @@ fn vs_main(
   return out;
 }
 
+// The land beyond the bank strips (`plan/groundPlane.ts`): one camera-relative
+// square at bank height. It is shaded by the same fragment function as the
+// strips, with `shoreDist` pinned to the strips' outer-edge value, so the two
+// surfaces are the same colour where they meet.
+const GROUND_SHORE_DIST_M: f32 = 60.0;
+// Where, across the bank strip, plain riverside grass starts giving way to
+// the field pattern. Complete at the outer edge.
+const FIELD_BLEND_START_M: f32 = 30.0;
+
+@vertex
+fn vs_ground(@location(0) position: vec3<f32>) -> VSOut {
+  var out: VSOut;
+  let world = vec3<f32>(position.x + frame.camPos.x, position.y, position.z + frame.camPos.z);
+  out.pos = frame.viewProj * vec4<f32>(world, 1.0);
+  out.worldXZ = world.xz;
+  out.side = vec2<f32>(0.0, GROUND_SHORE_DIST_M);
+  out.worldPos = world;
+  let viewPos = frame.view * vec4<f32>(world, 1.0);
+  out.viewZ = -viewPos.z;
+  return out;
+}
+
 fn hash12(p: vec2<f32>) -> f32 {
   var p3 = fract(vec3<f32>(p.xyx) * 0.1031);
   p3 = p3 + dot(p3, p3.yzx + 33.33);
   return fract((p3.x + p3.y) * p3.z);
+}
+
+// Farmland seen from the water: a patchwork of fields with hedge lines
+// between them. Returns a tint (rgb) and how much of the grass texture to
+// keep (a): crops and ploughed earth are flatter than pasture.
+//
+// Rows run on a rotated grid so they never line up with a north-south or
+// east-west course; each row is cut into fields of uneven length.
+const FIELD_ROW_M: f32 = 140.0;
+const FIELD_LEN_M: f32 = 230.0;
+const HEDGE_HALF_M: f32 = 2.5;
+
+fn fieldPattern(worldXZ: vec2<f32>, dist: f32) -> vec4<f32> {
+  let c = 0.819; // cos 35 deg
+  let s = 0.574; // sin 35 deg
+  let p = vec2<f32>(worldXZ.x * c - worldXZ.y * s, worldXZ.x * s + worldXZ.y * c);
+  let row = floor(p.y / FIELD_ROW_M);
+  let along = p.x / FIELD_LEN_M + hash12(vec2<f32>(row, 7.0)) * 5.0;
+  let col = floor(along);
+  let cell = vec2<f32>(col, row);
+  let pick = hash12(cell + vec2<f32>(3.1, 17.7));
+  let shade = 0.88 + 0.24 * hash12(cell + vec2<f32>(91.0, 5.3));
+
+  // Pasture is the common case; the rest are share-weighted.
+  var tint = vec3<f32>(1.0, 1.0, 1.0);
+  var keepTex = 1.0;
+  if (pick > 0.86) {
+    tint = vec3<f32>(0.55, 0.68, 0.50); // copse / rough woodland floor
+  } else if (pick > 0.70) {
+    tint = vec3<f32>(1.55, 1.30, 0.62); // ripe crop
+    keepTex = 0.35;
+  } else if (pick > 0.56) {
+    tint = vec3<f32>(1.25, 0.92, 0.66); // ploughed
+    keepTex = 0.3;
+  } else if (pick > 0.36) {
+    tint = vec3<f32>(0.82, 1.08, 0.72); // lush ley
+  }
+  tint = tint * shade;
+
+  // Hedges: distance to the nearest field boundary, in metres.
+  let dRow = min(fract(p.y / FIELD_ROW_M), 1.0 - fract(p.y / FIELD_ROW_M)) * FIELD_ROW_M;
+  let dCol = min(fract(along), 1.0 - fract(along)) * FIELD_LEN_M;
+  let d = min(dRow, dCol);
+  // Widen with distance so a hedge stays about a pixel wide, then fade it
+  // out before it would alias.
+  let halfW = HEDGE_HALF_M + dist * 0.004;
+  let hedge = (1.0 - smoothstep(halfW * 0.6, halfW, d)) * (1.0 - smoothstep(700.0, 1300.0, dist));
+  tint = mix(tint, vec3<f32>(0.36, 0.50, 0.33), hedge * 0.85);
+  keepTex = mix(keepTex, 1.0, hedge);
+  return vec4<f32>(tint, keepTex);
 }
 
 @fragment
@@ -90,7 +166,10 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   // so the triplanar albedo doesn't wash the bank into one neutral grey.
   let baseGreen = vec3<f32>(0.32, 0.42, 0.22);
   let baseDry = vec3<f32>(0.52, 0.49, 0.33);
-  let paletteNoise = hash12(floor(in.worldXZ * 2.0));
+  // Half-metre speckle; averaged out with distance for the same reason the
+  // tile is (see `farTex` below).
+  let speckleFar = smoothstep(60.0, 220.0, length(in.worldPos.xz - frame.camPos.xz));
+  let paletteNoise = mix(hash12(floor(in.worldXZ * 2.0)), 0.5, speckleFar);
   let paletteTint = mix(baseGreen, baseDry, paletteNoise * 0.4);
 
   // #591-fu P0b: triplanar albedo port of React `bankTriplanar.glsl`'s
@@ -118,7 +197,17 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   // reads as wet earth; past the band it reads as lush grass.
   let shoreDist = in.side.y;
   let shoreMix = smoothstep(0.0, 2.5, shoreDist);
-  var albedo = mix(earthTex, grassTex, shoreMix);
+  let camDist = length(in.worldPos.xz - frame.camPos.xz);
+  // The atlas has no mip chain. Past the middle distance a 12 m tile is
+  // sub-pixel and shimmers, so ease to its mean colour instead.
+  let farTex = smoothstep(90.0, 320.0, camDist);
+  let grassCol = mix(grassTex, grass.grassMean, farTex);
+  var albedo = mix(earthTex, grassCol, shoreMix);
+  // Fields take over from riverside grass across the outer half of the bank
+  // strip and cover the whole ground plane.
+  let field = fieldPattern(in.worldXZ, camDist);
+  let fieldW = smoothstep(FIELD_BLEND_START_M, GROUND_SHORE_DIST_M, shoreDist);
+  albedo = mix(albedo, mix(grass.grassMean, albedo, field.a) * field.rgb, fieldW);
   // Palette-tint the albedo so a residential profile keeps the warm
   // sandstone tone and a wetland reads cool/green, same way the
   // triplanar tile is multiplied by `diffuseColor.rgb` on the React side.
@@ -136,7 +225,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   // boosts lushness without turning the shore wet-earth strip green.
   let tileMetres = max(grass.tileMetres, 1.0);
   let densityUv = in.worldXZ / tileMetres;
-  let density = textureSample(grassTile, grassSampler, densityUv).r;
+  let density = mix(textureSample(grassTile, grassSampler, densityUv).r, 0.5, farTex);
   let boost = mix(1.0, 0.72 + 0.56 * density, grass.strength);
   col = col * boost;
 
@@ -161,5 +250,6 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   }
   let shade = ambient + halfLambert * halfLambert * 0.75 * lit * lighting.sun.rgb;
   let shaded = col * shade;
-  return vec4<f32>(shaded, 1.0);
+  // Dissolve into the sky behind at the horizon (HORIZON_HAZE_WGSL).
+  return vec4<f32>(shaded, horizonAlpha(camDist));
 }

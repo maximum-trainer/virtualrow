@@ -109,6 +109,11 @@ export const practicalSplits = (
 /**
  * Build an orthographic matrix (left/right/bottom/top/near/far). Column
  * major — matches `mat4Perspective`'s convention so WGSL reads it unchanged.
+ *
+ * Depth maps to WebGPU's clip range [0, 1] (near -> 0, far -> 1), not GL's
+ * [-1, 1]. With the GL form WebGPU clips everything in the near half of the
+ * light volume out of the shadow map, and `sampleShadow`'s matching GL remap
+ * made every caster left in the far half shadow itself.
  */
 const mat4Ortho = (
   out: Mat4,
@@ -125,10 +130,10 @@ const mat4Ortho = (
   out.fill(0);
   out[0] = 2 / dx;
   out[5] = 2 / dy;
-  out[10] = -2 / dz;
+  out[10] = -1 / dz;
   out[12] = -(right + left) / dx;
   out[13] = -(top + bottom) / dy;
-  out[14] = -(far + near) / dz;
+  out[14] = -near / dz;
   out[15] = 1;
   return out;
 };
@@ -278,9 +283,12 @@ export const computeCascades = (
     lightView[13] += dys;
 
     const lightProj = mat4Identity(mat4());
-    // Z range covers the sphere plus a generous caster-near-plane extension.
-    const zNear = -radius - 50;
-    const zFar = radius + 50;
+    // The light eye sits `radius + 10` up-light of the centroid, so the
+    // sphere spans view depths 10 .. 2*radius + 10. Start at the eye and run
+    // 50 m past the sphere so a caster or receiver just outside it still
+    // lands in the map.
+    const zNear = 0;
+    const zFar = 2 * radius + 60;
     mat4Ortho(lightProj, -radius, radius, -radius, radius, zNear, zFar);
 
     const viewProj = mat4Identity(mat4());

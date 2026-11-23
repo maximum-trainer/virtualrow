@@ -17,6 +17,7 @@
 
 /// <reference types="@webgpu/types" />
 
+import { CAMERA_FAR_M, CAMERA_NEAR_M } from './cameraRange';
 import {
   mat4,
   mat4Identity,
@@ -64,7 +65,7 @@ import {
   type WaterDetectionSummary,
 } from './waterDetectionSummary';
 import { createSceneryMeshPass } from '../passes/sceneryMesh';
-import { revealAlpha, SCENERY_VISIBILITY_METRES } from '../passes/sceneryReveal';
+import { revealAlpha } from '../passes/sceneryReveal';
 import { loadGlb } from '../../scenery/glbLoader';
 import {
   placeFurniture,
@@ -1936,7 +1937,7 @@ export const createRideScene = async (
     const up = vec3(0, 1, 0);
     mat4LookAt(frame.view, eye, target, up);
     const fovY = (cameraRig.fov * Math.PI) / 180;
-    projectionWithInsets(frame.proj, fovY, width, height, viewportInsets, 0.1, SCENERY_VISIBILITY_METRES);
+    projectionWithInsets(frame.proj, fovY, width, height, viewportInsets, CAMERA_NEAR_M, CAMERA_FAR_M);
     mat4Multiply(frame.viewProj, frame.proj, frame.view);
     // #733 VP-15 FR3 telemetry: where the player boat lands on screen, and
     // the area the HUD leaves clear, so a spec can check one is inside the
