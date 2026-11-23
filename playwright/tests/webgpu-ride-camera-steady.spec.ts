@@ -29,6 +29,9 @@ type W = Window & { __ROWER3D_CAMERA?: { fov: number } };
 test('the FOV holds steady through 20 s of rowing', async ({ page }) => {
   test.slow();
   await page.setViewportSize({ width: 1280, height: 720 });
+  // An OS that asks for less motion pins the FOV to its base (#344), which
+  // would pass this spec without testing the filter: ask for full motion.
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
   await installRideHarness(page);
   await pinTier(page, 'medium');
   await startDemoRide(page);
@@ -53,6 +56,10 @@ test('the FOV holds steady through 20 s of rowing', async ({ page }) => {
       }),
   );
   expect(samples.length, 'frames were drawn').toBeGreaterThan(100);
+  // The boat is moving, so the speed coupling has opened the lens past its
+  // 58 degree base: the steadiness below is the filter's, not a pinned FOV.
+  const widest = Math.max(...samples.map((s) => s.fov));
+  expect(widest, 'the FOV follows speed at all').toBeGreaterThan(58.5);
   let worst = 0;
   for (let i = 0; i < samples.length; i += 1) {
     let lo = samples[i].fov;
