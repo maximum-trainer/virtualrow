@@ -183,7 +183,7 @@ import type { PerformanceMode } from '../../scenery/sceneryPlacement';
 import type { SceneryProfile } from '../../services/routeEnrichmentService';
 import { createShadowStage, type ShadowTelemetry } from './shadowStage';
 import { measureAttachAsync } from './attachMeasure';
-import { tierCapsFor } from './tierCaps';
+import { chromaticAberrationEnabled, tierCapsFor } from './tierCaps';
 import { publishSpeedMps, type TelemetryHandles } from './telemetry';
 import { createPostFx, type PostFxCaps } from './postFx';
 import {
@@ -1188,7 +1188,7 @@ export const createRideScene = async (
       !!(globalThis as unknown as { window?: { __VIRTUALROW_POSTFX_DOF?: boolean } }).window
         ?.__VIRTUALROW_POSTFX_DOF,
     autoExposure: tierCaps.drawAutoExposure,
-    chromaticAberration: tierCaps.drawChromaticAberration,
+    chromaticAberration: chromaticAberrationEnabled(tierCaps),
   };
   const [
     shadowStage,

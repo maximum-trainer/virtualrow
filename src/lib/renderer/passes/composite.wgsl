@@ -13,6 +13,7 @@ struct CompositeUniforms {
   // carries the measured log-luminance of the last-encoded scene.
   autoExposureEnabled: f32,
   // #574: radial chromatic aberration offset (UV units at corner). 0 = off.
+  // #732: at most 0.0012, and only outside the centre 60% (see `caScale`).
   caOffset: f32,
   // #730 VP-12: stops added for the rower's conditions (a dim Dusk is
   // lifted a little). 0 at Midday and with no conditions.
@@ -107,14 +108,29 @@ fn lensDirtMul(uv: vec2<f32>) -> f32 {
   return 0.85 + avg * 0.3;
 }
 
+// #732 FR1: share of the CA offset at `uv`. Zero inside the centre 60% of
+// the centre-to-corner radius, then the square of the distance past it.
+// Mirrors `chromaticAberrationScale` in postFxMath.ts.
+fn caScale(uv: vec2<f32>) -> f32 {
+  let r = length(uv - vec2<f32>(0.5, 0.5)) * 1.41421356;
+  let t = max(0.0, (r - 0.6) / 0.4);
+  return min(1.0, t * t);
+}
+
+// #732 FR2: auto-exposure moves the authored exposure by at most ±0.7 EV.
+const EXPOSURE_MIN: f32 = 0.61557221; // 2^-0.7
+const EXPOSURE_MAX: f32 = 1.62450479; // 2^0.7
+// #732 FR3: SSAO darkens by at most 35%.
+const AO_FLOOR: f32 = 0.65;
+
 @fragment
 fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   // #574 chromatic aberration: offset the R and B samples along a radial
   // direction from the centre; keep G at the centre so the perceived image
-  // sharpness is preserved. The offset scales with distance from centre so
-  // the frame centre stays crisp and the edges carry the lens feel.
+  // sharpness is preserved. #732: only the outer edge of the frame shifts.
   let dir = in.uv - vec2<f32>(0.5, 0.5);
-  let caShift = dir * u.caOffset;
+  let dirLen = max(length(dir), 1e-6);
+  let caShift = (dir / dirLen) * u.caOffset * caScale(in.uv);
   let sR = textureSample(scene, samp, in.uv + caShift).r;
   let sG = textureSample(scene, samp, in.uv).g;
   let sB = textureSample(scene, samp, in.uv - caShift).b;
@@ -123,18 +139,19 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   let bl = textureSample(bloom, samp, in.uv).rgb * lensDirtMul(in.uv);
   var combined = s + bl * u.bloomStrength;
   if (u.aoEnabled > 0.5) {
-    let aoV = textureSample(ao, samp, in.uv).r;
+    // #732 FR3: half-resolution, depth-aware blurred AO, upsampled here. It
+    // only darkens, and by at most 35%.
+    let aoV = max(AO_FLOOR, clamp(textureSample(ao, samp, in.uv).r, 0.0, 1.0));
     combined = combined * aoV;
   }
   if (u.autoExposureEnabled > 0.5) {
-    // Pull the single-pixel log-luminance texel. The key value 0.18 is
-    // the middle-grey convention from Reinhard's auto-exposure. Clamp the
-    // exposure scale so a near-black scene (very negative logLum) doesn't
-    // multiply the frame into a bright white, and a near-white scene
-    // doesn't crush all contrast.
+    // Pull the single-pixel log-luminance texel (metered below the sky and
+    // adapted over time, #732 FR2). The key value 0.18 is the middle-grey
+    // convention from Reinhard's auto-exposure. Clamped to ±0.7 EV so a
+    // bright sky can no longer pull the whole scene down.
     let avgLogLum = textureLoad(exposureTex, vec2<i32>(0, 0), 0).r;
     let avgLum = max(exp(avgLogLum), 1e-4);
-    let exposureScale = clamp(0.18 / avgLum, 0.25, 4.0);
+    let exposureScale = clamp(0.18 / avgLum, EXPOSURE_MIN, EXPOSURE_MAX);
     combined = combined * exposureScale;
   }
   // #730: after auto-exposure, so the bias survives its normalisation.

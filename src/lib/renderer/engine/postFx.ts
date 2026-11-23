@@ -23,6 +23,9 @@ import compositeWgsl from '../passes/composite.wgsl?raw';
 import ssaoWgsl from '../passes/ssao.wgsl?raw';
 import dofWgsl from '../passes/dofBlur.wgsl?raw';
 import luminanceWgsl from '../passes/luminance.wgsl?raw';
+import ssaoBlurWgsl from '../passes/ssaoBlur.wgsl?raw';
+import { BILATERAL_DEPTH_SIGMA, CA_MAX_OFFSET_UV } from './postFxMath';
+import { CAMERA_FAR_M, CAMERA_NEAR_M } from './cameraRange';
 import { buildNeutralLutPixels } from './postFxMath';
 import { renderPipelineAsync } from './pipelineAsync';
 
@@ -170,9 +173,10 @@ export const createPostFx = async (opts: PostFxOptions): Promise<PostFxHandle> =
   compositeScratch[2] = 32; // LUT size
   compositeScratch[3] = caps.ssao ? 1 : 0;
   compositeScratch[4] = caps.autoExposure ? 1 : 0;
-  // Radial CA offset in UV units at the frame corner. 0.0035 = ~3.5 px on a
-  // 1000-px-wide canvas; subtle, reads as lens feel, never as a defect.
-  compositeScratch[5] = caps.chromaticAberration ? 0.0035 : 0;
+  // Radial CA offset in UV units at the frame corner. #732 FR1: off by
+  // default at every tier; when on, at most 0.0012 UV and only outside the
+  // centre 60% of the frame (the shader's `caScale`).
+  compositeScratch[5] = caps.chromaticAberration ? CA_MAX_OFFSET_UV : 0;
   compositeScratch[6] = 0; // exposureBias (#730), see setExposureBias
   compositeScratch[7] = 0;
   device.queue.writeBuffer(compositeUniforms, 0, compositeScratch as BufferSource);
@@ -188,16 +192,28 @@ export const createPostFx = async (opts: PostFxOptions): Promise<PostFxHandle> =
   // and the composite shader samples via `textureLoad`. Falls back to a
   // dummy no-ops texture when the cap is off so the composite's bind
   // group still has something to point at.
+  // #732 FR2: two of them, ping-ponged, so each frame adapts from the last.
   const luminanceFormat: GPUTextureFormat = 'r32float';
-  const exposureTexture = device.createTexture({
-    label: 'auto-exposure-1x1',
-    size: { width: 1, height: 1 },
-    format: luminanceFormat,
-    usage:
-      GPUTextureUsage.RENDER_ATTACHMENT |
-      GPUTextureUsage.TEXTURE_BINDING,
+  const exposureTextures = [0, 1].map((i) =>
+    device.createTexture({
+      label: `auto-exposure-1x1-${i}`,
+      size: { width: 1, height: 1 },
+      format: luminanceFormat,
+      usage:
+        GPUTextureUsage.RENDER_ATTACHMENT |
+        GPUTextureUsage.TEXTURE_BINDING,
+    }),
+  );
+  const exposureViews = exposureTextures.map((t) => t.createView());
+  let exposureIndex = 0;
+  let exposureReset = true;
+  let lastMeterTime: number | null = null;
+  const meterUniforms = device.createBuffer({
+    label: 'luminance-u',
+    size: 16,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
-  const exposureView = exposureTexture.createView();
+  const meterScratch = new Float32Array(4);
   const luminanceModule = caps.autoExposure
     ? device.createShaderModule({ label: 'luminance', code: luminanceWgsl })
     : null;
@@ -232,6 +248,29 @@ export const createPostFx = async (opts: PostFxOptions): Promise<PostFxHandle> =
     b[0] = 0.01; // radiusUV
     b[1] = 4.0; // strength
     device.queue.writeBuffer(ssaoUniforms, 0, b as BufferSource);
+  }
+  // #732 FR3 — the AO is computed at half resolution and blurred with a
+  // depth-aware (bilateral) filter before the composite upsamples it.
+  const ssaoBlurModule = caps.ssao ? device.createShaderModule({ label: 'ssao-blur', code: ssaoBlurWgsl }) : null;
+  const ssaoBlurPipeline =
+    ssaoBlurModule
+      ? await renderPipelineAsync(device, {
+          label: 'ssao-blur',
+          layout: 'auto',
+          vertex: { module: ssaoBlurModule, entryPoint: 'vs_main' },
+          fragment: { module: ssaoBlurModule, entryPoint: 'fs_main', targets: [{ format: 'r8unorm' }] },
+          primitive: { topology: 'triangle-list' },
+        })
+      : null;
+  const ssaoBlurUniforms = ssaoBlurPipeline
+    ? device.createBuffer({ label: 'ssao-blur-u', size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
+    : null;
+  if (ssaoBlurUniforms) {
+    const b = new Float32Array(4);
+    b[0] = CAMERA_NEAR_M;
+    b[1] = CAMERA_FAR_M;
+    b[2] = BILATERAL_DEPTH_SIGMA;
+    device.queue.writeBuffer(ssaoBlurUniforms, 0, b as BufferSource);
   }
 
   // --- DOF ---
@@ -279,6 +318,7 @@ export const createPostFx = async (opts: PostFxOptions): Promise<PostFxHandle> =
   // Mutable state: bloom mips, SSAO target, DOF scratch, bind groups.
   let bloomMips: Array<{ texture: GPUTexture; view: GPUTextureView; width: number; height: number }> = [];
   let ssaoTarget: EngineTargetTex | null = null;
+  let ssaoBlurTarget: EngineTargetTex | null = null;
   let dofTarget: EngineTargetTex | null = null;
   let currentInputs: PostFxInputs | null = null;
   const stats = { encoded: 0, mipsEncoded: 0 };
@@ -289,6 +329,8 @@ export const createPostFx = async (opts: PostFxOptions): Promise<PostFxHandle> =
     bloomMips = [];
     ssaoTarget?.destroy();
     ssaoTarget = null;
+    ssaoBlurTarget?.destroy();
+    ssaoBlurTarget = null;
     dofTarget?.destroy();
     dofTarget = null;
   };
@@ -311,7 +353,11 @@ export const createPostFx = async (opts: PostFxOptions): Promise<PostFxHandle> =
       bloomMips.push({ texture: tex, view: tex.createView(), width: w, height: h });
     }
     if (caps.ssao) {
-      ssaoTarget = createTarget(device, 'postfx-ssao', inputs.width, inputs.height, 'r8unorm');
+      // #732 FR3: half resolution; the blur and the composite upsample it.
+      const aoW = Math.max(1, Math.ceil(inputs.width / 2));
+      const aoH = Math.max(1, Math.ceil(inputs.height / 2));
+      ssaoTarget = createTarget(device, 'postfx-ssao', aoW, aoH, 'r8unorm');
+      ssaoBlurTarget = createTarget(device, 'postfx-ssao-blur', aoW, aoH, 'r8unorm');
     }
     if (caps.dof) {
       dofTarget = createTarget(device, 'postfx-dof-copy', inputs.width, inputs.height, outputFormat);
@@ -427,6 +473,27 @@ export const createPostFx = async (opts: PostFxOptions): Promise<PostFxHandle> =
       pass.draw(3);
       pass.end();
       stats.encoded += 1;
+      if (ssaoBlurPipeline && ssaoBlurTarget && ssaoBlurUniforms) {
+        const blurBind = device.createBindGroup({
+          layout: ssaoBlurPipeline.getBindGroupLayout(0),
+          entries: [
+            { binding: 0, resource: ssaoTarget.view },
+            { binding: 1, resource: currentInputs.depthView },
+            { binding: 2, resource: { buffer: ssaoBlurUniforms } },
+          ],
+        });
+        const blurPass = encoder.beginRenderPass({
+          label: 'ssao-blur',
+          colorAttachments: [
+            { view: ssaoBlurTarget.view, loadOp: 'clear', storeOp: 'store', clearValue: { r: 1, g: 1, b: 1, a: 1 } },
+          ],
+        });
+        blurPass.setPipeline(ssaoBlurPipeline);
+        blurPass.setBindGroup(0, blurBind);
+        blurPass.draw(3);
+        blurPass.end();
+        stats.encoded += 1;
+      }
     }
 
     // Auto-exposure measurement. Runs BEFORE the composite so the
@@ -437,17 +504,30 @@ export const createPostFx = async (opts: PostFxOptions): Promise<PostFxHandle> =
     // frame) and the composite shader's `autoExposureEnabled` branch
     // ignores it.
     if (caps.autoExposure && luminancePipeline) {
+      // #732 FR2: write this frame's adapted value into one texture from the
+      // other's, then let the composite read the one just written.
+      const previousIndex = exposureIndex;
+      exposureIndex = 1 - exposureIndex;
+      const nowS = ctx.frame.time;
+      const dt = lastMeterTime === null ? 0 : Math.max(0, nowS - lastMeterTime);
+      lastMeterTime = nowS;
+      meterScratch[0] = dt;
+      meterScratch[1] = exposureReset ? 1 : 0;
+      exposureReset = false;
+      device.queue.writeBuffer(meterUniforms, 0, meterScratch as BufferSource);
       const bind = device.createBindGroup({
         layout: luminancePipeline.getBindGroupLayout(0),
         entries: [
           { binding: 0, resource: currentInputs.sceneView },
           { binding: 1, resource: linearSampler },
+          { binding: 2, resource: exposureViews[previousIndex] },
+          { binding: 3, resource: { buffer: meterUniforms } },
         ],
       });
       const pass = encoder.beginRenderPass({
         label: 'luminance',
         colorAttachments: [
-          { view: exposureView, loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 0 } },
+          { view: exposureViews[exposureIndex], loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 0 } },
         ],
       });
       pass.setPipeline(luminancePipeline);
@@ -461,7 +541,7 @@ export const createPostFx = async (opts: PostFxOptions): Promise<PostFxHandle> =
     // the 1×1 log-luminance texture written above (#574).
     {
       const bloomView = caps.bloom && bloomMips.length > 0 ? bloomMips[0].view : currentInputs.sceneView;
-      const aoView = ssaoTarget?.view ?? lutView; // reuse LUT view as a 1x1 fallback when SSAO off
+      const aoView = ssaoBlurTarget?.view ?? ssaoTarget?.view ?? lutView; // LUT view as a fallback when SSAO off
       const bind = device.createBindGroup({
         layout: compositePipeline.getBindGroupLayout(0),
         entries: [
@@ -471,7 +551,7 @@ export const createPostFx = async (opts: PostFxOptions): Promise<PostFxHandle> =
           { binding: 3, resource: lutView },
           { binding: 4, resource: aoView },
           { binding: 5, resource: { buffer: compositeUniforms } },
-          { binding: 6, resource: exposureView },
+          { binding: 6, resource: exposureViews[exposureIndex] },
         ],
       });
       const target = caps.dof && dofTarget ? dofTarget.view : ctx.outputView;
@@ -526,7 +606,9 @@ export const createPostFx = async (opts: PostFxOptions): Promise<PostFxHandle> =
       compositeUniforms.destroy();
       ssaoUniforms?.destroy();
       dofUniforms?.destroy();
-      exposureTexture.destroy();
+      for (const texture of exposureTextures) texture.destroy();
+      meterUniforms.destroy();
+      ssaoBlurUniforms?.destroy();
     },
   };
 
@@ -586,8 +668,8 @@ export const postFxBytes = (width: number, height: number, caps: PostFxCaps, blo
   }
   // LUT.
   if (caps.lut) total += 32 * 32 * 32 * 4; // 128 KB
-  // SSAO target.
-  if (caps.ssao) total += width * height * 1;
+  // SSAO + its bilateral blur: two half-resolution r8 targets (#732 FR3).
+  if (caps.ssao) total += 2 * Math.max(1, Math.ceil(width / 2)) * Math.max(1, Math.ceil(height / 2));
   // DOF copy target (output format = bgra8unorm → 4 bytes/pixel).
   if (caps.dof) total += width * height * 4;
   return total;

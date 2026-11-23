@@ -174,3 +174,86 @@ export const gtaoLite = (
   const ao = 1 - occlusion / taps.length;
   return clamp01(ao);
 };
+
+// --- #732 VP-14: post-fx that must not make `high` worse than `medium`. ---
+
+/** FR1 — the most chromatic aberration may shift a channel, UV at the corner. */
+export const CA_MAX_OFFSET_UV = 0.0012;
+/** FR1 — share of the frame radius (centre to corner) left untouched. */
+export const CA_CLEAR_RADIUS = 0.6;
+
+/**
+ * FR1 — how much of `CA_MAX_OFFSET_UV` applies at a fragment, 0..1. `uv` is
+ * in [0, 1]²; the radius is normalised so the corner is 1. Zero inside the
+ * centre 60%, then rising with the square of the distance past it.
+ * Mirrors `caScale` in `composite.wgsl`.
+ */
+export const chromaticAberrationScale = (uv: readonly [number, number]): number => {
+  const dx = uv[0] - 0.5;
+  const dy = uv[1] - 0.5;
+  const r = Math.sqrt(dx * dx + dy * dy) * Math.SQRT2;
+  const t = Math.max(0, (r - CA_CLEAR_RADIUS) / (1 - CA_CLEAR_RADIUS));
+  return Math.min(1, t * t);
+};
+
+/** FR2 — auto-exposure may move the authored exposure by at most this many stops. */
+export const EXPOSURE_CLAMP_EV = 0.7;
+/** FR2 — time constant of the exposure's adaptation; 95% after ~3τ = 1.8 s. */
+export const EXPOSURE_ADAPT_TAU_S = 0.6;
+/** FR2 — the metered region starts this far down the frame (the sky above is excluded). */
+export const EXPOSURE_METER_TOP = 0.4;
+
+/**
+ * FR2 — the multiplier auto-exposure applies for a metered average
+ * luminance: middle grey (0.18) as the key, clamped to ±0.7 EV.
+ * Mirrors the composite shader.
+ */
+export const autoExposureScale = (avgLum: number): number => {
+  const lum = Math.max(avgLum, 1e-4);
+  const limit = Math.pow(2, EXPOSURE_CLAMP_EV);
+  return Math.min(limit, Math.max(1 / limit, 0.18 / lum));
+};
+
+/**
+ * FR2 — the metered log-luminance after `dt` seconds of adapting from
+ * `previous` towards `measured`. A non-finite `previous` (the first frame)
+ * takes the measurement as-is. Mirrors `luminance.wgsl`.
+ */
+export const adaptLogLuminance = (previous: number, measured: number, dt: number): number => {
+  if (!Number.isFinite(previous)) return measured;
+  const k = 1 - Math.exp(-Math.max(0, dt) / EXPOSURE_ADAPT_TAU_S);
+  return previous + (measured - previous) * k;
+};
+
+/**
+ * FR2 — weight of a metering tap at `uv`: nothing above
+ * `EXPOSURE_METER_TOP` (sky), and centre-weighted across the rest.
+ * Mirrors `luminance.wgsl`.
+ */
+export const meteringWeight = (uv: readonly [number, number]): number => {
+  if (uv[1] < EXPOSURE_METER_TOP) return 0;
+  const dx = (uv[0] - 0.5) * 2;
+  const dy = ((uv[1] - EXPOSURE_METER_TOP) / (1 - EXPOSURE_METER_TOP) - 0.5) * 2;
+  return Math.max(0.1, 1 - 0.5 * (dx * dx + dy * dy));
+};
+
+/** FR3 — SSAO may darken a pixel by at most this share. */
+export const AO_MAX_DARKENING = 0.35;
+
+/** FR3 — the factor the composite multiplies by for an AO term in [0, 1]. */
+export const applyAmbientOcclusion = (ao: number): number =>
+  Math.max(1 - AO_MAX_DARKENING, clamp01(ao));
+
+/** FR3 — relative depth difference at which a blur tap's weight falls to ~60%. */
+export const BILATERAL_DEPTH_SIGMA = 0.1;
+
+/**
+ * FR3 — weight of a neighbour in the depth-aware (bilateral) AO blur: a
+ * tap across a depth edge counts for almost nothing, so occlusion does not
+ * bleed from a near object onto the sky or water behind it. Depths are
+ * linear metres. Mirrors `ssaoBlur.wgsl`.
+ */
+export const bilateralDepthWeight = (centreDepthM: number, tapDepthM: number): number => {
+  const rel = Math.abs(tapDepthM - centreDepthM) / Math.max(centreDepthM, 1e-3);
+  return Math.exp(-(rel * rel) / (2 * BILATERAL_DEPTH_SIGMA * BILATERAL_DEPTH_SIGMA));
+};

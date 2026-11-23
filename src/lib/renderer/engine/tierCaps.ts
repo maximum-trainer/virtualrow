@@ -44,8 +44,10 @@ export interface BuildingTierCaps {
    *  the extra render pass per frame. */
   drawAutoExposure: boolean;
   /** #574 — subtle chromatic aberration in the composite pass: 3-tap radial
-   *  colour-channel offset. Off below `high`; keep it below ~0.5% of the
-   *  frame width so it reads as a lens feel, not a defect. */
+   *  colour-channel offset. #732: off at every tier by default (it read as
+   *  colour fringing, not a lens feel); `__VIRTUALROW_CHROMATIC_ABERRATION`
+   *  turns it on for review, at most 0.0012 UV and only outside the centre
+   *  60% of the frame. */
   drawChromaticAberration: boolean;
   /** #574 — procedural rain overlay (screen-space streaks). Opt-in via
    *  `window.__VIRTUALROW_RAIN=true` even on tiers that allow it; the
@@ -178,7 +180,7 @@ const CAPS: Record<PerformanceTier, BuildingTierCaps> = {
     drawSsao: true,
     drawDof: false,
     drawAutoExposure: true,
-    drawChromaticAberration: true,
+    drawChromaticAberration: false,
     drawRainOverlay: true,
     drawWakeParticles: true,
     drawOarSplash: true,
@@ -201,7 +203,7 @@ const CAPS: Record<PerformanceTier, BuildingTierCaps> = {
     drawSsao: true,
     drawDof: true,
     drawAutoExposure: true,
-    drawChromaticAberration: true,
+    drawChromaticAberration: false,
     drawRainOverlay: true,
     drawWakeParticles: true,
     drawOarSplash: true,
@@ -218,3 +220,12 @@ export const tierCapsFor = (tier: string | undefined): BuildingTierCaps => {
   }
   return CAPS[DEFAULT_TIER];
 };
+
+/**
+ * #732: chromatic aberration is off at every tier; a reviewer turns it on
+ * with `window.__VIRTUALROW_CHROMATIC_ABERRATION = true` before the ride starts.
+ */
+export const chromaticAberrationEnabled = (caps: Pick<BuildingTierCaps, 'drawChromaticAberration'>): boolean =>
+  caps.drawChromaticAberration ||
+  !!(globalThis as unknown as { window?: { __VIRTUALROW_CHROMATIC_ABERRATION?: boolean } }).window
+    ?.__VIRTUALROW_CHROMATIC_ABERRATION;
