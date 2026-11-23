@@ -19,7 +19,7 @@
 -->
 <script lang="ts">
   import { latLngToMeters } from '../utils/geoUtils';
-  import { drawRouteMap } from './routeMapDraw';
+  import { drawRouteMap, scheduleMapDraw } from './routeMapDraw';
   import type { WaterRoute } from '../types/index';
   import './RouteMap.css';
 
@@ -74,35 +74,38 @@
   });
 
   // Draw the route on canvas.
+  //
+  // #729: the draw used to run inside the navigation's effect flush and read
+  // `getBoundingClientRect`, forcing a layout of the whole Row page while it
+  // was still mounting (~90-125 ms on a Windows laptop, the last long task
+  // between the start click and the first ride frame). It now takes its size
+  // from the ResizeObserver, which reports after layout, and draws in idle
+  // time as a task of its own.
   $effect(() => {
     const el = canvas;
     const { points, bounds } = projection;
-    // Track these so the draw re-runs when they change.
-    void canvasSize;
+    const { width, height } = canvasSize;
     const progress = progressPercent;
     const highlight = highlightMode;
 
-    if (!el || points.length < 2) return;
+    if (!el || points.length < 2 || width < 1 || height < 1) return;
 
-    const ctx = el.getContext('2d');
-    if (!ctx) return;
-
-    // Get actual canvas dimensions.
-    const rect = el.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-
-    // Set canvas size with device pixel ratio for crisp rendering.
-    el.width = rect.width * dpr;
-    el.height = rect.height * dpr;
-    ctx.scale(dpr, dpr);
-
-    drawnLabels = drawRouteMap(ctx, {
-      points,
-      bounds,
-      width: rect.width,
-      height: rect.height,
-      progressPercent: progress,
-      highlightMode: highlight,
+    return scheduleMapDraw(() => {
+      const ctx = el.getContext('2d');
+      if (!ctx) return;
+      const dpr = window.devicePixelRatio || 1;
+      // Set canvas size with device pixel ratio for crisp rendering.
+      el.width = width * dpr;
+      el.height = height * dpr;
+      ctx.scale(dpr, dpr);
+      drawnLabels = drawRouteMap(ctx, {
+        points,
+        bounds,
+        width,
+        height,
+        progressPercent: progress,
+        highlightMode: highlight,
+      });
     });
   });
 
@@ -115,7 +118,14 @@
    */
   $effect(() => {
     const el = canvas;
-    if (!el || typeof ResizeObserver === 'undefined') return;
+    if (!el) return;
+    if (typeof ResizeObserver === 'undefined') {
+      // No observer (old browsers, jsdom): measure once, after mount.
+      return scheduleMapDraw(() => {
+        const rect = el.getBoundingClientRect();
+        canvasSize = { width: rect.width, height: rect.height };
+      });
+    }
 
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0];

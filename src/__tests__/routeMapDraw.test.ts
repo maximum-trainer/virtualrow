@@ -3,6 +3,7 @@ import {
   distanceTicks,
   drawRouteMap,
   polylineLength,
+  scheduleMapDraw,
   ROUTE_MAP_COLOURS,
   tickStepMetres,
   waterCorridorPx,
@@ -147,5 +148,37 @@ describe('drawRouteMap (#738)', () => {
 
   it('draws nothing for a route with fewer than two points', () => {
     expect(draw([{ x: 0, y: 0 }]).calls).toEqual([]);
+  });
+});
+
+describe('scheduleMapDraw (#729)', () => {
+  it('runs the draw later, as its own task, and can be cancelled', async () => {
+    const draw = vi.fn();
+    scheduleMapDraw(draw);
+    expect(draw).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(draw).toHaveBeenCalledOnce());
+
+    const cancelled = vi.fn();
+    scheduleMapDraw(cancelled)();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(cancelled).not.toHaveBeenCalled();
+  });
+
+  it('uses idle time when the browser has it', () => {
+    const g = globalThis as Record<string, unknown>;
+    const ric = vi.fn(() => 7);
+    const cic = vi.fn();
+    g.requestIdleCallback = ric;
+    g.cancelIdleCallback = cic;
+    try {
+      const draw = vi.fn();
+      const cancel = scheduleMapDraw(draw);
+      expect(ric).toHaveBeenCalledWith(draw, { timeout: 200 });
+      cancel();
+      expect(cic).toHaveBeenCalledWith(7);
+    } finally {
+      delete g.requestIdleCallback;
+      delete g.cancelIdleCallback;
+    }
   });
 });

@@ -269,3 +269,21 @@ export const drawRouteMap = (ctx: CanvasRenderingContext2D, input: RouteMapDrawI
   }
   return labels;
 };
+
+/**
+ * #729: run a map draw as its own task, in idle time (at most ~200 ms late),
+ * so it never lands inside a navigation or the ride's first frames. Returns a
+ * cancel.
+ */
+export const scheduleMapDraw = (draw: () => void): (() => void) => {
+  const g = globalThis as typeof globalThis & {
+    requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+    cancelIdleCallback?: (id: number) => void;
+  };
+  if (typeof g.requestIdleCallback === 'function' && typeof g.cancelIdleCallback === 'function') {
+    const id = g.requestIdleCallback(draw, { timeout: 200 });
+    return () => g.cancelIdleCallback?.(id);
+  }
+  const id = setTimeout(draw, 0);
+  return () => clearTimeout(id);
+};

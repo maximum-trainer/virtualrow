@@ -69,6 +69,7 @@ describe('RouteMap.svelte', () => {
   });
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it('renders the canvas container without a 2D context (jsdom default)', () => {
@@ -87,6 +88,32 @@ describe('RouteMap.svelte', () => {
     expect(() => render(RouteMap, { route: route([{ lat: 1, lng: 2 }]) })).not.toThrow();
   });
 
+  // #729: the draw is not part of the mount; it runs as its own idle task.
+  it('does not draw or measure synchronously during mount', () => {
+    const ctx = stubContext();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+      ctx as unknown as ReturnType<HTMLCanvasElement['getContext']>,
+    );
+    const measure = vi.spyOn(HTMLCanvasElement.prototype, 'getBoundingClientRect');
+    render(RouteMap, { route: route(LINE) });
+    expect(measure).not.toHaveBeenCalled();
+    expect(ctx.clearRect).not.toHaveBeenCalled();
+  });
+
+  it('measures once after mount where there is no ResizeObserver, then draws', async () => {
+    const ctx = stubContext();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+      ctx as unknown as ReturnType<HTMLCanvasElement['getContext']>,
+    );
+    vi.spyOn(HTMLCanvasElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 200,
+      height: 120,
+    } as DOMRect);
+    vi.stubGlobal('ResizeObserver', undefined);
+    render(RouteMap, { route: route(LINE) });
+    await vi.waitFor(() => expect(ctx.clearRect).toHaveBeenCalled());
+  });
+
   describe('with a drawable 2D context', () => {
     let ctx: CanvasRenderingContext2D;
     beforeEach(() => {
@@ -94,39 +121,52 @@ describe('RouteMap.svelte', () => {
       vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
         ctx as unknown as ReturnType<HTMLCanvasElement['getContext']>,
       );
-      vi.spyOn(HTMLCanvasElement.prototype, 'getBoundingClientRect').mockReturnValue({
-        width: 200,
-        height: 120,
-        top: 0,
-        left: 0,
-        right: 200,
-        bottom: 120,
-        x: 0,
-        y: 0,
-        toJSON: () => ({}),
-      } as DOMRect);
+      // An observer that reports the canvas's laid-out size once observed, as
+      // the browser does after layout.
+      vi.stubGlobal(
+        'ResizeObserver',
+        class {
+          cb: ResizeObserverCallback;
+          constructor(cb: ResizeObserverCallback) {
+            this.cb = cb;
+          }
+          observe(target: Element) {
+            queueMicrotask(() =>
+              this.cb(
+                [{ target, contentRect: { width: 200, height: 120 } } as unknown as ResizeObserverEntry],
+                this as unknown as ResizeObserver,
+              ),
+            );
+          }
+          unobserve() {}
+          disconnect() {}
+        },
+      );
     });
 
-    it('draws the route line and start/end markers', () => {
+    it('draws the route line and start/end markers', async () => {
       render(RouteMap, { route: route(LINE) });
-      expect(ctx.clearRect).toHaveBeenCalled();
+      await vi.waitFor(() => expect(ctx.clearRect).toHaveBeenCalled());
       expect(ctx.stroke).toHaveBeenCalled();
       // start + end markers are filled arcs.
       expect(ctx.arc).toHaveBeenCalled();
       expect(ctx.fillText).toHaveBeenCalled(); // distance scale (no highlight mode)
     });
 
-    it('omits the distance scale label in highlight mode', () => {
+    it('omits the distance scale label in highlight mode', async () => {
       render(RouteMap, { route: route(LINE), highlightMode: true });
+      await vi.waitFor(() => expect(ctx.fillText).toHaveBeenCalled());
       // #738: only the start/finish labels; no scale label.
       const texts = (ctx.fillText as unknown as { mock: { calls: unknown[][] } }).mock.calls.map((c) => c[0]);
       expect(texts).toEqual(['Start', 'Finish']);
-      expect(document.querySelector('.route-map')?.getAttribute('data-labels')).toBe('Start|Finish');
+      await vi.waitFor(() =>
+        expect(document.querySelector('.route-map')?.getAttribute('data-labels')).toBe('Start|Finish'),
+      );
     });
 
-    it('draws the completed/remaining split when progressPercent is set', () => {
+    it('draws the completed/remaining split when progressPercent is set', async () => {
       render(RouteMap, { route: route(LINE), progressPercent: 50 });
-      expect(ctx.stroke).toHaveBeenCalled();
+      await vi.waitFor(() => expect(ctx.stroke).toHaveBeenCalled());
       expect(ctx.arc).toHaveBeenCalled();
     });
   });
