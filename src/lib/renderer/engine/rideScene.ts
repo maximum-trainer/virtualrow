@@ -788,7 +788,9 @@ export const createRideScene = async (
       foliageSampler,
     }),
     createBoatPass({ device, format, frameUniforms, mesh: boatMesh }),
-    createSceneryMeshPass({ device, format, frameUniforms }),
+    // #734 FR4 — kit scenery and the scull receive shadows wherever the
+    // kit casts them (medium and up); basic/low draw as before.
+    createSceneryMeshPass({ device, format, frameUniforms, receiveShadows: tierCaps.castSceneryShadows }),
   ]));
   const BOAT_SCULL_PREFIX = 'boat-scull';
   /**
@@ -1068,6 +1070,7 @@ export const createRideScene = async (
     atlasView: atlas.view,
     cmpSampler: shadowCmpSampler,
   };
+  sceneryMeshPass.setShadow(shadowResources);
   // Biome-density grass modulation (#496 Phase 2). Default to the route's
   // dominant profile when the adapter supplied one; strength scales with
   // the actual device tier, respecting the `__VIRTUALROW_SHADER_GRASS`
@@ -1723,6 +1726,9 @@ export const createRideScene = async (
   // diff also catches.
   let ghostMask = false;
   const GHOST_MASK_STYLE = { tint: [1, 0, 1, 1] as const, alpha: 1, rim: 0, flat: 1, haze: 0 };
+  // #734 AC2 — the same flat magenta on the player's scull, so a spec can
+  // read the hull's own pixels (in shadow under a bridge, and in the sun).
+  let playerMask = false;
   // …and hold the ride still (the same time and ride frame each draw), so
   // those three frames sample the same pixels of a boat that has not moved.
   let holdFrame = false;
@@ -1970,7 +1976,8 @@ export const createRideScene = async (
         const instances = prim.instances;
         instances.length = 0;
         if (prim.visible) {
-          instances.push(scullPrimitiveTransform(prim.player, prim, playerPose));
+          const playerModel = scullPrimitiveTransform(prim.player, prim, playerPose);
+          instances.push(playerMask ? { model: playerModel, ...GHOST_MASK_STYLE } : playerModel);
           if (ghostTrs) {
             const ghost = prim.ghost;
             scullPrimitiveTransform(ghost.model, prim, ghostPoseArgs);
@@ -2447,6 +2454,7 @@ export const createRideScene = async (
   const SET_CONDITIONS_KEY = '__ROWER3D_SET_CONDITIONS' as const;
   const HIDE_GHOST_KEY = '__ROWER3D_HIDE_GHOST' as const;
   const GHOST_MASK_KEY = '__ROWER3D_GHOST_MASK' as const;
+  const PLAYER_MASK_KEY = '__ROWER3D_PLAYER_MASK' as const;
   const HOLD_FRAME_KEY = '__ROWER3D_HOLD_FRAME' as const;
   const SEEK_METERS_KEY = '__ROWER3D_SEEK_METERS' as const;
   const READ_PIXELS_KEY = '__ROWER3D_READ_PIXELS' as const;
@@ -2467,6 +2475,9 @@ export const createRideScene = async (
       };
       (globalThis as unknown as Record<string, unknown>)[GHOST_MASK_KEY] = (on: boolean) => {
         ghostMask = !!on;
+      };
+      (globalThis as unknown as Record<string, unknown>)[PLAYER_MASK_KEY] = (on: boolean) => {
+        playerMask = !!on;
       };
       (globalThis as unknown as Record<string, unknown>)[HOLD_FRAME_KEY] = (on: boolean) => {
         holdFrame = !!on;
@@ -2561,6 +2572,7 @@ export const createRideScene = async (
         delete (globalThis as unknown as Record<string, unknown>)[SET_CONDITIONS_KEY];
         delete (globalThis as unknown as Record<string, unknown>)[HIDE_GHOST_KEY];
         delete (globalThis as unknown as Record<string, unknown>)[GHOST_MASK_KEY];
+        delete (globalThis as unknown as Record<string, unknown>)[PLAYER_MASK_KEY];
         delete (globalThis as unknown as Record<string, unknown>)[HOLD_FRAME_KEY];
         delete (globalThis as unknown as Record<string, unknown>)[SEEK_METERS_KEY];
         delete (globalThis as unknown as Record<string, unknown>)[READ_PIXELS_KEY];

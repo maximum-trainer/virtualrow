@@ -4,6 +4,7 @@ import { createSceneryMeshPass, SCENERY_INSTANCE_BYTES, type SceneryMeshInput } 
 import sceneryMeshDepthWgsl from '../sceneryMeshDepth.wgsl?raw';
 import sceneryMeshWgsl from '../sceneryMesh.wgsl?raw';
 import { mat4, mat4Identity } from '../../math/mat4';
+import { WgslReflect } from 'wgsl_reflect/wgsl_reflect.module.js';
 import { ALWAYS_REVEALED, SCENERY_REVEAL_SECONDS, SCENERY_VISIBILITY_METRES } from '../sceneryReveal';
 
 // jsdom doesn't ship the WebGPU globals; the pass only reads
@@ -576,5 +577,61 @@ describe('instance groups', () => {
     p.reserveInstanceGroup('scull', 1, 2);
     expect(() => p.register({ ...makeInput({ id: 'x' }), instanceGroup: { name: 'scull', index: 1 } })).toThrow(/no slot 1/);
     expect(() => p.register({ ...makeInput({ id: 'y' }), instanceGroup: { name: 'missing', index: 0 } })).toThrow(/missing/);
+  });
+});
+
+describe('shadow receive (#734 FR4)', () => {
+  const shadow = { uniforms: makeBuffer(), atlasView: {} as GPUTextureView, cmpSampler: {} as GPUSampler };
+  const encodeWith = (p: Awaited<ReturnType<typeof createSceneryMeshPass>>) => {
+    const parts = makePass();
+    const beginRenderPass = vi.fn(() => parts.pass);
+    p.encode({ encoder: { beginRenderPass }, swapView: {}, depthView: {} } as unknown as Parameters<typeof p.encode>[0]);
+    return { ...parts, beginRenderPass };
+  };
+
+  it('samples the shadow atlas at group 2 with a normal offset when receiving', async () => {
+    const { device } = makeDevice();
+    await createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer(), receiveShadows: true });
+    const code = (device.createShaderModule as unknown as { mock: { calls: [{ code: string }][] } }).mock.calls[0][0].code;
+    expect(code).toContain('@group(2) @binding(1) var shadowAtlas: texture_depth_2d;');
+    expect(code).not.toContain('@group(1) @binding(1) var shadowAtlas');
+    expect(code).toMatch(/fn sceneryShadow\([^)]*\) -> f32 \{\s*return sampleShadow\(worldPos \+ n \* 0\.080, viewZ\);/);
+    const groups = (new WgslReflect(code) as unknown as { getBindGroups(): Array<unknown[] | undefined> }).getBindGroups();
+    expect(groups[2]?.filter(Boolean)).toHaveLength(3);
+  });
+
+  it('keeps basic/low as before: no atlas, every point fully lit', async () => {
+    const { device } = makeDevice();
+    const p = await createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+    const code = (device.createShaderModule as unknown as { mock: { calls: [{ code: string }][] } }).mock.calls[0][0].code;
+    expect(code).not.toContain('shadowAtlas');
+    expect(code).toMatch(/fn sceneryShadow\([^)]*\) -> f32 \{\s*return 1\.0;/);
+    expect(p.receivesShadows).toBe(false);
+    p.setShadow(shadow);
+    p.register(makeInput({ id: 'buoy' }));
+    p.setInstances('buoy', [mat4Identity(mat4())]);
+    const { setBindGroup } = encodeWith(p);
+    expect(setBindGroup.mock.calls.map((c) => c[0])).not.toContain(2);
+  });
+
+  it('binds the atlas on both pipelines once it is handed over, and waits for it', async () => {
+    const { device, bindGroups } = makeDevice();
+    const p = await createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer(), receiveShadows: true });
+    p.register(makeInput({ id: 'scull' }));
+    p.setInstances('scull', [mat4Identity(mat4()), { model: mat4Identity(mat4()), alpha: 0.5 }]);
+    expect(encodeWith(p).beginRenderPass).not.toHaveBeenCalled();
+    p.setShadow(shadow);
+    const shadowGroups = (bindGroups as GPUBindGroupDescriptor[]).filter((d) => String(d.label).includes('shadow'));
+    expect(shadowGroups.map((d) => d.label)).toEqual(['sceneryMesh-shadow', 'sceneryMesh-translucent-shadow']);
+    expect([...shadowGroups[0].entries].map((e) => e.binding)).toEqual([0, 1, 2]);
+    const { setBindGroup, drawIndexed } = encodeWith(p);
+    expect(drawIndexed).toHaveBeenCalled();
+    // Opaque pipeline and translucent pipeline each set group 2.
+    expect(setBindGroup.mock.calls.filter((c) => c[0] === 2)).toHaveLength(2);
+  });
+
+  it('masks only the sun term with the shadow, never the ambient', () => {
+    expect(sceneryMeshWgsl).toContain('let sunLit = sceneryShadow(in.worldPos, in.viewZ, n);');
+    expect(sceneryMeshWgsl).toContain('let shade = ambient + halfLambert * halfLambert * 0.75 * sunLit;');
   });
 });
