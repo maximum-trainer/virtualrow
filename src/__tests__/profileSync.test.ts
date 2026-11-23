@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ProfileApiClient, StoredProfileValue } from '../lib/services/profileApiClient';
 import {
+  awaitAccessToken,
   createDefaultRowerAppearanceService,
   createSyncedRowerAppearanceService,
   ROWER_APPEARANCE_UPDATED_AT_KEY,
@@ -97,5 +98,23 @@ describe('profileSync: rower appearance (#477)', () => {
   it('syncs when an API base URL is configured', () => {
     const service = createDefaultRowerAppearanceService('https://api.test');
     expect(typeof service.sync).toBe('function');
+  });
+});
+
+describe('awaitAccessToken (#477)', () => {
+  it('returns null at once for a guest', async () => {
+    await expect(awaitAccessToken({ getAccessToken: () => null, getUser: () => null })).resolves.toBeNull();
+  });
+
+  it('waits for a signed-in user\'s token to be restored', async () => {
+    let token: string | null = null;
+    setTimeout(() => (token = 'tok'), 20);
+    const auth = { getAccessToken: () => token, getUser: () => ({ id: '1' }) };
+    await expect(awaitAccessToken(auth, 1_000, 5)).resolves.toBe('tok');
+  });
+
+  it('gives up after the timeout', async () => {
+    const auth = { getAccessToken: () => null, getUser: () => ({ id: '1' }) };
+    await expect(awaitAccessToken(auth, 20, 5)).resolves.toBeNull();
   });
 });

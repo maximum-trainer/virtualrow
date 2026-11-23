@@ -97,8 +97,26 @@ export function createDefaultRowerAppearanceService(
 ): RowerAppearanceService {
   const local = createLocalStorageRowerAppearanceService();
   if (!baseUrl) return local;
-  const client = createProfileApiClient({ baseUrl, getToken: () => authService.getAccessToken() });
+  const client = createProfileApiClient({ baseUrl, getToken: () => awaitAccessToken(authService) });
   return createSyncedRowerAppearanceService({ local, client });
+}
+
+/**
+ * The access token is held in memory only, so after a reload a signed-in
+ * athlete has a user but no token until the silent refresh lands. Wait for it
+ * (bounded); a guest resolves to null at once.
+ */
+export async function awaitAccessToken(
+  auth: { getAccessToken(): string | null; getUser(): unknown },
+  timeoutMs = 15_000,
+  intervalMs = 250,
+): Promise<string | null> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const token = auth.getAccessToken();
+    if (token || !auth.getUser() || Date.now() >= deadline) return token;
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
 }
 
 function safeLocalStorage(): Storage | null {

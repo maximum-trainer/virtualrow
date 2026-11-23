@@ -30,6 +30,14 @@ describe('profileApiClient (#37/#477)', () => {
     await expect(client.put('appearance', 'old', 10)).resolves.toEqual({ value: 'new', updatedAt: 20 });
   });
 
+  it('waits for an async token', async () => {
+    const fetchMock = vi.fn(async () => json({ value: null, updatedAt: null }));
+    const client = createProfileApiClient({ baseUrl: 'https://api.test', getToken: async () => 'later', fetch: fetchMock });
+    await client.get('appearance');
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(new Headers(init.headers).get('Authorization')).toBe('Bearer later');
+  });
+
   it('skips the network and returns null with no token', async () => {
     const fetchMock = vi.fn();
     const client = createProfileApiClient({ baseUrl: 'https://api.test', getToken: () => null, fetch: fetchMock });

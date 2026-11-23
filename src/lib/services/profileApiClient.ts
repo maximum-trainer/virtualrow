@@ -21,7 +21,8 @@ export interface ProfileApiClient {
 
 export interface ProfileApiClientOptions {
   baseUrl: string;
-  getToken: () => string | null;
+  /** May wait for a token that is still being restored after a reload. */
+  getToken: () => string | null | Promise<string | null>;
   fetch?: typeof fetch;
 }
 
@@ -30,7 +31,7 @@ export function createProfileApiClient(options: ProfileApiClientOptions): Profil
   const doFetch = options.fetch ?? ((input, init) => fetch(input, init));
 
   async function call<T>(field: ProfileField, init: RequestInit): Promise<StoredProfileValue<T> | null> {
-    const token = options.getToken();
+    const token = await options.getToken();
     if (!token) return null;
     try {
       const headers = new Headers(init.headers);
