@@ -17,6 +17,9 @@ import {
 describe('device', () => {
   beforeEach(() => {
     resetWebGPUHealth();
+    // The prewarm tests below can leave a device made ahead of time; under
+    // the shuffled order requestDevice would take it instead of asking.
+    resetPrewarmForTests();
   });
 
   it('describes an adapter', () => {
