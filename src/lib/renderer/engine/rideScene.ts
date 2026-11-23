@@ -171,6 +171,7 @@ import { uploadFoliageAtlas } from './foliageAtlasUpload';
 import { mergeSceneryInstances } from '../../scenery/mergeSceneryInstances';
 import { spanCeilingAt, type SpanCeilingSource } from '../../scenery/bridgeSpan';
 import { BRIDGE_SPANS } from '../../scenery/bridgeSpans.generated';
+import { emptySceneryClearance, measureSceneryClearance } from './sceneryClearance';
 import { loadFloraAtlas } from './textureLoader';
 import { mipLevelCountFor, textureBytes } from './textures';
 import { createFrameGraph, type FrameGraph, type FrameUniforms, type Pass } from './frameGraph';
@@ -1486,6 +1487,11 @@ export const createRideScene = async (
     streamSamples,
   );
   const sceneryLoaded = new Set<string>();
+  // #761 — scenery clearance from the centreline, re-measured whenever a
+  // model is registered (instances are static once drawn). Test mode only.
+  const sceneryClearance = emptySceneryClearance();
+  let sceneryClearanceMeasuredAt = -1;
+  const sceneryFailed = (id: string): boolean => telemetry.scenery.failedIds.includes(id);
   const sceneryLoading = new Set<string>();
   const sceneryRegistrations = createRegistrationQueue<{ id: string; decoded: DecodedScenery }>();
   // #726 FR2 — the window follows the boat's speed (the previous frame's).
@@ -1801,6 +1807,10 @@ export const createRideScene = async (
       if (r.revealAlpha < 1) r.revealAlpha = revealAlpha(frame.time, r.registeredAt, 0);
     }
     registerNextScenery();
+    if (opts.testMode && sceneryLoaded.size !== sceneryClearanceMeasuredAt) {
+      sceneryClearanceMeasuredAt = sceneryLoaded.size;
+      measureSceneryClearance(sceneryClearance, waterCurveSource, sceneryLoaded, sceneryInstanceMats, sceneryFailed);
+    }
     streamScenery(boatPlacement.progress * totalDistanceMeters, !!rideFrame?.loop);
     const ghostInfo = placeGhost(
       ghostPlacement,
@@ -2401,8 +2411,11 @@ export const createRideScene = async (
   const HOLD_FRAME_KEY = '__ROWER3D_HOLD_FRAME' as const;
   const SEEK_METERS_KEY = '__ROWER3D_SEEK_METERS' as const;
   const READ_PIXELS_KEY = '__ROWER3D_READ_PIXELS' as const;
+  const SCENERY_CLEARANCE_KEY = '__ROWER3D_SCENERY_CLEARANCE' as const;
   if (opts.testMode) {
     try {
+      // #761 — read by scenery-clearance.spec.ts.
+      (globalThis as unknown as Record<string, unknown>)[SCENERY_CLEARANCE_KEY] = sceneryClearance;
       // #807 — draw a frame and sample its pixels from the GPU.
       (globalThis as unknown as Record<string, unknown>)[READ_PIXELS_KEY] = (grid = 20, minBrightness = 15) => {
         const result = pixelProbe!.request(grid, minBrightness);
@@ -2511,6 +2524,7 @@ export const createRideScene = async (
         delete (globalThis as unknown as Record<string, unknown>)[HOLD_FRAME_KEY];
         delete (globalThis as unknown as Record<string, unknown>)[SEEK_METERS_KEY];
         delete (globalThis as unknown as Record<string, unknown>)[READ_PIXELS_KEY];
+        delete (globalThis as unknown as Record<string, unknown>)[SCENERY_CLEARANCE_KEY];
       } catch { /* non-browser */ }
       clearPolygonWaterTelemetry();
       clearRenderStats();
