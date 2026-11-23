@@ -27,7 +27,7 @@ import {
   type Mat4,
 } from '../math/mat4';
 import { vec3 } from '../math/vec3';
-import { cameraTarget, createRigTarget } from './camera';
+import { bendSignFromTangents, createCameraRig, stepCameraRig } from './camera';
 import {
   NO_INSETS,
   clearRect,
@@ -1413,7 +1413,16 @@ export const createRideScene = async (
     });
   };
 
-  const cameraRig = createRigTarget();
+  // #735 VP-17 — the camera follows the rig target through damping and a
+  // filtered, rate-limited FOV; see `stepCameraRig`.
+  const cameraRig = createCameraRig();
+  let lastCameraTime = -1;
+  let cameraBendSign = 0;
+  const bendAhead = { position: vec3(), tangent: vec3(0, 0, -1), angle: 0 };
+  const reducedMotionQuery =
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia('(prefers-reduced-motion: reduce)')
+      : null;
   const boatPlacement = createPlacement();
   const ghostPlacement = createPlacement();
   const boatBones = [mat4(), mat4(), mat4(), mat4()];
@@ -1921,22 +1930,35 @@ export const createRideScene = async (
     camTangent[0] = camSample.tangent[0];
     camTangent[1] = camSample.tangent[1];
     camTangent[2] = camSample.tangent[2];
-    cameraTarget(
-      {
-        boat: camBoat,
-        tangent: camTangent,
-        velocityMps: speedMps,
-        view: rideFrame?.view ?? 'chase',
-        bendSign: 0,
-        ceilingAt,
-      },
-      cameraRig,
-    );
-    const eye = cameraRig.position;
-    const target = cameraRig.lookAt;
+    // FR5 — the side camera sits on the outside of the bend 30 m ahead.
+    {
+      const lengthM = routeCurve.lengthMeters;
+      const step = lengthM > 0 ? 30 / lengthM : 0;
+      let ahead = boatPlacement.progress + step;
+      ahead = isSceneryRoute(opts.route) && opts.route.isClosedLoop ? ahead % 1 : Math.min(1, ahead);
+      routeCurve.sample(ahead, bendAhead);
+      cameraBendSign = bendSignFromTangents(camTangent, bendAhead.tangent, cameraBendSign);
+    }
+    const cameraDt = lastCameraTime < 0 ? 0 : frame.time - lastCameraTime;
+    lastCameraTime = frame.time;
+    stepCameraRig(cameraRig, {
+      boat: camBoat,
+      tangent: camTangent,
+      velocityMps: speedMps,
+      view: rideFrame?.view ?? 'chase',
+      bendSign: cameraBendSign,
+      ceilingAt,
+      dt: cameraDt,
+      aspect: height > 0 ? width / height : 1,
+      reducedMotion: reducedMotionQuery?.matches ?? false,
+      // A spec's seek teleports the boat; the camera goes with it.
+      snap: seekMeters !== null,
+    });
+    const eye = cameraRig.applied.position;
+    const target = cameraRig.applied.lookAt;
     const up = vec3(0, 1, 0);
     mat4LookAt(frame.view, eye, target, up);
-    const fovY = (cameraRig.fov * Math.PI) / 180;
+    const fovY = (cameraRig.applied.fov * Math.PI) / 180;
     projectionWithInsets(frame.proj, fovY, width, height, viewportInsets, CAMERA_NEAR_M, CAMERA_FAR_M);
     mat4Multiply(frame.viewProj, frame.proj, frame.view);
     // #733 VP-15 FR3 telemetry: where the player boat lands on screen, and
@@ -1996,7 +2018,8 @@ export const createRideScene = async (
       near: 0.5,
       far: 400,
       // #733: cover the whole canvas, including what shows through the HUD.
-      fovY: effectiveFovY((58 * Math.PI) / 180, height, viewportInsets),
+      // #735 FR4: fitted with the FOV actually drawn.
+      fovY: effectiveFovY(fovY, height, viewportInsets),
       aspect: width / height,
       camPos: eye,
       camForward: vec3(target[0] - eye[0], target[1] - eye[1], target[2] - eye[2]),
@@ -2068,6 +2091,7 @@ export const createRideScene = async (
     telemetry.camera.lookX = target[0];
     telemetry.camera.lookY = target[1];
     telemetry.camera.lookZ = target[2];
+    telemetry.camera.fov = cameraRig.applied.fov;
     {
       const ceiling = ceilingAt(eye[0], eye[2]);
       telemetry.camera.ceiling = Number.isFinite(ceiling) ? ceiling : null;
