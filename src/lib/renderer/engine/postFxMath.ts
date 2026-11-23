@@ -264,3 +264,54 @@ export const bilateralDepthWeight = (centreDepthM: number, tapDepthM: number): n
   const rel = Math.abs(tapDepthM - centreDepthM) / Math.max(centreDepthM, 1e-3);
   return Math.exp(-(rel * rel) / (2 * BILATERAL_DEPTH_SIGMA * BILATERAL_DEPTH_SIGMA));
 };
+
+/**
+ * #731 FR3 — CPU twin of `fxaa.wgsl` for one pixel. `img(x, y)` returns the
+ * colour at integer pixel (x, y), clamped at the edges; fractional taps are
+ * bilinear, as the GPU's linear sampler gives them.
+ */
+export const fxaa = (img: (x: number, y: number) => Vec3, x: number, y: number): Vec3 => {
+  const REDUCE_MIN = 1 / 128;
+  const REDUCE_MUL = 1 / 8;
+  const SPAN_MAX = 8;
+  const EDGE_MIN = 0.0312;
+  const EDGE_REL = 0.125;
+  const tap = (fx: number, fy: number): Vec3 => {
+    const x0 = Math.floor(fx);
+    const y0 = Math.floor(fy);
+    const tx = fx - x0;
+    const ty = fy - y0;
+    const a = img(x0, y0);
+    const b = img(x0 + 1, y0);
+    const c = img(x0, y0 + 1);
+    const d = img(x0 + 1, y0 + 1);
+    const mix = (i: number): number =>
+      a[i] * (1 - tx) * (1 - ty) + b[i] * tx * (1 - ty) + c[i] * (1 - tx) * ty + d[i] * tx * ty;
+    return [mix(0), mix(1), mix(2)];
+  };
+  const luma = (c: Vec3): number => Math.sqrt(0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]);
+  const rgbM = img(x, y);
+  const lM = luma(rgbM);
+  const lNW = luma(img(x - 1, y - 1));
+  const lNE = luma(img(x + 1, y - 1));
+  const lSW = luma(img(x - 1, y + 1));
+  const lSE = luma(img(x + 1, y + 1));
+  const lMin = Math.min(lM, lNW, lNE, lSW, lSE);
+  const lMax = Math.max(lM, lNW, lNE, lSW, lSE);
+  if (lMax - lMin < Math.max(EDGE_MIN, lMax * EDGE_REL)) return rgbM;
+  let dx = -((lNW + lNE) - (lSW + lSE));
+  let dy = (lNW + lSW) - (lNE + lSE);
+  const reduce = Math.max((lNW + lNE + lSW + lSE) * 0.25 * REDUCE_MUL, REDUCE_MIN);
+  const rcpMin = 1 / (Math.min(Math.abs(dx), Math.abs(dy)) + reduce);
+  dx = Math.max(-SPAN_MAX, Math.min(SPAN_MAX, dx * rcpMin));
+  dy = Math.max(-SPAN_MAX, Math.min(SPAN_MAX, dy * rcpMin));
+  const at = (t: number): Vec3 => tap(x + dx * t, y + dy * t);
+  const p = at(1 / 3 - 0.5);
+  const q = at(2 / 3 - 0.5);
+  const rgbA: Vec3 = [0.5 * (p[0] + q[0]), 0.5 * (p[1] + q[1]), 0.5 * (p[2] + q[2])];
+  const r = at(-0.5);
+  const s = at(0.5);
+  const rgbB: Vec3 = [0, 1, 2].map((i) => rgbA[i] * 0.5 + 0.25 * (r[i] + s[i])) as unknown as Vec3;
+  const lB = luma(rgbB);
+  return lB < lMin || lB > lMax ? rgbA : rgbB;
+};

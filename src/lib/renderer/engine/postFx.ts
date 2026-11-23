@@ -8,6 +8,7 @@
  *     → SSAO (if enabled)
  *     → composite (scene + bloom + LUT + vignette + ACES → swap-chain)
  *     → DOF (if enabled; reads the swap-chain output of composite via a copy)
+ *     → FXAA (#731; if enabled, the last pass: composite/DOF write a copy it reads)
  *
  * Writes to `ctx.outputView` (the real swap-chain). Reads the HDR scene
  * target via a sampler. On resize the engine calls `setInputs(…)` with the
@@ -20,6 +21,7 @@ import type { FrameContext, Pass } from './frameGraph';
 import bloomDownWgsl from '../passes/bloomDown.wgsl?raw';
 import bloomUpWgsl from '../passes/bloomUp.wgsl?raw';
 import compositeWgsl from '../passes/composite.wgsl?raw';
+import fxaaWgsl from '../passes/fxaa.wgsl?raw';
 import ssaoWgsl from '../passes/ssao.wgsl?raw';
 import dofWgsl from '../passes/dofBlur.wgsl?raw';
 import luminanceWgsl from '../passes/luminance.wgsl?raw';
@@ -45,6 +47,8 @@ export interface PostFxCaps {
    *  Off below `high`; the shader uses a hard-coded offset of ~0.0035 UV
    *  (0.35% of the frame) which reads as a lens feel. */
   chromaticAberration: boolean;
+  /** #731 FR3 — FXAA over the final frame, after composite (and DOF). */
+  fxaa?: boolean;
 }
 
 export const DEFAULT_POSTFX_CAPS: PostFxCaps = {
@@ -296,6 +300,18 @@ export const createPostFx = async (opts: PostFxOptions): Promise<PostFxHandle> =
     device.queue.writeBuffer(dofUniforms, 0, b as BufferSource);
   }
 
+  // --- FXAA (#731 FR3): the last pass, from an LDR copy of the frame. ---
+  const fxaaModule = caps.fxaa ? device.createShaderModule({ label: 'fxaa', code: fxaaWgsl }) : null;
+  const fxaaPipeline = fxaaModule
+    ? await renderPipelineAsync(device, {
+        label: 'fxaa',
+        layout: 'auto',
+        vertex: { module: fxaaModule, entryPoint: 'vs_main' },
+        fragment: { module: fxaaModule, entryPoint: 'fs_main', targets: [{ format: outputFormat }] },
+        primitive: { topology: 'triangle-list' },
+      })
+    : null;
+
   // --- Neutral LUT texture (D4-a). Shipped as a 1024×32 PNG that the host
   // uploads via `uploadFromImageBitmap`, but we fall back to an in-memory
   // identity LUT if the caller doesn't supply one (so unit tests + the smoke
@@ -320,6 +336,7 @@ export const createPostFx = async (opts: PostFxOptions): Promise<PostFxHandle> =
   let ssaoTarget: EngineTargetTex | null = null;
   let ssaoBlurTarget: EngineTargetTex | null = null;
   let dofTarget: EngineTargetTex | null = null;
+  let fxaaTarget: EngineTargetTex | null = null;
   let currentInputs: PostFxInputs | null = null;
   const stats = { encoded: 0, mipsEncoded: 0 };
   let disposed = false;
@@ -333,6 +350,8 @@ export const createPostFx = async (opts: PostFxOptions): Promise<PostFxHandle> =
     ssaoBlurTarget = null;
     dofTarget?.destroy();
     dofTarget = null;
+    fxaaTarget?.destroy();
+    fxaaTarget = null;
   };
 
   const setInputs = (inputs: PostFxInputs): void => {
@@ -361,6 +380,9 @@ export const createPostFx = async (opts: PostFxOptions): Promise<PostFxHandle> =
     }
     if (caps.dof) {
       dofTarget = createTarget(device, 'postfx-dof-copy', inputs.width, inputs.height, outputFormat);
+    }
+    if (fxaaPipeline) {
+      fxaaTarget = createTarget(device, 'postfx-fxaa-input', inputs.width, inputs.height, outputFormat);
     }
   };
 
@@ -554,7 +576,9 @@ export const createPostFx = async (opts: PostFxOptions): Promise<PostFxHandle> =
           { binding: 6, resource: exposureViews[exposureIndex] },
         ],
       });
-      const target = caps.dof && dofTarget ? dofTarget.view : ctx.outputView;
+      // The frame's last stop before FXAA, or the swap chain when it is off.
+      const finalView = fxaaPipeline && fxaaTarget ? fxaaTarget.view : ctx.outputView;
+      const target = caps.dof && dofTarget ? dofTarget.view : finalView;
       const pass = encoder.beginRenderPass({
         label: 'composite',
         colorAttachments: [
@@ -582,10 +606,37 @@ export const createPostFx = async (opts: PostFxOptions): Promise<PostFxHandle> =
       const pass = encoder.beginRenderPass({
         label: 'dof',
         colorAttachments: [
-          { view: ctx.outputView, loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } },
+          {
+            view: fxaaPipeline && fxaaTarget ? fxaaTarget.view : ctx.outputView,
+            loadOp: 'clear',
+            storeOp: 'store',
+            clearValue: { r: 0, g: 0, b: 0, a: 1 },
+          },
         ],
       });
       pass.setPipeline(dofPipeline);
+      pass.setBindGroup(0, bind);
+      pass.draw(3);
+      pass.end();
+      stats.encoded += 1;
+    }
+
+    // #731 FR3 — FXAA: the finished frame into the swap chain.
+    if (fxaaPipeline && fxaaTarget) {
+      const bind = device.createBindGroup({
+        layout: fxaaPipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: fxaaTarget.view },
+          { binding: 1, resource: linearSampler },
+        ],
+      });
+      const pass = encoder.beginRenderPass({
+        label: 'fxaa',
+        colorAttachments: [
+          { view: ctx.outputView, loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } },
+        ],
+      });
+      pass.setPipeline(fxaaPipeline);
       pass.setBindGroup(0, bind);
       pass.draw(3);
       pass.end();
@@ -672,6 +723,8 @@ export const postFxBytes = (width: number, height: number, caps: PostFxCaps, blo
   if (caps.ssao) total += 2 * Math.max(1, Math.ceil(width / 2)) * Math.max(1, Math.ceil(height / 2));
   // DOF copy target (output format = bgra8unorm → 4 bytes/pixel).
   if (caps.dof) total += width * height * 4;
+  // FXAA input copy (#731 FR3), output format again.
+  if (caps.fxaa) total += width * height * 4;
   return total;
 };
 
