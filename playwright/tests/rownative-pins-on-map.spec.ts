@@ -44,3 +44,19 @@ test('guest sees rownative pins on the Routes world map, with no mirror fetch (#
   // AC10 / NFR3: guests never touch the live mirror or rownative.icu.
   expect(upstreamHits).toEqual([]);
 });
+
+test('zooming into a cluster lists the routes in that area in place of "My routes" (#822)', async ({
+  page,
+}) => {
+  await page.goto('/virtualrow/app/search', { waitUntil: 'networkidle' });
+  const title = page.getByTestId('routes-list-title');
+  await expect(title).toHaveText('My routes');
+
+  // A cluster click flies the map in, which counts as the user moving it.
+  const cluster = page.locator('[data-testid="route-cluster"]').first();
+  await expect(cluster).toBeVisible();
+  await cluster.click();
+
+  await expect(title).toHaveText(/^Routes in this area \(\d+\)$/);
+  await expect(page.getByTestId('route-item-rownative').first()).toBeVisible();
+});

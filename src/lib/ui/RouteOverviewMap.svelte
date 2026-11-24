@@ -16,6 +16,7 @@
     type RownativePreviewInput,
   } from '../utils/routePinClusters';
   import { overviewFit } from './routeOverviewFit';
+  import type { MapView } from '../utils/routesInView';
   import './RouteOverviewMap.css';
 
   const FALLBACK_ZOOM = 2;
@@ -35,6 +36,11 @@
     rownativePreviews?: readonly RownativePreviewInput[];
     /** #822 D15: click handler for a rownative preview pin — import then select. */
     onRownativeSelect?: (preview: RownativePreviewInput) => void;
+    /**
+     * Fires with the live MapLibre bounds after every move; `userMoved` is false
+     * for the opening fit. `null` when no live map is showing (SVG fallback).
+     */
+    onViewChange?: (view: MapView | null) => void;
   }
 
   let {
@@ -45,6 +51,7 @@
     onSelect,
     rownativePreviews = [],
     onRownativeSelect,
+    onViewChange,
   }: Props = $props();
 
   let canvasEl = $state<HTMLDivElement | undefined>(undefined);
@@ -183,12 +190,15 @@
         mapReady = true;
         projection = (c: Coordinate) => map.project([c.lng, c.lat]);
 
+        let openingFit = true;
         const readViewport = () => {
           const b = map.getBounds();
           viewport = {
             zoom: map.getZoom(),
             bbox: [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()],
           };
+          onViewChange?.({ bbox: viewport.bbox, userMoved: !openingFit });
+          openingFit = false;
         };
         readViewport();
         map.on('moveend', readViewport);
@@ -204,6 +214,7 @@
       mapInstanceRef = null;
       mapReady = false;
       projection = null;
+      onViewChange?.(null);
     };
   });
 
