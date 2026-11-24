@@ -393,3 +393,50 @@ describe('hills from the real terrain in the engine route (#763)', () => {
     expect(route.sceneryGlbs).toEqual(toEngineRoute(makeRoute(), null, 'medium')!.sceneryGlbs);
   });
 });
+
+describe('the map built form in the engine route (#765)', () => {
+  const sq = (cx: number, cz: number, half: number): [number, number][] => [
+    [cx - half, cz - half],
+    [cx + half, cz - half],
+    [cx + half, cz + half],
+    [cx - half, cz + half],
+    [cx - half, cz - half],
+  ];
+  const withBuilt = (source: 'network' | 'unavailable') =>
+    ({
+      origin: { lat: 0, lng: 0 },
+      key: 'k',
+      elevation: { source: 'unavailable', ms: 0, count: 0, data: null },
+      landCover: { source: 'unavailable', ms: 0, count: 0, data: null },
+      built: {
+        source,
+        ms: 0,
+        count: 4,
+        data:
+          source === 'network'
+            ? {
+                footprints: [{ kind: 'house', points: sq(50, -100, 6) }],
+                places: [{ kind: 'town', x: 0, z: -1500 }],
+                landmarks: [{ kind: 'church', heightM: 40, x: 300, z: 400 }],
+              }
+            : null,
+      },
+    }) as never;
+
+  it('draws the real footprints, a town skyline and a landmark, and reports them (FR1, FR3, FR4, FR10)', () => {
+    const route = toEngineRoute(makeRoute(), null, 'medium', withBuilt('network'))!;
+    expect(route.buildings!.some((b) => b.x === 50 && b.z === -100)).toBe(true);
+    const ids = (route.sceneryGlbs ?? []).map((g) => g.id);
+    expect(ids).toContain('f47-skyline-strip');
+    expect(ids).toContain('d-gb-02-church-square-tower');
+    expect(route.builtSummary).toEqual({ near: 1, mid: 0, skylineInstances: 3, landmarks: 1, source: 'network' });
+  });
+
+  it('is unchanged without built-form data (FR9)', () => {
+    const route = toEngineRoute(makeRoute(), null, 'medium', withBuilt('unavailable'))!;
+    const plain = toEngineRoute(makeRoute(), null, 'medium')!;
+    expect(route.builtSummary).toBeUndefined();
+    expect(route.buildings).toEqual(plain.buildings);
+    expect(route.sceneryGlbs).toEqual(plain.sceneryGlbs);
+  });
+});

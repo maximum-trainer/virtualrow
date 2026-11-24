@@ -200,6 +200,47 @@ export const applyMaxBuildingsPerSegment = (
 };
 
 /**
+ * #765 FR2 — keep the buildings a rower would notice: rank every spec by its
+ * apparent size from the nearest course point (height x width / distance)
+ * and keep the top `perKm` for each kilometre of course, counted over the
+ * whole route, so a 60 m tower at 900 m beats a row of sheds at the bank.
+ * Kept specs keep their input order. `perKm <= 0` keeps none.
+ */
+export const rankBuildingsByVisibility = (
+  specs: readonly BuildingSpec[],
+  course: ReadonlyArray<readonly [number, number]>,
+  perKm: number,
+): BuildingSpec[] => {
+  if (perKm <= 0 || specs.length === 0) return [];
+  let lengthM = 0;
+  for (let k = 1; k < course.length; k += 1) {
+    lengthM += Math.hypot(course[k][0] - course[k - 1][0], course[k][1] - course[k - 1][1]);
+  }
+  const budget = Math.max(1, Math.round((perKm * Math.max(lengthM, 1000)) / 1000));
+  if (specs.length <= budget) return [...specs];
+  const distanceTo = (x: number, z: number): number => {
+    let best = Infinity;
+    for (let k = 0; k < course.length; k += 1) {
+      const [x0, z0] = course[k];
+      const [x1, z1] = course[Math.min(k + 1, course.length - 1)];
+      const dx = x1 - x0;
+      const dz = z1 - z0;
+      const len2 = dx * dx + dz * dz;
+      const t = len2 > 0 ? Math.max(0, Math.min(1, ((x - x0) * dx + (z - z0) * dz) / len2)) : 0;
+      best = Math.min(best, Math.hypot(x - x0 - t * dx, z - z0 - t * dz));
+    }
+    return best;
+  };
+  const ranked = specs.map((spec, index) => ({
+    index,
+    apparent: (spec.height * 2 * Math.max(spec.halfWidth, spec.halfDepth)) / Math.max(1, distanceTo(spec.x, spec.z)),
+  }));
+  ranked.sort((a, b) => b.apparent - a.apparent || a.index - b.index);
+  const keep = new Set(ranked.slice(0, budget).map((r) => r.index));
+  return specs.filter((_, index) => keep.has(index));
+};
+
+/**
  * Deterministic smoke-page helper: lay `count` buildings on both banks of
  * a canned straight-line route, alternating profiles so the palette gets
  * exercised. Mirrors the shape of `buildSmokeFoliagePools` from #555 so

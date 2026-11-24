@@ -180,3 +180,15 @@ describe('planHorizonRelief (#763)', () => {
     expect(RELIEF_BUDGET.high).toBeGreaterThan(RELIEF_BUDGET.medium);
   });
 });
+
+describe('landformSurfaceAt (#765 FR5)', () => {
+  it('is the landform top at its centre, lower towards its edge, and 0 off it', async () => {
+    const { landformSurfaceAt } = await import('../lib/scenery/horizonRelief');
+    const hill = { id: 'f46-hill-ridge-far' as const, x: 1000, z: 0, yaw: 0, scale: 2, angleDeg: 3, along: 0 };
+    expect(landformSurfaceAt([hill], 1000, 0)).toBeCloseTo(60, 5);
+    // Along the length (local X = world X at yaw 0), half-way out: 3/4 height.
+    expect(landformSurfaceAt([hill], 1000 + 130, 0)).toBeCloseTo(45, 5);
+    expect(landformSurfaceAt([hill], 1000, 61)).toBe(0);
+    expect(landformSurfaceAt([], 1000, 0)).toBe(0);
+  });
+});

@@ -136,3 +136,37 @@ describe('applyMaxBuildingsPerSegment (#712 FR6)', () => {
     expect(out.length).toBe(3);
   });
 });
+
+describe('rankBuildingsByVisibility (#765 FR2)', () => {
+  // A 1 km course along x = 0, so perKm is the whole budget.
+  const course: Array<[number, number]> = [[0, 500], [0, -500]];
+  const box = (x: number, z: number, half: number, height: number) => ({ x, z, halfWidth: half, halfDepth: half, height });
+
+  it('keeps the tall far tower over near sheds (AC: the tall building wins the slot)', async () => {
+    const { rankBuildingsByVisibility } = await import('../plan/buildings');
+    const sheds = Array.from({ length: 10 }, (_, i) => box(100, -400 + i * 80, 4, 6));
+    const tower = box(900, 0, 10, 60);
+    const kept = rankBuildingsByVisibility([...sheds, tower], course, 4);
+    expect(kept).toHaveLength(4);
+    expect(kept).toContain(tower);
+  });
+
+  it('keeps everything under budget, nothing at 0, and scales the budget with the course length', async () => {
+    const { rankBuildingsByVisibility } = await import('../plan/buildings');
+    const specs = [box(50, 0, 5, 6), box(-50, 0, 5, 6), box(60, 100, 5, 9)];
+    expect(rankBuildingsByVisibility(specs, course, 10)).toEqual(specs);
+    expect(rankBuildingsByVisibility(specs, course, 0)).toEqual([]);
+    const long: Array<[number, number]> = [[0, 1500], [0, -1500]];
+    expect(rankBuildingsByVisibility(specs, long, 1)).toHaveLength(3);
+    // Kept in input order, the biggest-looking first to go in.
+    expect(rankBuildingsByVisibility(specs, course, 1)).toEqual([specs[2]]);
+  });
+});
+
+describe('buildings fade into the sky at the horizon (#765 FR6)', () => {
+  it('blends to the sky over the ground\'s horizon range', async () => {
+    const wgsl = (await import('../passes/buildings.wgsl?raw')).default;
+    expect(wgsl).toContain('horizonAlpha(length(toFrag.xz))');
+    expect(wgsl).toContain('skyColourToward(normalize(toFrag))');
+  });
+});
