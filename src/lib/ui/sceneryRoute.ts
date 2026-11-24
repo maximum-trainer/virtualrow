@@ -79,6 +79,8 @@ import {
   computePlacements,
   distinctProfiles,
   keepsKitTrees,
+  RING_RIDGE_ID,
+  RING_SKYLINE_ID,
   type PerformanceMode,
   type Placement,
 } from '../scenery/sceneryPlacement';
@@ -351,6 +353,12 @@ export const toEngineRoute = (
   // built form, when the landscape has it, stands in for them.
   let enrichmentBuildingsFrom = 0;
   let sceneryGlbsResult: SceneryGlbGroup[] = [];
+  // Dan, 11-24: real world data wherever the map has it. With real terrain the
+  // #725 ring's invented ridges and the profile's landforms give way to the
+  // #763 hills; with real built form the ring's invented skylines give way to
+  // the #765 skylines.
+  const realTerrain = !routeTrack && landscape?.elevation.source !== 'unavailable' && !!landscape?.elevation.data;
+  const realBuilt = !routeTrack && landscape?.built.source !== 'unavailable' && !!landscape?.built.data;
   if (curvePoints.length >= 2) {
     const curve = new RouteCurve(
       curvePoints.map(([x, y, z]) => vec3(x, y, z)),
@@ -452,8 +460,14 @@ export const toEngineRoute = (
     );
     const grouped = new Map<SceneryModelId, SceneryInstance[]>();
     // #760 — a bank placement on one leg must not stand in another leg's lane.
+    const invented = new Set<string>();
+    if (realTerrain) {
+      invented.add(RING_RIDGE_ID);
+      for (const resolved of resolvedByProfile.values()) for (const id of resolved.landform) invented.add(id);
+    }
+    if (realBuilt) invented.add(RING_SKYLINE_ID);
     const bank = onShore(
-      [...clearOfEveryLeg(left, everyLeg), ...clearOfEveryLeg(right, everyLeg)],
+      [...clearOfEveryLeg(left, everyLeg), ...clearOfEveryLeg(right, everyLeg)].filter((p) => !invented.has(p.id)),
       (p) => [p.position[0], p.position[2]],
       (p) => footprintRadiusFor(p.id, BUILT_IN_FOOTPRINT_LOOKUP),
     );
