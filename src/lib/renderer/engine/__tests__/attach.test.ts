@@ -15,7 +15,7 @@ type WithTest = {
   _telemetry: {
     frameStats: { frame: number };
     renderStats: { draws: number; sceneryDraws: number; sceneryDispatch: number };
-    scenery: { pools: { kind: string; instanceCount: number }[]; dispatchCount: number; drawCount: number; foliageDraws?: number };
+    scenery: { pools: { kind: string; instanceCount: number }[]; dispatchCount: number; drawCount: number; foliageDraws?: number; landCover?: unknown; relief?: unknown };
     foliage: { trees: number; meshes: number; drawn: number; draws: number };
     contextState: { kind: string; backend: string };
   };
@@ -129,6 +129,23 @@ describe('attach', () => {
     // #731 FR3 — plus the MSAA depth resolve at medium (the test tier).
     expect(renderer._telemetry.renderStats.draws).toBe(11);
     renderer.dispose();
+  });
+
+  it('publishes what the map land cover and terrain put in the scene (#764 FR10, #763 FR9)', async () => {
+    const pools = buildSmokeFoliagePools({ speciesCount: 1, chunkCount: 1, perChunk: 1 });
+    const landCoverSummary = { classesPresent: [3, 10], woodlandPolygons: 2, treelineInstances: 7, hedgeMetres: 120 };
+    const reliefSummary = { runs: 5, placed: 3, maxElevationDeg: 8.5 };
+    const withData = (await attach(makeMockCanvas(), {
+      testMode: true,
+      route: { pools, landCoverSummary, reliefSummary },
+    })) as unknown as WithTest;
+    expect(withData._telemetry.scenery.landCover).toEqual(landCoverSummary);
+    expect(withData._telemetry.scenery.relief).toEqual(reliefSummary);
+    withData.dispose();
+    const without = (await attach(makeMockCanvas(), { testMode: true, route: { pools } })) as unknown as WithTest;
+    expect(without._telemetry.scenery.landCover).toBeNull();
+    expect(without._telemetry.scenery.relief).toBeNull();
+    without.dispose();
   });
 
   it('wires scenery pools from a SceneryRoute', async () => {

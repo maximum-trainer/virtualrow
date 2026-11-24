@@ -237,6 +237,8 @@ export interface Rower3DScenery {
     treelineInstances: number;
     hedgeMetres: number;
   } | null;
+  /** #763 FR9 — the landforms the real terrain put on the horizon; null without elevation data. */
+  relief?: { runs: number; placed: number; maxElevationDeg: number } | null;
 }
 
 /**

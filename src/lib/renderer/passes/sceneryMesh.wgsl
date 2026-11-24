@@ -122,5 +122,12 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   // share an instance takes: the race ghost opts out (0), as a haze over its
   // dark hull would pull it towards the water's brightness (#728 FR2).
   let fogged = applyFog(col, in.worldPos - frame.camPos);
-  return vec4<f32>(mix(col, fogged, inst.fx.w), in.color.a * inst.fx.x);
+  // #763 FR5 / #764 FR7 — past the ground's haze start a kit model fades
+  // into the sky behind it over the same range the ground and water fade
+  // (`horizonAlpha`), so far hills and treelines sit in the atmosphere, not
+  // cut out against it. Opaque, so it blends to the sky's colour rather than
+  // through alpha; the share follows `fx.w` like the fog.
+  let toSky = skyColourToward(normalize(in.worldPos - frame.camPos));
+  let hazed = mix(toSky, fogged, horizonAlpha(in.worldDist));
+  return vec4<f32>(mix(col, hazed, inst.fx.w), in.color.a * inst.fx.x);
 }

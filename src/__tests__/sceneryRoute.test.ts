@@ -346,3 +346,50 @@ describe('the map landscape in the engine route (#764)', () => {
     expect(toEngineRouteCached(r, null, 'medium', land)).toBe(after);
   });
 });
+
+describe('hills from the real terrain in the engine route (#763)', () => {
+  // makeRoute runs ~111 m east along z = 0. A 120 m ridge runs east-west 800 m north of it.
+  const cols = 121;
+  const heights = new Float32Array(cols * cols);
+  for (let r = 0; r < cols; r += 1) {
+    for (let c = 0; c < cols; c += 1) {
+      const z = 3000 - r * 50;
+      heights[r * cols + c] = 120 * Math.exp(-(((z + 800) / 150) ** 2));
+    }
+  }
+  const withElevation = (source: 'network' | 'unavailable') =>
+    ({
+      origin: { lat: 0, lng: 0 },
+      key: 'k',
+      elevation: {
+        source,
+        ms: 0,
+        count: cols * cols,
+        data:
+          source === 'network'
+            ? { originX: -3000, originZ: 3000, stepX: 50, stepZ: -50, spacingM: 50, cols, rows: cols, heights, complete: true }
+            : null,
+      },
+      landCover: { source: 'unavailable', ms: 0, count: 0, data: null },
+      built: { source: 'unavailable', ms: 0, count: 0, data: null },
+    }) as never;
+
+  it('stands kit landforms on the ridge and reports them (FR2, FR9)', () => {
+    const route = toEngineRoute(makeRoute(), null, 'medium', withElevation('network'))!;
+    expect(route.reliefSummary!.placed).toBeGreaterThan(0);
+    expect(route.reliefSummary!.maxElevationDeg).toBeGreaterThan(5);
+    const plain = toEngineRoute(makeRoute(), null, 'medium')!;
+    const count = (r: typeof route) => (r.sceneryGlbs ?? []).reduce((n, g) => n + g.instances.length, 0);
+    expect(count(route) - count(plain)).toBe(route.reliefSummary!.placed);
+    const onRidge = (route.sceneryGlbs ?? [])
+      .flatMap((g) => g.instances)
+      .filter((i) => Math.abs(i.position[2] + 800) < 100);
+    expect(onRidge.length).toBeGreaterThan(0);
+  });
+
+  it('is unchanged without elevation data (FR8)', () => {
+    const route = toEngineRoute(makeRoute(), null, 'medium', withElevation('unavailable'))!;
+    expect(route.reliefSummary).toBeUndefined();
+    expect(route.sceneryGlbs).toEqual(toEngineRoute(makeRoute(), null, 'medium')!.sceneryGlbs);
+  });
+});

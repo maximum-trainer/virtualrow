@@ -49,6 +49,7 @@ import { distanceBetweenLatLng, latLngToMeters } from '../utils/geoUtils';
 import type { Landscape } from '../services/landscapeService';
 import type { LandCoverMask } from '../scenery/landCoverMask';
 import { coastLandSide, landscapeScenery, type LandCoverSummary } from '../scenery/landscapeScenery';
+import { planHorizonRelief, type ReliefPlan } from '../scenery/horizonRelief';
 import type { OsmBuilding } from '../services/routeEnrichmentService';
 import { SCENE_SCALE } from '../utils/worldScale';
 import { routeCurvePoints, ringToSceneXZ } from '../utils/routeWorldCurve';
@@ -151,6 +152,8 @@ export interface EngineRoute {
   landCover?: LandCoverMask;
   /** #764 FR10 — what the land cover put in the scene. */
   landCoverSummary?: LandCoverSummary;
+  /** #763 FR9 — what the real terrain put on the horizon. */
+  reliefSummary?: ReliefPlan['summary'];
   /** World-space boat/ghost curve; omitted when the route has too few points. */
   curvePoints?: [number, number, number][];
   /** Real route length in metres, matching the shell's finish detection. */
@@ -497,8 +500,27 @@ export const toEngineRoute = (
     if (existing) existing.instances = [...existing.instances, ...strips];
     else sceneryGlbsResult = [...sceneryGlbsResult, { id: fromLandscape.treelineModelId, instances: strips }];
   }
+  // #763 — hills on the horizon where the real terrain has them (none without
+  // elevation data, FR8).
+  const relief =
+    landscape?.elevation.source !== 'unavailable' && landscape?.elevation.data && !routeTrack
+      ? planHorizonRelief({
+          grid: landscape.elevation.data,
+          course: curvePoints.map(([x, , z]) => [x, z] as [number, number]),
+          tier,
+          landCover: fromLandscape?.landCover ?? null,
+          water: lakePolygons.map((lake) => lake.outer.map(({ x, z }) => [x, z] as [number, number])),
+        })
+      : null;
+  for (const p of relief?.placements ?? []) {
+    const instance: SceneryInstance = { position: [p.x, 0, p.z], rotationY: p.yaw, scale: p.scale };
+    const existing = sceneryGlbsResult.find((g) => g.id === p.id);
+    if (existing) existing.instances = [...existing.instances, instance];
+    else sceneryGlbsResult = [...sceneryGlbsResult, { id: p.id, instances: [instance] }];
+  }
   return {
     ...(fromLandscape ? { landCover: fromLandscape.landCover, landCoverSummary: fromLandscape.summary } : {}),
+    ...(relief ? { reliefSummary: relief.summary } : {}),
     pools,
     ...(buildings.length > 0 ? { buildings } : {}),
     ...(sceneryGlbsResult.length > 0 ? { sceneryGlbs: sceneryGlbsResult } : {}),

@@ -327,6 +327,11 @@ describe('createSceneryMeshPass', () => {
     expect(sceneryMeshWgsl).toMatch(/applyFog\(col,\s*in\.worldPos\s*-\s*frame\.camPos\)/);
   });
 
+  it('fades far models into the sky over the ground\'s horizon range (#763 FR5, #764 FR7)', () => {
+    expect(sceneryMeshWgsl).toContain('let hazed = mix(toSky, fogged, horizonAlpha(in.worldDist));');
+    expect(sceneryMeshWgsl).toContain('mix(col, hazed, inst.fx.w)');
+  });
+
   // #726 VP-08 FR3 — a model streamed in mid-ride fades in over 1.5 s,
   // driven by a per-mesh reveal uniform at group 1 binding 2.
   describe('reveal fade (#726 FR3)', () => {
@@ -497,7 +502,7 @@ describe('createSceneryMeshPass', () => {
     });
 
     it('scales the distance haze by the instance share, so the ghost can opt out', () => {
-      expect(sceneryMeshWgsl).toMatch(/mix\(col,\s*fogged,\s*inst\.fx\.w\)/);
+      expect(sceneryMeshWgsl).toMatch(/mix\(col,\s*hazed,\s*inst\.fx\.w\)/);
     });
   });
 });
