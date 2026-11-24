@@ -13,7 +13,7 @@
 /// <reference types="@webgpu/types" />
 
 import { defaultLightingUniformBuffer } from './uniforms';
-import { extractFrustum, frustum, type FrustumPlanes } from '../math/frustum';
+import { extractFrustum, frustum, sphereInFrustum, type FrustumPlanes } from '../math/frustum';
 import type { FrameContext, Pass } from './frameGraph';
 import {
   createPoolBindGroup,
@@ -50,6 +50,8 @@ export interface SceneryTelemetry {
   solidDraws: number;
   /** Rough triangle count emitted by the solid pass this frame. */
   solidTriangles: number;
+  /** #870 — draws this frame that were foliage pools (in view and in range). */
+  foliageDraws?: number;
 }
 
 export interface SceneryPassOptions {
@@ -143,6 +145,7 @@ export const createSceneryPass = async (opts: SceneryPassOptions): Promise<Scene
     spriteDraws: 0,
     solidDraws: 0,
     solidTriangles: 0,
+    foliageDraws: 0,
   };
 
   // Pool-side cull + draw resources. One per pool, built once.
@@ -169,6 +172,9 @@ export const createSceneryPass = async (opts: SceneryPassOptions): Promise<Scene
   });
 
   const planes: FrustumPlanes = frustum();
+  // #870 — which pools were in view this frame, and at the last readback copy.
+  const visible = new Uint8Array(pools.length);
+  const readVisible = new Uint8Array(pools.length);
 
   // #737 FR4 — `drawn` per pool, read back from the cull's indirect args.
   const drawnRead = resources.length > 0
@@ -195,12 +201,27 @@ export const createSceneryPass = async (opts: SceneryPassOptions): Promise<Scene
       telemetry.dispatchCount = 0;
       telemetry.drawCount = 0;
       telemetry.spriteDraws = 0;
+      telemetry.foliageDraws = 0;
       if (disposed) return;
       if (resources.length === 0) return;
 
-      // 1. Build frustum planes + dispatch the cull for every pool.
+      // 1. Build frustum planes + dispatch the cull for every pool in view.
+      //    #870 — a pool whose bounds are off screen or past the draw
+      //    distance costs neither a dispatch nor a draw.
       extractFrustum(planes, ctx.frame.viewProj);
-      for (const r of resources) {
+      const camX = ctx.frame.camPos[0];
+      const camY = ctx.frame.camPos[1];
+      const camZ = ctx.frame.camPos[2];
+      for (let i = 0; i < resources.length; i += 1) {
+        const r = resources[i];
+        const b = r.pool.bounds;
+        const reach = maxDistance + b.radius;
+        const dx = b.cx - camX;
+        const dy = b.cy - camY;
+        const dz = b.cz - camZ;
+        const inRange = dx * dx + dy * dy + dz * dz <= reach * reach;
+        visible[i] = inRange && sphereInFrustum(planes, b.cx, b.cy, b.cz, b.radius) ? 1 : 0;
+        if (!visible[i]) continue;
         r.cull.writeUniforms({
           planes,
           camX: ctx.frame.camPos[0],
@@ -226,11 +247,14 @@ export const createSceneryPass = async (opts: SceneryPassOptions): Promise<Scene
       });
       pass.setPipeline(signature.pipeline);
       pass.setBindGroup(0, frameBindGroup);
-      for (const r of resources) {
+      for (let i = 0; i < resources.length; i += 1) {
+        if (!visible[i]) continue;
+        const r = resources[i];
         pass.setBindGroup(1, r.bindGroup);
         pass.drawIndirect(r.cull.indirect, 0);
         telemetry.drawCount += 1;
         telemetry.spriteDraws += 1;
+        if (r.pool.kind === 'foliage') telemetry.foliageDraws = (telemetry.foliageDraws ?? 0) + 1;
       }
       pass.end();
 
@@ -240,6 +264,7 @@ export const createSceneryPass = async (opts: SceneryPassOptions): Promise<Scene
           resources.forEach((r, i) => {
             ctx.encoder.copyBufferToBuffer(r.cull.indirect, INDIRECT_INSTANCE_COUNT_OFFSET, drawnRead, i * 4, 4);
           });
+          readVisible.set(visible);
           copied = true;
           framesUntilRead = DRAWN_READBACK_FRAMES;
         } else {
@@ -259,7 +284,8 @@ export const createSceneryPass = async (opts: SceneryPassOptions): Promise<Scene
             const counts = new Uint32Array(drawnRead.getMappedRange().slice(0));
             for (let i = 0; i < counts.length; i += 1) {
               const entry = telemetry.pools[i];
-              if (entry) entry.drawn = counts[i];
+              // A pool skipped at the copy kept an older cull's count.
+              if (entry) entry.drawn = readVisible[i] ? counts[i] : 0;
             }
           } finally {
             if (!disposed) drawnRead.unmap();

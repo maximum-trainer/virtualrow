@@ -15,8 +15,8 @@ type WithTest = {
   _telemetry: {
     frameStats: { frame: number };
     renderStats: { draws: number; sceneryDraws: number; sceneryDispatch: number };
-    scenery: { pools: { kind: string; instanceCount: number }[]; dispatchCount: number; drawCount: number };
-    foliage: { trees: number; meshes: number; drawn: number };
+    scenery: { pools: { kind: string; instanceCount: number }[]; dispatchCount: number; drawCount: number; foliageDraws?: number };
+    foliage: { trees: number; meshes: number; drawn: number; draws: number };
     contextState: { kind: string; backend: string };
   };
   dispose(): void;
@@ -143,6 +143,9 @@ describe('attach', () => {
     expect(renderer._telemetry.scenery.dispatchCount).toBeGreaterThan(0);
     expect(renderer._telemetry.foliage.trees).toBe(2 * 2 * 10);
     expect(renderer._telemetry.foliage.meshes).toBe(4);
+    // #870 — a draw call only for the pools in view and in range.
+    expect(renderer._telemetry.foliage.draws).toBe(renderer._telemetry.scenery.foliageDraws);
+    expect(renderer._telemetry.foliage.draws).toBeLessThanOrEqual(4);
     renderer.dispose();
   });
 

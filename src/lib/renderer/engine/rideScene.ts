@@ -2521,6 +2521,7 @@ export const createRideScene = async (
     }
     telemetry.foliage.trees = trees;
     telemetry.foliage.meshes = meshes;
+    telemetry.foliage.draws = telemetry.scenery.foliageDraws ?? 0;
     // #737 FR4 — what the GPU cull kept, read back every few frames; −1
     // until the first read lands.
     telemetry.foliage.drawn = treesRead ? treesDrawn : meshes === 0 ? 0 : -1;

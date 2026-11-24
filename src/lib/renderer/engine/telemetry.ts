@@ -178,6 +178,8 @@ export interface Rower3DFoliage {
   trees: number;
   meshes: number;
   drawn: number;
+  /** #870 — foliage draw calls this frame: only pools in view and in range. */
+  draws: number;
 }
 
 /**
@@ -211,6 +213,8 @@ export interface Rower3DScenery {
   spriteDraws: number;
   solidDraws: number;
   solidTriangles: number;
+  /** #870 — foliage pools drawn this frame (in view and in range). */
+  foliageDraws?: number;
   /** #726 FR5 — kit models registered with the mesh pass now. */
   registered: number;
   /** #727 FR3 — kit models unloaded behind the boat so far. */
@@ -455,7 +459,7 @@ export const createTelemetry = (forceRender: () => void): TelemetryHandles => {
     pos: { x: 0, y: 0, z: 0, progress: 0 },
     route: { hasCurve: false, totalDistance: 0, curveLength: 0 },
     clearance: { min: 0, samples: 0, current: null, oarReachM: OAR_REACH_METRES },
-    foliage: { trees: 0, meshes: 0, drawn: 0 },
+    foliage: { trees: 0, meshes: 0, drawn: 0, draws: 0 },
     scenery: {
       pools: [],
       dispatchCount: 0,

@@ -50,7 +50,6 @@ const EXTRA_IGNORE = [
   '**/scene-context-endurance.spec.ts',
   '**/scene-contrast.spec.ts',
   '**/scene-telemetry.spec.ts',
-  '**/scenery-kit-budgets.spec.ts',
   '**/shipping-scene.spec.ts',
   '**/shipping-scene-contrast.spec.ts',
   '**/virtualrow.spec.ts',

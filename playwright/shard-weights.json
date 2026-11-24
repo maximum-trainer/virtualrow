@@ -51,7 +51,6 @@
     "default:scene-context-endurance.spec.ts": 66,
     "default:scene-contrast.spec.ts": 63,
     "default:scene-telemetry.spec.ts": 19,
-    "default:scenery-kit-budgets.spec.ts": 129,
     "default:shipping-scene-contrast.spec.ts": 600,
     "default:shipping-scene.spec.ts": 192,
     "default:signed-out-test-drive.spec.ts": 96,
@@ -76,6 +75,7 @@
     "default:scenery-clearance.spec.ts": 180,
     "default:webgpu-parallel-legs.spec.ts": 60,
     "default:webgpu-antialias.spec.ts": 60,
-    "default:webgpu-water-shadow.spec.ts": 60
+    "default:webgpu-water-shadow.spec.ts": 60,
+    "default:webgpu-scenery-kit-budgets.spec.ts": 20
   }
 }
