@@ -148,3 +148,36 @@ describe('computeCascades', () => {
     expect(depth(10)).toBeLessThan(depth(0));
   });
 });
+
+// #727 FR2: far cascades refresh every 2nd/4th frame below extra-high.
+describe('cascade refresh cadence (#727 FR2)', () => {
+  it('refreshes the nearest every frame, the farthest every 4th and the ones between every 2nd', async () => {
+    const { cascadeRefreshInterval } = await import('../cascadedShadows');
+    expect([0, 1, 2, 3].map((i) => cascadeRefreshInterval(i, 4, 'high'))).toEqual([1, 1, 2, 4]);
+    expect([0, 1, 2].map((i) => cascadeRefreshInterval(i, 3, 'medium'))).toEqual([1, 2, 4]);
+    expect([0, 1, 2].map((i) => cascadeRefreshInterval(i, 3, 'high'))).toEqual([1, 2, 4]);
+    expect([0, 1].map((i) => cascadeRefreshInterval(i, 2, 'basic'))).toEqual([1, 2]);
+    expect(cascadeRefreshInterval(0, 1, 'basic')).toBe(1);
+  });
+
+  it('keeps every cascade fresh every frame at extra-high', async () => {
+    const { cascadeRefreshInterval } = await import('../cascadedShadows');
+    expect([0, 1, 2, 3].map((i) => cascadeRefreshInterval(i, 4, 'extra-high'))).toEqual([1, 1, 1, 1]);
+  });
+
+  it('staggers the far cascades so no frame redraws both', async () => {
+    const { cascadeDue } = await import('../cascadedShadows');
+    for (let frame = 0; frame < 16; frame += 1) {
+      expect(cascadeDue(0, 4, frame, 'high')).toBe(true);
+      expect(cascadeDue(2, 4, frame, 'high') && cascadeDue(3, 4, frame, 'high')).toBe(false);
+    }
+    const third = Array.from({ length: 8 }, (_, f) => cascadeDue(2, 4, f, 'high')).filter(Boolean);
+    const fourth = Array.from({ length: 8 }, (_, f) => cascadeDue(3, 4, f, 'high')).filter(Boolean);
+    expect(third).toHaveLength(4);
+    expect(fourth).toHaveLength(2);
+    // Three cascades (medium, high): the 2nd and 3rd never on one frame either.
+    for (let frame = 0; frame < 16; frame += 1) {
+      expect(cascadeDue(1, 3, frame, 'high') && cascadeDue(2, 3, frame, 'high')).toBe(false);
+    }
+  });
+});
