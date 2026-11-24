@@ -807,3 +807,44 @@ export class LandscapeService {
 
 /** The app's instance: IndexedDB-cached, publishing telemetry. */
 export const landscapeService = new LandscapeService();
+
+/**
+ * FR10 — the port under Playwright: no request, every layer unavailable, and
+ * the telemetry published as the real service would.
+ */
+export const offlineLandscapeService = {
+  load: async (routeCoordinates: Coordinate[]): Promise<Landscape> => {
+    const landscape: Landscape = {
+      origin: routeCoordinates?.[0] ?? null,
+      key: landscapeKey(routeFrame(routeCoordinates ?? [])),
+      elevation: unavailable(),
+      landCover: unavailable(),
+      built: unavailable(),
+    };
+    if (typeof window !== 'undefined') {
+      const none = { source: 'unavailable' as const, ms: 0, count: 0 };
+      (window as unknown as { __ROWER3D_LANDSCAPE?: LandscapeTelemetry }).__ROWER3D_LANDSCAPE = {
+        elevation: none,
+        landCover: none,
+        built: none,
+      };
+    }
+    return landscape;
+  },
+};
+
+/** FR10 — the offline stub when the page is under test, else the real service. */
+export const pickLandscapeService = (testing: boolean) => (testing ? offlineLandscapeService : landscapeService);
+
+/** FR8 — the credits a landscape needs on screen: none while nothing is in use. */
+export const landscapeAttribution = (landscape: Landscape | null | undefined): string[] => {
+  if (!landscape) return [];
+  const credits: string[] = [];
+  if (landscape.landCover.source !== 'unavailable' || landscape.built.source !== 'unavailable') {
+    credits.push('© OpenStreetMap contributors');
+  }
+  if (landscape.elevation.source !== 'unavailable') {
+    credits.push('Elevation: Copernicus DEM GLO-90 © ESA / EU, via Open-Meteo');
+  }
+  return credits;
+};

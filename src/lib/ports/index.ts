@@ -299,6 +299,8 @@ export interface Services {
   authService: AuthPort;
   rownativeService: RownativePort;
   routeEnrichmentService: RouteEnrichmentPort;
+  /** #762 — optional so a test bundle without it simply never loads a landscape. */
+  landscapeService?: LandscapePort;
   defaultRoutePreferenceStore: DefaultRoutePreferencePort;
   intervalsIcuActivityService: ActivityUploadPort;
   rowerTargets: RowerTargetPort;

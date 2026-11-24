@@ -481,3 +481,59 @@ describe('RoutesStore map data for the demo route and guests', () => {
     ).toEqual(['7']);
   });
 });
+
+// #762 — a route's landscape loads beside its enrichment, under the same rule.
+describe('RoutesStore landscape', () => {
+  const coords = [
+    { lat: 51.5, lng: -0.1 },
+    { lat: 51.5, lng: -0.09 },
+  ];
+  const withLandscape = (routes: WaterRoute[]) => {
+    const services = stubServices(routes);
+    const loaded = { origin: coords[0], key: 'k' } as never;
+    const load = vi.fn(async () => loaded);
+    return { services: { ...services, landscapeService: { load } } as Services, load, loaded };
+  };
+
+  it('loads the selected route once for a signed-in athlete, and keeps it', async () => {
+    const { services, load, loaded } = withLandscape([route('7', { coordinates: coords })]);
+    const store = new RoutesStore(services);
+    store.load();
+    store.setAthlete('user-1');
+    store.selectRoute(store.routes[0]);
+    store.selectRoute(store.routes[0]);
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(load).toHaveBeenCalledWith(coords);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(store.routeLandscapes['7']).toBe(loaded);
+  });
+
+  it('loads nothing for a guest, the demo route, a route without a line, or without the port', () => {
+    const guest = withLandscape([route('7', { coordinates: coords })]);
+    const guestStore = new RoutesStore(guest.services);
+    guestStore.load();
+    guestStore.selectRoute(guestStore.routes[0]);
+
+    const demo = withLandscape([route('1', { coordinates: coords })]);
+    const demoStore = new RoutesStore(demo.services);
+    demoStore.load();
+    demoStore.setAthlete('user-1');
+    demoStore.selectRoute(demoStore.routes[0]);
+
+    const bare = withLandscape([route('7')]);
+    const bareStore = new RoutesStore(bare.services);
+    bareStore.load();
+    bareStore.setAthlete('user-1');
+    bareStore.selectRoute(bareStore.routes[0]);
+
+    expect(guest.load).not.toHaveBeenCalled();
+    expect(demo.load).not.toHaveBeenCalled();
+    expect(bare.load).not.toHaveBeenCalled();
+
+    const none = new RoutesStore(stubServices([route('7', { coordinates: coords })]));
+    none.load();
+    none.setAthlete('user-1');
+    expect(() => none.selectRoute(none.routes[0])).not.toThrow();
+  });
+});

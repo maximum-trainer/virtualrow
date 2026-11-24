@@ -17,6 +17,7 @@ import { heartRateBluetoothService } from '../services/heartRateBluetoothService
 import { authService } from '../services/authService';
 import { rownativeService } from '../services/rownativeService';
 import { routeEnrichmentService } from '../services/routeEnrichmentService';
+import { pickLandscapeService } from '../services/landscapeService';
 import { defaultRoutePreferenceStore } from '../services/defaultRoutePreferenceStore';
 import { intervalsIcuActivityService } from '../services/intervalsIcuActivityService';
 import { intervalsIcuWorkoutService } from '../services/intervalsIcuWorkoutService';
@@ -51,6 +52,10 @@ export const defaultServices: Services = {
   authService,
   rownativeService,
   routeEnrichmentService,
+  // #762 FR10: e2e runs never ask the network for a landscape.
+  landscapeService: pickLandscapeService(
+    typeof window !== 'undefined' && !!(window as unknown as { __PLAYWRIGHT_TESTING?: unknown }).__PLAYWRIGHT_TESTING,
+  ),
   defaultRoutePreferenceStore,
   intervalsIcuActivityService,
   intervalsIcuWorkoutService,

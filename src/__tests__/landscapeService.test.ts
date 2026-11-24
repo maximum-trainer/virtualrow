@@ -449,3 +449,28 @@ describe('keys and water samples', () => {
     expect(waterSamplesFor(long).length).toBeLessThanOrEqual(200);
   });
 });
+
+describe('the test-mode port (FR10)', () => {
+  it('answers under test with every layer unavailable and no request, and publishes that', async () => {
+    const { offlineLandscapeService, pickLandscapeService, landscapeService } = await import(
+      '../lib/services/landscapeService'
+    );
+    expect(pickLandscapeService(true)).toBe(offlineLandscapeService);
+    expect(pickLandscapeService(false)).toBe(landscapeService);
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const landscape = await offlineLandscapeService.load(COURSE);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+    expect(landscape.origin).toEqual(COURSE[0]);
+    expect(landscape.key).toBe(landscapeKey(FRAME));
+    expect([landscape.elevation.source, landscape.landCover.source, landscape.built.source]).toEqual([
+      'unavailable',
+      'unavailable',
+      'unavailable',
+    ]);
+    expect((window as unknown as { __ROWER3D_LANDSCAPE?: { built: { source: string } } }).__ROWER3D_LANDSCAPE?.built.source).toBe(
+      'unavailable',
+    );
+    expect((await offlineLandscapeService.load([])).origin).toBeNull();
+  });
+});
