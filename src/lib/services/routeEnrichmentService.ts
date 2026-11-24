@@ -25,6 +25,14 @@ import { mapOsmTagsToSceneryProfile } from '../utils/sceneryFromTags';
 import { SHORE_RAY_LIMIT_METERS, type DetectedSample } from '../utils/shoreDetection';
 import type { RouteWaterClass } from '../utils/waterClassification';
 import { createWorkerDetectionRunner, type RouteDetectionRunner } from './routeDetectionRunner';
+import {
+  ISLAND_RELATION_MAX_MEMBERS,
+  OverpassWaterCache,
+  buildWaterQueryForBox,
+  overpassWaterCache,
+} from './overpassWaterCache';
+
+export { ISLAND_RELATION_MAX_MEMBERS };
 import { LAKE_POLYGON_STORE_VERTICES, lakePolygonsForTier, type LakePolygon } from '../utils/lakePolygons';
 import { SCENE_SCALE } from '../utils/worldScale';
 import { resolveWaterType } from '../scenery/waterType';
@@ -510,9 +518,6 @@ export const getDefaultBankWidth = (
  */
 export const SHORE_QUERY_MARGIN_METERS = 650;
 
-/** Island relations with more members than this are landmasses, left to the coastline (#493). */
-export const ISLAND_RELATION_MAX_MEMBERS = 500;
-
 const bboxString = (bounds: BoundingBox) =>
   `${bounds.minLat},${bounds.minLng},${bounds.maxLat},${bounds.maxLng}`;
 
@@ -552,36 +557,14 @@ export const corridorPolyline = (coordinates: Coordinate[]): string => {
   return kept.map((c) => `${round(c.lat)},${round(c.lng)}`).join(',');
 };
 
-/** Natural values that are water, or land inside it: what shore detection reads. */
-const WATER_NATURAL_VALUES = '^(water|bay|strait|coastline|bare_rock|shoal)$';
-
 /**
  * #741 FR4 (a) — the water query: water areas, waterways, the coast, islands
  * and piers, out to `SHORE_QUERY_MARGIN_METERS` for shore detection (#493).
- * Small and fast, so the water can be drawn before the rest arrives.
+ * Small and fast, so the water can be drawn before the rest arrives. Built in
+ * `overpassWaterCache`, which shares its answer with the waterway walk (#752).
  */
-export const buildOverpassWaterQuery = (coordinates: Coordinate[]) => {
-  const wide = bboxString(buildBoundingBox(coordinates, SHORE_QUERY_MARGIN_METERS));
-  return `
-[out:json][timeout:15];
-(
-  way["natural"~"${WATER_NATURAL_VALUES}"](${wide});
-  relation["natural"~"${WATER_NATURAL_VALUES}"](${wide});
-  way["waterway"](${wide});
-  relation["waterway"](${wide});
-  // Reservoirs, islands and piers for the water/land mask (#493).
-  way["landuse"~"^(reservoir|basin)$"](${wide});
-  way["place"~"^(island|islet)$"](${wide});
-  // Capped by size: on a coast the landmass itself (Great Britain: 5,727 members) is a
-  // place=island relation, and the coastline already says where its land is.
-  relation["place"~"^(island|islet)$"](${wide})(if:count_members() < ${ISLAND_RELATION_MAX_MEMBERS});
-  // Islets mapped only as a point, drawn as a disc (D17 c).
-  node["place"~"^(island|islet)$"](${wide});
-  way["man_made"~"^(pier|breakwater|groyne)$"](${wide});
-);
-out geom qt;
-`;
-};
+export const buildOverpassWaterQuery = (coordinates: Coordinate[]) =>
+  buildWaterQueryForBox(buildBoundingBox(coordinates, SHORE_QUERY_MARGIN_METERS));
 
 /**
  * #741 FR4 (b) — the scenery query. Buildings and bridges come from the
@@ -1455,6 +1438,7 @@ export class RouteEnrichmentService {
   private readonly fetchImpl: typeof fetch;
   private readonly storage: Storage | null;
   private readonly detect: RouteDetectionRunner;
+  private readonly waterCache: OverpassWaterCache;
   private readonly inflight = new Map<string, Promise<RouteEnrichmentData>>();
 
   constructor(
@@ -1466,10 +1450,14 @@ export class RouteEnrichmentService {
     storage: Storage | null = defaultStorage(),
     // #493 D23 b: a worker where the browser has one, inline otherwise.
     detect: RouteDetectionRunner = createWorkerDetectionRunner(),
+    // #752 FR3: the water answers shared with the waterway walk. Each
+    // instance has its own unless it is handed the app's shared one.
+    waterCache: OverpassWaterCache = new OverpassWaterCache(),
   ) {
     this.fetchImpl = fetchImpl;
     this.storage = storage;
     this.detect = detect;
+    this.waterCache = waterCache;
     this.pruneOldCacheVersions();
   }
 
@@ -1591,6 +1579,26 @@ export class RouteEnrichmentService {
   }
 
   /**
+   * #752 FR3 — the water around `coordinates`: from the shared cache when the
+   * waterway walk already fetched a box holding the shore margin, else one
+   * query whose answer is kept there for it. Elements fetched for a wider box
+   * are trimmed to this one, so detection sees what its own query would.
+   */
+  private async waterElements(coordinates: Coordinate[]): Promise<OverpassElement[]> {
+    const wide = buildBoundingBox(coordinates, SHORE_QUERY_MARGIN_METERS);
+    const cached = this.waterCache.covering(wide) as OverpassElement[] | null;
+    if (cached) {
+      return cached.filter((element) => {
+        const bounds = getElementBounds(element);
+        return bounds !== null && boundsOverlap(bounds, wide);
+      });
+    }
+    const elements = await this.postOverpass(buildOverpassWaterQuery(coordinates), OVERPASS_WATER_TIMEOUT_MS);
+    this.waterCache.store(wide, elements);
+    return elements;
+  }
+
+  /**
    * `onPhase` (#741 FR5) hears which Overpass query is running, so the Row
    * screen can say "Reading the water…" then "Dressing the banks…". It is
    * not called for a cached answer, nor for a caller joining a request
@@ -1645,10 +1653,7 @@ export class RouteEnrichmentService {
         // land use. A scenery failure keeps the real water, and is not cached
         // so the next selection asks again.
         onPhase?.('water');
-        const waterElements = await this.postOverpass(
-          buildOverpassWaterQuery(route.coordinates),
-          OVERPASS_WATER_TIMEOUT_MS,
-        );
+        const waterElements = await this.waterElements(route.coordinates);
         onPhase?.('scenery');
         const scenery = await this.postOverpass(
           buildOverpassSceneryQuery(route.coordinates),
@@ -1727,4 +1732,9 @@ export class RouteEnrichmentService {
   }
 }
 
-export const routeEnrichmentService = new RouteEnrichmentService();
+export const routeEnrichmentService = new RouteEnrichmentService(
+  undefined,
+  undefined,
+  undefined,
+  overpassWaterCache,
+);

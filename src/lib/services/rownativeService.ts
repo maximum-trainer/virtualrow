@@ -1,6 +1,7 @@
 import type { WaterBodyType } from './routeEnrichmentService';
 import { waterBodyFromName } from '../utils/waterBodyFromName';
 import { OsmWaterwayPathProvider } from './osmWaterwayPathProvider';
+import { overpassWaterCache } from './overpassWaterCache';
 import type { WaterRoute } from '../types/index';
 import { routeService, type RownativeRouteImportData } from './routeService';
 import {
@@ -596,4 +597,13 @@ export class RownativeService {
   }
 }
 
-export const rownativeService = new RownativeService();
+/**
+ * The app's service. Its waterway walk shares the Overpass water answers with
+ * `routeEnrichmentService`, so a course imported then rowed asks once (#752 FR3).
+ */
+export const rownativeService = new RownativeService(
+  undefined,
+  undefined,
+  undefined,
+  new OsmWaterwayPathProvider((input, init) => globalThis.fetch(input, init), { waterCache: overpassWaterCache }),
+);
