@@ -66,6 +66,7 @@ import {
 } from './waterDetectionSummary';
 import { createSceneryMeshPass } from '../passes/sceneryMesh';
 import { revealAlpha } from '../passes/sceneryReveal';
+import { sceneryCastsShadowFor, sceneryDrawDistanceFor, sceneryShadowDistanceFor } from '../plan/sceneryDrawDistance';
 import {
   placeFurniture,
   routeExtras,
@@ -1066,9 +1067,12 @@ export const createRideScene = async (
       colors: decoded.colors,
       baseColor: decoded.baseColor,
       maxInstances: COURSE_FURNITURE_MAX_INSTANCES,
-      castsShadow: !SHADOW_NEUTRAL_MODEL_IDS.has(id),
+      castsShadow: !SHADOW_NEUTRAL_MODEL_IDS.has(id) && sceneryCastsShadowFor(id),
       // #727 FR1/FR2 — drawn only where in view, and per shadow cascade.
       cullCellMetres: INSTANCE_CELL_METRES,
+      // #725 FR7 — small detail and kit trees only near the camera.
+      drawDistanceMetres: sceneryDrawDistanceFor(id),
+      shadowDistanceMetres: sceneryShadowDistanceFor(id),
       ...(revealAt !== undefined ? { revealAt } : {}),
     });
   };
@@ -2287,7 +2291,7 @@ export const createRideScene = async (
     projectionWithInsets(frame.proj, fovY, width, height, viewportInsets, CAMERA_NEAR_M, CAMERA_FAR_M);
     mat4Multiply(frame.viewProj, frame.proj, frame.view);
     // #727 FR1 — kit scenery draws only the cells inside this view.
-    sceneryMeshPass.setView(frame.viewProj);
+    sceneryMeshPass.setView(frame.viewProj, eye);
     // #733 VP-15 FR3 telemetry: where the player boat lands on screen, and
     // the area the HUD leaves clear, so a spec can check one is inside the
     // other in every camera view.

@@ -29,7 +29,7 @@
  * the scenery instancing (the engine mounts an empty scenery pass for an empty
  * `pools`, which is what it already does on the fallback route).
  */
-import { beyondEveryLegShore, centrelineIndex, clearOfEveryLeg } from '../scenery/everyLegClearance';
+import { beyondEveryLegShore, centrelineIndex, clearOfEveryLeg, sampledCentreline } from '../scenery/everyLegClearance';
 import { BUILT_IN_FOOTPRINT_LOOKUP, footprintRadiusFor } from '../scenery/sceneryFootprints';
 import type { WaterRoute } from '../types/index';
 import {
@@ -67,6 +67,7 @@ import { SCENERY_PROFILES } from '../../components/rower3d/sceneryConfig';
 import type { BuildingSpec } from '../renderer/plan/buildings';
 import {
   budgetFor,
+  stationSpacingFor,
   computePlacements,
   distinctProfiles,
   keepsKitTrees,
@@ -330,7 +331,10 @@ export const toEngineRoute = (
     // needed.
     const reeds = layoutReeds({ curve, enrichment: layoutEnrichment, track });
     const rocks = layoutRocks({ curve, enrichment: layoutEnrichment, track });
-    const everyLeg = centrelineIndex(curvePoints);
+    // #725 — the centreline as drawn (the spline), sampled every ~5 m. The
+    // control points cut inside the spline at a stake turn, and with
+    // stations every few tens of metres a landform lands in that gap.
+    const everyLeg = centrelineIndex(sampledCentreline(curve));
     // FR4 — on a coastal course nothing stands on the sea side.
     const sideSample = { position: vec3(), tangent: vec3(0, 0, -1), angle: 0 };
     const onLandSide = (progress: number, x: number, z: number): boolean => {
@@ -388,8 +392,8 @@ export const toEngineRoute = (
       resolvedByProfile.set(profile, resolveSceneryModels(profile, waterType, treeSpecies, region));
     }
     const kitTrees = keepsKitTrees(mode);
-    const left = seaSide === 'left' ? [] : computePlacements({ curve, enrichment: layoutEnrichment, resolvedByProfile, budget, side: 'left', track, kitTrees });
-    const right = seaSide === 'right' ? [] : computePlacements({ curve, enrichment: layoutEnrichment, resolvedByProfile, budget, side: 'right', track, kitTrees });
+    const left = seaSide === 'left' ? [] : computePlacements({ curve, enrichment: layoutEnrichment, resolvedByProfile, budget, side: 'left', track, kitTrees, stationSpacingMetres: stationSpacingFor(mode) });
+    const right = seaSide === 'right' ? [] : computePlacements({ curve, enrichment: layoutEnrichment, resolvedByProfile, budget, side: 'right', track, kitTrees, stationSpacingMetres: stationSpacingFor(mode) });
     const requests = routeStructures({
       side: 'left',
       hasCurve: true,

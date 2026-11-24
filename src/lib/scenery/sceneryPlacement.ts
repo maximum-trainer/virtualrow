@@ -125,6 +125,40 @@ const SCENERY_BUDGET: Record<PerformanceMode, number> = {
   basic: 0.4, low: 0.5, medium: 0.7, high: 0.85, 'extra-high': 1,
 };
 export const budgetFor = (mode: PerformanceMode): number => SCENERY_BUDGET[mode] ?? SCENERY_BUDGET.medium;
+
+/**
+ * #725 VP-07 FR1 — one placement station every `S` metres of route, by tier.
+ * Before this a route had a fixed ~15 stations at medium whatever its
+ * length (one every ~450 m on the demo, every 1.3 km on a 20 km course).
+ */
+export const STATION_SPACING_METRES: Record<PerformanceMode, number> = {
+  basic: 60, low: 45, medium: 35, high: 28, 'extra-high': 22,
+};
+/** Fewest stations on any route at medium; scaled by spacing on other tiers. */
+export const MIN_STATIONS_AT_MEDIUM = 6;
+export const stationSpacingFor = (mode: PerformanceMode): number =>
+  STATION_SPACING_METRES[mode] ?? STATION_SPACING_METRES.medium;
+
+/**
+ * #725 FR1 — the rarer categories come at a distance cadence, so they keep
+ * the same density per km on any route length and at any station spacing.
+ */
+export const CATEGORY_EVERY_METRES = {
+  trees: 105,
+  surface: 210,
+  furniture: 600,
+  buildings: 500,
+  landform: 1200,
+  backdrop: 1800,
+} as const;
+
+/**
+ * #725 FR1 — per-side instance ceiling, scaled with the route's length so
+ * a long route is not thinned below the density of a short one. Two
+ * placements per station is above what the schedule emits.
+ */
+export const instanceCeilingFor = (lengthMetres: number, spacingMetres: number): number =>
+  Math.max(MAX_INSTANCES_PER_SIDE, Math.ceil((Math.max(0, lengthMetres) / Math.max(1, spacingMetres)) * 2));
 /**
  * #623 D2-a (Phase 1) — the kit-tree flora pass is now wired on every
  * tier that draws trees (basic/low included). The old procedural
@@ -157,6 +191,9 @@ export interface PlacementInput {
   /** #723 FR3 — footprint radius lookup from the manifest. When null, a
    *  per-tier fallback keeps the keep-clear maths safe. */
   footprintLookup?: FootprintLookup | null;
+  /** #725 FR1 — metres between stations along the curve
+   *  ({@link stationSpacingFor}). Defaults to medium's. */
+  stationSpacingMetres?: number;
 }
 
 /**
@@ -201,6 +238,7 @@ export const computePlacements = (input: PlacementInput): Placement[] => {
     kitTrees = true, footprintLookup = BUILT_IN_FOOTPRINT_LOOKUP,
   } = input;
   const out: Placement[] = [];
+  let ceiling = MAX_INSTANCES_PER_SIDE;
   const firstResolved = resolvedByProfile.values().next().value as ResolvedScenery | undefined;
   const fallback = resolvedByProfile.get('fallback') ?? firstResolved;
 
@@ -237,7 +275,21 @@ export const computePlacements = (input: PlacementInput): Placement[] => {
   if (curve) {
     const terrain = buildTerrainProfile(enrichment?.elevations);
     const wantSign = side === 'left' ? -1 : 1;
-    const stepCount = Math.max(6, Math.round(MAX_SAMPLE_BANDS * budget));
+    const spacing = input.stationSpacingMetres ?? STATION_SPACING_METRES.medium;
+    const lengthMetres = curve.lengthMeters;
+    // #725 FR1 — stations by distance, not by count.
+    // A short route still gets a handful of stations, more on denser tiers.
+    const minSteps = Math.ceil((MIN_STATIONS_AT_MEDIUM * STATION_SPACING_METRES.medium) / spacing);
+    const stepCount = Math.max(minSteps, Math.round(lengthMetres / spacing));
+    const stepMetres = lengthMetres / stepCount;
+    const every = (metres: number): number => Math.max(1, Math.round(metres / Math.max(1, stepMetres)));
+    const treeEvery = every(CATEGORY_EVERY_METRES.trees);
+    const surfaceEvery = every(CATEGORY_EVERY_METRES.surface);
+    const landformEvery = every(CATEGORY_EVERY_METRES.landform);
+    const backdropEvery = every(CATEGORY_EVERY_METRES.backdrop);
+    const furnitureEvery = every(CATEGORY_EVERY_METRES.furniture);
+    const buildingsEvery = every(CATEGORY_EVERY_METRES.buildings);
+    ceiling = instanceCeilingFor(lengthMetres, spacing);
     const sample = { position: vec3(), tangent: vec3(0, 0, -1), angle: 0 };
     let seed = 100;
     for (let i = 0; i <= stepCount; i++) {
@@ -260,12 +312,12 @@ export const computePlacements = (input: PlacementInput): Placement[] => {
         seed += 5;
         const cat = SCHEDULE[(i + (sign < 0 ? 0 : 4)) % SCHEDULE.length];
         (cat === 'trees' ? putTree : put)(cat, sign, t, sample.position[0], sample.position[2], px, pz, y, baseRot, seed, resolved);
-        if (i % 3 === 0) { seed += 5; putTree('trees', sign, t, sample.position[0], sample.position[2], px, pz, y, baseRot, seed, resolved); }
-        if (i % 6 === 0) { seed += 5; put('surface', sign, t, sample.position[0], sample.position[2], px, pz, y, baseRot, seed, resolved); }
-        if (i % 8 === 0 && sign < 0) { seed += 5; put('landform', sign, t, sample.position[0], sample.position[2], px, pz, y, baseRot, seed, resolved); }
-        if (i % 12 === 0 && sign > 0) { seed += 5; put('backdrop', sign, t, sample.position[0], sample.position[2], px, pz, y, baseRot, seed, resolved); }
-        if (i % 5 === 0) { seed += 5; put('furniture', sign, t, sample.position[0], sample.position[2], px, pz, y, baseRot, seed, resolved); }
-        if (i % 4 === 0) { seed += 5; put('buildings', sign, t, sample.position[0], sample.position[2], px, pz, y, baseRot, seed, resolved); }
+        if (i % treeEvery === 0) { seed += 5; putTree('trees', sign, t, sample.position[0], sample.position[2], px, pz, y, baseRot, seed, resolved); }
+        if (i % surfaceEvery === 0) { seed += 5; put('surface', sign, t, sample.position[0], sample.position[2], px, pz, y, baseRot, seed, resolved); }
+        if (i % landformEvery === 0 && sign < 0) { seed += 5; put('landform', sign, t, sample.position[0], sample.position[2], px, pz, y, baseRot, seed, resolved); }
+        if (i % backdropEvery === 0 && sign > 0) { seed += 5; put('backdrop', sign, t, sample.position[0], sample.position[2], px, pz, y, baseRot, seed, resolved); }
+        if (i % furnitureEvery === 0) { seed += 5; put('furniture', sign, t, sample.position[0], sample.position[2], px, pz, y, baseRot, seed, resolved); }
+        if (i % buildingsEvery === 0) { seed += 5; put('buildings', sign, t, sample.position[0], sample.position[2], px, pz, y, baseRot, seed, resolved); }
       }
     }
   } else if (fallback) {
@@ -285,5 +337,5 @@ export const computePlacements = (input: PlacementInput): Placement[] => {
       }
     }
   }
-  return thinToCeiling(out);
+  return thinToCeiling(out, ceiling);
 };

@@ -153,7 +153,11 @@ describe('placement clearance property (#723 FR1/FR2/FR3, #760)', () => {
             const offsetFromCentre =
               (inst.position[0] - sNearest.position[0]) * px +
               (inst.position[2] - sNearest.position[2]) * pz;
-            const distance = Math.abs(offsetFromCentre);
+            // #725 — past either end of the course the nearest sample is the
+            // end point, whose perpendicular says nothing about the lane: an
+            // item behind the start line is measured by its straight distance.
+            const atEnd = bestT === 0 || bestT === 1;
+            const distance = atEnd ? bestDist : Math.abs(offsetFromCentre);
 
             // Lane buoys (a01 + a02) sit on the racing lane, and bridge
             // spans (tier-c and liveried `l-*-bridge`) cross the water.
@@ -173,7 +177,7 @@ describe('placement clearance property (#723 FR1/FR2/FR3, #760)', () => {
             const BEND_TOLERANCE_METRES = 1;
             expect(
               distance - radius,
-              `${group.id} intrudes on corridor (dist=${distance.toFixed(2)}, r=${radius})`,
+              `${group.id} intrudes on corridor (dist=${distance.toFixed(2)}, r=${radius}, t=${bestT}, near=${bestDist.toFixed(1)})`,
             ).toBeGreaterThanOrEqual(corridor - BEND_TOLERANCE_METRES);
           }
         }
