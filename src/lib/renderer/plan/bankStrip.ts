@@ -13,6 +13,7 @@
 import type { RouteCurve } from '../math/curve';
 import { vec3Normalize, vec3, type Vec3 } from '../math/vec3';
 import { WATER_SURFACE_Y, buildWaterStrip, type WaterEdges } from './waterStrip';
+import { stripSchedule } from './stripSchedule';
 import { routeWaterFootprint, type WaterFootprint } from './waterFootprint';
 import { bankReliefAt } from './bankRelief';
 import { BANK_BIOME_WEIGHTS, BIOME_BLEND_METRES, writeBiomeWeights } from './bankBiome';
@@ -105,7 +106,11 @@ export const buildBankStrips = (
   const defaultDivisions = curve && curve.length >= 2
     ? Math.max(128, Math.min(16000, Math.ceil(curve.approximateLength(64) / 10)))
     : 40;
-  const divisions = Math.max(2, options.divisions ?? defaultDivisions);
+  // #745 FR4 — the same detail schedule as the water, so bank and water edges
+  // stay one polyline; an explicit count keeps even spacing.
+  const schedule = options.divisions === undefined && curve && curve.length >= 2 ? stripSchedule(curve) : null;
+  const divisions = schedule ? schedule.length - 1 : Math.max(2, options.divisions ?? defaultDivisions);
+  const rowT = (i: number): number => (schedule ? schedule[i] : i / divisions);
   const edgesForProgress = options.edgesForProgress
     ?? ((_t: number): WaterEdges => ({ left: waterHalfWidth, right: waterHalfWidth }));
 
@@ -120,7 +125,7 @@ export const buildBankStrips = (
   const indices = indexFormat === 'uint32' ? new Uint32Array(indexCount) : new Uint16Array(indexCount);
   const footprint = options.footprint === undefined
     ? curve && curve.length >= 2
-      ? routeWaterFootprint(buildWaterStrip(curve, { edgesForProgress, divisions }))
+      ? routeWaterFootprint(buildWaterStrip(curve, { edgesForProgress, ...(schedule ? {} : { divisions }) }))
       : null
     : options.footprint;
   let sunkVertices = 0;
@@ -133,7 +138,7 @@ export const buildBankStrips = (
     i: number,
     out: { x: number; z: number; perpX: number; perpZ: number },
   ): void => {
-    const t = i / divisions;
+    const t = rowT(i);
     if (curve && curve.length >= 2) {
       const s = { position: vec3(), tangent: vec3(0, 0, -1), angle: 0 };
       curve.sample(t, s);
@@ -181,7 +186,7 @@ export const buildBankStrips = (
     const row = new Float32Array(BANK_BIOME_WEIGHTS);
     for (let i = 0; i <= divisions; i += 1) {
       sampleCurve(i, sample);
-      const t = i / divisions;
+      const t = rowT(i);
       const { left, right } = edgesForProgress(t);
       const shore = sign < 0 ? left : right;
       if (profileAt) writeBiomeWeights(profileAt, t, blendWindow, row);
