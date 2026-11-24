@@ -30,10 +30,17 @@ import {
   type SceneryProfile,
 } from '../services/routeEnrichmentService';
 import { seededRandom } from './seededRandom';
+import { bandsClearOf } from './sceneryPlacement';
 import { DEFAULT_WATER_WIDTH_METERS } from './waterHalfWidth';
 
 export const FOLIAGE_SLOT_METRES = 10;
-export const FOLIAGE_BAND_DEPTH_METRES = 36;
+export const FOLIAGE_BAND_DEPTH_METRES = 60;
+/**
+ * #725 VP-07 FR3 — sprite cards stand only beyond this distance from the
+ * route (and behind the kit-tree band, wherever a wide river pushes that
+ * out); everything nearer is a kit tree.
+ */
+export const SPRITE_NEAR_LIMIT_METRES = 120;
 export const FOLIAGE_BUILDING_CLEARANCE_METRES = 10;
 const FRONT_BIAS = 1.8;
 export const SCENERY_WATER_MARGIN_METRES = 2;
@@ -77,6 +84,10 @@ const waterHalfWidthAt = (
   const fallback = enrichment?.waterWidthMeters ?? DEFAULT_WATER_WIDTH_METERS;
   return getWaterEdgesSceneUnitsForProgress(enrichment?.segmentProfiles, fallback, progress)[side];
 };
+
+/** Nearest a sprite card stands to the route centreline, metres. */
+export const spriteInnerOffset = (halfWidth: number): number =>
+  Math.max(SPRITE_NEAR_LIMIT_METRES, nearestBankOffset(halfWidth), bandsClearOf(halfWidth).trees[1]);
 
 const plantingChance = (density: number): number => 0.3 + 0.5 * density;
 
@@ -189,7 +200,7 @@ export const layoutFoliage = ({
       const perpX = px / perpLen;
       const perpZ = pz / perpLen;
       const offset =
-        nearestBankOffset(waterHalfWidthAt(enrichment, t, sideOf(side))) +
+        spriteInnerOffset(waterHalfWidthAt(enrichment, t, sideOf(side))) +
         FOLIAGE_BAND_DEPTH_METRES * Math.pow(draw(3), FRONT_BIAS);
       const x = curveSample.position[0] + perpX * side * offset;
       const z = curveSample.position[2] + perpZ * side * offset;

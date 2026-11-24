@@ -26,6 +26,7 @@ import {
   type SceneryProfile,
 } from '../services/routeEnrichmentService';
 import { seededRandom } from './seededRandom';
+import { placementRecipeFor } from './placementRecipes';
 import { waterHalfWidthAt } from './waterHalfWidth';
 import { keepClearHalfWidth } from './laneClearance';
 import {
@@ -45,7 +46,9 @@ export const CATEGORY_OFFSET: Record<Category, [number, number]> = {
   furniture: [8, 15],
   scatter: [15, 35],
   buildings: [45, 95],
-  trees: [40, 110],
+  // #725 FR3 — kit trees fill the bank from just behind the scatter out
+  // to the sprite limit (`SPRITE_NEAR_LIMIT_METRES`), where cards take over.
+  trees: [16, 118],
   landform: [115, 150],
   backdrop: [195, 240],
 };
@@ -87,9 +90,6 @@ export const CATEGORY_FACE: Record<Category, boolean> = {
   trees: false, landform: true, backdrop: true, buildings: true,
 };
 
-export const SCHEDULE: Category[] = [
-  'bankEdge', 'scatter', 'trees', 'scatter', 'bankEdge', 'trees', 'surface', 'scatter',
-];
 
 export interface Placement {
   id: SceneryModelId;
@@ -144,21 +144,17 @@ export const stationSpacingFor = (mode: PerformanceMode): number =>
  * the same density per km on any route length and at any station spacing.
  */
 export const CATEGORY_EVERY_METRES = {
-  trees: 105,
-  surface: 210,
-  furniture: 600,
-  buildings: 500,
   landform: 1200,
   backdrop: 1800,
 } as const;
 
 /**
  * #725 FR1 — per-side instance ceiling, scaled with the route's length so
- * a long route is not thinned below the density of a short one. Two
- * placements per station is above what the schedule emits.
+ * a long route is not thinned below the density of a short one. Five
+ * placements per station is above what the densest recipe emits (#725 FR2).
  */
 export const instanceCeilingFor = (lengthMetres: number, spacingMetres: number): number =>
-  Math.max(MAX_INSTANCES_PER_SIDE, Math.ceil((Math.max(0, lengthMetres) / Math.max(1, spacingMetres)) * 2));
+  Math.max(MAX_INSTANCES_PER_SIDE, Math.ceil((Math.max(0, lengthMetres) / Math.max(1, spacingMetres)) * 5));
 /**
  * #623 D2-a (Phase 1) — the kit-tree flora pass is now wired on every
  * tier that draws trees (basic/low included). The old procedural
@@ -283,12 +279,22 @@ export const computePlacements = (input: PlacementInput): Placement[] => {
     const stepCount = Math.max(minSteps, Math.round(lengthMetres / spacing));
     const stepMetres = lengthMetres / stepCount;
     const every = (metres: number): number => Math.max(1, Math.round(metres / Math.max(1, stepMetres)));
-    const treeEvery = every(CATEGORY_EVERY_METRES.trees);
-    const surfaceEvery = every(CATEGORY_EVERY_METRES.surface);
     const landformEvery = every(CATEGORY_EVERY_METRES.landform);
     const backdropEvery = every(CATEGORY_EVERY_METRES.backdrop);
-    const furnitureEvery = every(CATEGORY_EVERY_METRES.furniture);
-    const buildingsEvery = every(CATEGORY_EVERY_METRES.buildings);
+    // #725 FR2 — the profile's recipe sets how much of each category a
+    // stretch of bank gets; a running count per side carries the fraction
+    // from one station to the next, so the rate holds at any spacing.
+    const density = STATION_SPACING_METRES.medium / spacing;
+    const owed = new Map<string, number>();
+    const due = (sign: number, cat: Category, per100m: number): number => {
+      const key = `${sign}${cat}`;
+      const total = (owed.get(key) ?? 0) + (per100m * density * stepMetres) / 100;
+      const n = Math.floor(total);
+      owed.set(key, total - n);
+      return n;
+    };
+    const dueEvery = (sign: number, cat: Category, everyMetres: number): number =>
+      Number.isFinite(everyMetres) ? due(sign, cat, 100 / everyMetres / density) : 0;
     ceiling = instanceCeilingFor(lengthMetres, spacing);
     const sample = { position: vec3(), tangent: vec3(0, 0, -1), angle: 0 };
     let seed = 100;
@@ -301,23 +307,34 @@ export const computePlacements = (input: PlacementInput): Placement[] => {
       const perpLen = Math.hypot(perpX, perpZ) || 1;
       const px = perpX / perpLen;
       const pz = perpZ / perpLen;
-      const profile = getSegmentSceneryProfile(enrichment, t, track);
-      const resolved = resolvedByProfile.get(profile) ?? fallback;
-      if (!resolved) continue;
+      const tx = sample.tangent[0];
+      const tz = sample.tangent[2];
       const y = getTerrainReliefForProgress(terrain, t);
       const baseRot = Math.atan2(sample.tangent[0], sample.tangent[2]);
       for (const sign of [-1, 1]) {
+        const profile = getSegmentSceneryProfile(enrichment, t, track, sideOfOffset(sign));
+        const resolved = resolvedByProfile.get(profile) ?? fallback;
+        if (!resolved) continue;
+        const recipe = placementRecipeFor(profile);
         const put = sign === wantSign ? place : noPlace;
         const putTree = kitTrees ? put : noPlace;
-        seed += 5;
-        const cat = SCHEDULE[(i + (sign < 0 ? 0 : 4)) % SCHEDULE.length];
-        (cat === 'trees' ? putTree : put)(cat, sign, t, sample.position[0], sample.position[2], px, pz, y, baseRot, seed, resolved);
-        if (i % treeEvery === 0) { seed += 5; putTree('trees', sign, t, sample.position[0], sample.position[2], px, pz, y, baseRot, seed, resolved); }
-        if (i % surfaceEvery === 0) { seed += 5; put('surface', sign, t, sample.position[0], sample.position[2], px, pz, y, baseRot, seed, resolved); }
+        // Several of one category at a station spread along the bank
+        // rather than stacking on the station's line.
+        const putN = (cat: Category, n: number, fn: typeof place) => {
+          for (let k = 0; k < n; k++) {
+            seed += 5;
+            const along = (seededRandom(seed + 4) - 0.5) * stepMetres;
+            fn(cat, sign, t, sample.position[0] + tx * along, sample.position[2] + tz * along, px, pz, y, baseRot, seed, resolved);
+          }
+        };
+        putN('trees', due(sign, 'trees', recipe.treesPer100m), putTree);
+        putN('scatter', due(sign, 'scatter', recipe.scatterPer100m), put);
+        putN('bankEdge', due(sign, 'bankEdge', recipe.bankEdgePer100m), put);
+        putN('surface', due(sign, 'surface', recipe.surfacePer100m), put);
+        putN('furniture', dueEvery(sign, 'furniture', recipe.furnitureEveryMetres), put);
+        putN('buildings', dueEvery(sign, 'buildings', recipe.buildingsEveryMetres), put);
         if (i % landformEvery === 0 && sign < 0) { seed += 5; put('landform', sign, t, sample.position[0], sample.position[2], px, pz, y, baseRot, seed, resolved); }
         if (i % backdropEvery === 0 && sign > 0) { seed += 5; put('backdrop', sign, t, sample.position[0], sample.position[2], px, pz, y, baseRot, seed, resolved); }
-        if (i % furnitureEvery === 0) { seed += 5; put('furniture', sign, t, sample.position[0], sample.position[2], px, pz, y, baseRot, seed, resolved); }
-        if (i % buildingsEvery === 0) { seed += 5; put('buildings', sign, t, sample.position[0], sample.position[2], px, pz, y, baseRot, seed, resolved); }
       }
     }
   } else if (fallback) {
