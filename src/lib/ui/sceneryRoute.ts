@@ -48,7 +48,7 @@ import { DEFAULT_WATER_WIDTH_METERS } from '../scenery/waterHalfWidth';
 import { distanceBetweenLatLng, latLngToMeters } from '../utils/geoUtils';
 import type { Landscape } from '../services/landscapeService';
 import type { LandCoverMask } from '../scenery/landCoverMask';
-import { landscapeScenery, type LandCoverSummary } from '../scenery/landscapeScenery';
+import { coastLandSide, landscapeScenery, type LandCoverSummary } from '../scenery/landscapeScenery';
 import type { OsmBuilding } from '../services/routeEnrichmentService';
 import { SCENE_SCALE } from '../utils/worldScale';
 import { routeCurvePoints, ringToSceneXZ } from '../utils/routeWorldCurve';
@@ -316,9 +316,11 @@ export const toEngineRoute = (
   const fallbackWidthMeters =
     layoutEnrichment?.waterWidthMeters ?? DEFAULT_WATER_WIDTH_METERS / SCENE_SCALE;
   // FR4 — a coastal course with no map data: land on one side, the sea out
-  // to the horizon on the other.
+  // to the horizon on the other. #764 FR6 — where the map has the coastline,
+  // it says which side, and that wins over the tag.
   const landSide: 'left' | 'right' | undefined =
-    !enrichment && !routeTrack && route.tags?.includes(COASTAL_TAG) ? COASTAL_LAND_SIDE : undefined;
+    (routeTrack ? undefined : coastLandSide(landscape, curvePoints)) ??
+    (!enrichment && !routeTrack && route.tags?.includes(COASTAL_TAG) ? COASTAL_LAND_SIDE : undefined);
   const seaSide = landSide === 'left' ? 'right' : landSide === 'right' ? 'left' : null;
   const waterEdgesForProgress = (progress: number): WaterEdges => {
     const edges = getWaterEdgesSceneUnitsForProgress(

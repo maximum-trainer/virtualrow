@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { TREELINE_BUDGET, landscapeScenery } from '../lib/scenery/landscapeScenery';
+import { TREELINE_BUDGET, coastLandSide, landscapeScenery } from '../lib/scenery/landscapeScenery';
 import { LandCoverClass, classAt } from '../lib/scenery/landCoverMask';
 import type { LandCoverFeature, Landscape, ScenePoint } from '../lib/services/landscapeService';
 
@@ -61,5 +61,33 @@ describe('landscapeScenery (#764)', () => {
     const woods = [strip(300, 600), strip(-600, -300)];
     expect(landscapeScenery(landscape(woods), CURVE, 'medium')!.treelines).toHaveLength(76);
     expect(landscapeScenery(landscape(woods), CURVE, 'basic')!.treelines).toHaveLength(TREELINE_BUDGET.basic);
+  });
+});
+
+describe('coastLandSide (#764 FR6)', () => {
+  // CURVE heads south (+z) along x = 0, so its left bank is east (+x).
+  const coast = (points: ScenePoint[]): LandCoverFeature => ({ kind: 'coastline', shape: 'line', points });
+
+  it('puts the land on the bank away from the sea', () => {
+    // Walking north along x = 200 the land is west: the sea is on the left bank.
+    expect(coastLandSide(landscape([coast([[200, 3000], [200, -3000]])]), CURVE)).toBe('right');
+    expect(coastLandSide(landscape([coast([[-200, -3000], [-200, 3000]])]), CURVE)).toBe('left');
+  });
+
+  it('marks the sea seaward of the coast in the mask (AC: the sea is on one side)', () => {
+    const out = landscapeScenery(landscape([coast([[300, 3000], [300, -3000]])]), CURVE, 'medium')!;
+    expect(classAt(out.landCover, 1000, 0)).toBe(LandCoverClass.sea);
+    expect(classAt(out.landCover, -1000, 0)).toBe(LandCoverClass.unknown);
+    expect(out.summary.classesPresent).toContain(LandCoverClass.sea);
+  });
+
+  it('is undefined with no coastline, no data, or land on both banks', () => {
+    expect(coastLandSide(null, CURVE)).toBeUndefined();
+    expect(coastLandSide(landscape(null, 'unavailable'), CURVE)).toBeUndefined();
+    expect(coastLandSide(landscape([{ kind: 'wood', shape: 'polygon', points: square(500, 0, 100) }]), CURVE)).toBeUndefined();
+    // A channel between two shores: land east of x = 100 and west of x = -100.
+    const channel = [coast([[100, -3000], [100, 3000]]), coast([[-100, 3000], [-100, -3000]])];
+    expect(coastLandSide(landscape(channel), CURVE)).toBeUndefined();
+    expect(coastLandSide(landscape([coast([[300, 3000], [300, -3000]])]), [[0, 0, 0], [0, 0, 0]])).toBeUndefined();
   });
 });
