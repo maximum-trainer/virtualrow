@@ -40,6 +40,13 @@ describe('scenery draw distance (#725 FR7)', () => {
     expect(sceneryCastsShadowFor('a12-regatta-flagpole')).toBe(true);
   });
 
+  it('slender course furniture casts its shadow only near the camera; trees to 120 m (#725 FR7)', () => {
+    expect(TREE_SHADOW_METRES).toBe(120);
+    expect(sceneryShadowDistanceFor('a12-regatta-flagpole')).toBe(DETAIL_SHADOW_METRES);
+    expect(sceneryShadowDistanceFor('a01-buoy-lane-sphere')).toBe(DETAIL_SHADOW_METRES);
+    expect(sceneryShadowDistanceFor('c01-bridge-arch-stone')).toBe(0);
+  });
+
   it('cells beyond the draw distance from the eye are skipped, near ones kept', () => {
     // Two instances: one 100 m away, one 900 m away, both in an all-pass frustum.
     const layout = buildCellLayout([0, 0, -100, 0, 0, -900], [1, 1], 120);

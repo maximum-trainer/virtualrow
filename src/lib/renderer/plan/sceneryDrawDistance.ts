@@ -5,7 +5,7 @@
  * hundred kit instances on a route. Small ground detail (a flower patch,
  * a boulder cluster, a deadfall pile) is a few pixels past 250 m but costs
  * thousands of triangles each, so it is drawn only near the camera; kit
- * trees go to 400 m. Landforms, backdrops, course furniture and structures
+ * trees go to 400 m (shadows to 120 m). Landforms, backdrops, course furniture and structures
  * are never dropped for distance. The mesh pass fades a model out over the
  * last fifth of its distance (`sceneryMesh.wgsl`), so nothing pops.
  */
@@ -29,10 +29,13 @@ export const sceneryDrawDistanceFor = (id: string): number => {
   return footprintRadiusFor(id, BUILT_IN_FOOTPRINT_LOOKUP) <= DETAIL_MAX_RADIUS_METRES ? DETAIL_DRAW_METRES : 0;
 };
 
+/** Detail narrower than this casts no shadow at all, metres: its shadow is a smudge under it. */
+export const NO_SHADOW_RADIUS_METRES = 1;
+
 /** Shadow-casting distance of small ground detail, metres. */
 export const DETAIL_SHADOW_METRES = 40;
 /** Shadow-casting distance of kit trees, metres. */
-export const TREE_SHADOW_METRES = 200;
+export const TREE_SHADOW_METRES = 120;
 
 /**
  * Metres from the camera beyond which `id` casts no shadow; 0 for no limit.
@@ -43,11 +46,13 @@ export const sceneryShadowDistanceFor = (id: string): number => {
   const draw = sceneryDrawDistanceFor(id);
   if (draw === DETAIL_DRAW_METRES) return DETAIL_SHADOW_METRES;
   if (draw === TREE_DRAW_METRES) return TREE_SHADOW_METRES;
+  // Slender course furniture (buoys, flagpoles, posts) is drawn at any
+  // distance, but its shadow is a line a few pixels long past 40 m, and
+  // every cascade redraws it (#725 FR7).
+  if (footprintRadiusFor(id, BUILT_IN_FOOTPRINT_LOOKUP) < NO_SHADOW_RADIUS_METRES) return DETAIL_SHADOW_METRES;
   return 0;
 };
 
-/** Detail narrower than this casts no shadow at all, metres: its shadow is a smudge under it. */
-export const NO_SHADOW_RADIUS_METRES = 1;
 
 /** Whether `id` casts a shadow; tiny ground detail (flower patches, boulder clusters) does not. */
 export const sceneryCastsShadowFor = (id: string): boolean =>
