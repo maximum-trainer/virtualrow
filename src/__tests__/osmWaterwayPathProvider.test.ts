@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Coordinate } from '../lib/types/index';
 import { polylineLengthMeters } from '../lib/utils/coordinateUtils';
 import { projectPointOntoPolyline } from '../lib/utils/polylineGeometry';
-import { OsmWaterwayPathProvider } from '../lib/services/osmWaterwayPathProvider';
+import { OsmWaterwayPathProvider, STAKE_RUN_IN_M } from '../lib/services/osmWaterwayPathProvider';
+import { roundCourseCorners } from '../lib/utils/courseCorners';
 
 // #743. The first cut of this provider (issue #194 R-12) was shelved after a
 // spike found a path on only 2 of 5 river courses. Every failure was the same:
@@ -258,5 +259,86 @@ describe('OsmWaterwayPathProvider on water mapped only as an area', () => {
   it('falls through when there are no water areas either', async () => {
     const { provider } = overpass([]);
     expect(await provider.findPath([at(0, 0), at(1000, 0)])).toBeNull();
+  });
+});
+
+// #751 FR3: out-and-back on one centreline.
+describe('OsmWaterwayPathProvider on an out-and-back course', () => {
+  const STRAIGHT = way([0, -200], [0, 3000]);
+  const yOf = (c: Coordinate) => (c.lat - ORIGIN.lat) * M_PER_DEG_LAT;
+  const xOf = (c: Coordinate) => (c.lng - ORIGIN.lng) * LNG_SCALE;
+
+  it('moves the return leg off the outbound one', async () => {
+    const { provider } = overpass([STRAIGHT]);
+    const path = await provider.findPath([at(0, 0), at(0, 2000), at(0, 0)], {
+      gateExtentsMeters: [40, 40, 40],
+    });
+    expect(path).not.toBeNull();
+    // Find the stake, then measure the return half against the outbound half.
+    const stake = path!.reduce((best, p, i) => (yOf(p) > yOf(path![best]) ? i : best), 0);
+    const outbound = path!.slice(0, stake + 1);
+    const back = path!.slice(stake);
+    // Past the eased ends, the return runs parallel: check its vertices there.
+    const apart = back
+      .filter((p) => yOf(p) > 50 && yOf(p) < 1950)
+      .map((p) => projectPointOntoPolyline(p, outbound).offsetMeters);
+    expect(apart.length).toBeGreaterThan(0);
+    for (const d of apart) expect(d).toBeGreaterThanOrEqual(8);
+    // Coming back south, keeping right puts it to the west.
+    expect(back.filter((p) => yOf(p) > 50 && yOf(p) < 1950).every((p) => xOf(p) < 0)).toBe(true);
+  });
+
+  it('does the same on a river mapped only as an area', async () => {
+    const riverArea = {
+      ...way([-60, -100], [60, -100], [60, 2100], [-60, 2100], [-60, -100]),
+      tags: { natural: 'water' },
+    };
+    const { provider } = overpass([riverArea]);
+    const path = await provider.findPath([at(0, 0), at(0, 2000), at(0, 0)]);
+    expect(path).not.toBeNull();
+    const stake = path!.reduce((best, p, i) => (yOf(p) > yOf(path![best]) ? i : best), 0);
+    const outbound = path!.slice(0, stake + 1);
+    const apart = path!.slice(stake)
+      .filter((p) => yOf(p) > 200 && yOf(p) < 1800)
+      .map((p) => projectPointOntoPolyline(p, outbound).offsetMeters);
+    expect(apart.length).toBeGreaterThan(0);
+    // 120 m wide: 0.3 x 120 caps at 15 m.
+    for (const d of apart) expect(d).toBeCloseTo(15, 0);
+  });
+});
+
+// #751 FR4: the stake.
+describe('OsmWaterwayPathProvider at a stake', () => {
+  const STRAIGHT = way([0, -200], [0, 3000]);
+  const yOf = (c: Coordinate) => (c.lat - ORIGIN.lat) * M_PER_DEG_LAT;
+  const xOf = (c: Coordinate) => (c.lng - ORIGIN.lng) * LNG_SCALE;
+  const stake = at(0, 2000);
+
+  it('leaves the centreline for the stake gate centre and comes back on the return side', async () => {
+    const { provider } = overpass([STRAIGHT]);
+    const path = await provider.findPath([at(0, 0), stake, at(0, 0)], { gateExtentsMeters: [40, 40, 40] });
+    expect(path).not.toBeNull();
+    const i = path!.findIndex((p) => Math.abs(p.lat - stake.lat) < 1e-9 && Math.abs(p.lng - stake.lng) < 1e-9);
+    expect(i).toBeGreaterThan(0);
+    // In: the centreline stops short of the stake by the run-in.
+    expect(yOf(path![i - 1])).toBeCloseTo(2000 - STAKE_RUN_IN_M, 0);
+    expect(Math.abs(xOf(path![i - 1]))).toBeLessThan(0.5);
+    // Out: straight onto the return side, already 12 m over.
+    expect(yOf(path![i + 1])).toBeCloseTo(2000 - STAKE_RUN_IN_M, 0);
+    expect(xOf(path![i + 1])).toBeCloseTo(-12, 0);
+  });
+
+  it('gives roundCourseCorners a stake to arc round, not a spike', async () => {
+    const { provider } = overpass([STRAIGHT]);
+    const path = await provider.findPath([at(0, 0), stake, at(0, 0)], { gateExtentsMeters: [40, 40, 40] });
+    const rounded = roundCourseCorners(path!);
+    expect(rounded).not.toBe(path);
+    // The arc goes round the far side of the stake...
+    const top = Math.max(...rounded.map(yOf));
+    expect(top).toBeGreaterThan(2000 + 5);
+    // ...and every point near the stake keeps clear of it.
+    const near = rounded.filter((p) => Math.abs(yOf(p) - 2000) < 15 && Math.abs(xOf(p)) < 30);
+    expect(near.length).toBeGreaterThan(3);
+    for (const p of near) expect(Math.hypot(xOf(p), yOf(p) - 2000)).toBeGreaterThan(5);
   });
 });

@@ -141,3 +141,37 @@ describe('the waterway provider seam', () => {
     expect(sharpestTurnDegrees(resolved.coordinates)).toBeLessThanOrEqual(16);
   });
 });
+
+// #751 acceptance: a stake race on a river.
+describe('a stake race on a river (#751 FR3/FR4/FR5)', () => {
+  it('resolves osm-derived, with the legs apart except at the stake', async () => {
+    const { OsmWaterwayPathProvider } = await import('../lib/services/osmWaterwayPathProvider');
+    const river = { type: 'way', geometry: [at(0, -300), at(0, 2600)].map((c) => ({ lat: c.lat, lon: c.lng })) };
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ elements: [river] }) }));
+    const osmProvider = new OsmWaterwayPathProvider(fetchMock as unknown as typeof fetch);
+
+    const result = await resolveCourseGeometry(
+      course(gate('Start', 1, 0, 0), gate('Stake', 2, 0, 2000), gate('Finish', 3, 0, 100)),
+      { osmProvider },
+    );
+
+    expect(result.source).toBe('osm-derived');
+    const yOf = (c: Coordinate) => (c.lat - ORIGIN.lat) * M_PER_DEG_LAT;
+    const top = result.coordinates.reduce((best, p, i) => (yOf(p) > yOf(result.coordinates[best]) ? i : best), 0);
+    const outbound = result.coordinates.slice(0, top + 1);
+    // Sample the return every 10 m: its long straight has no vertices of its own.
+    const returnLeg = result.coordinates.slice(top);
+    const samples: Coordinate[] = [];
+    for (let i = 0; i + 1 < returnLeg.length; i++) {
+      for (let t = 0; t < 1; t += 10 / Math.max(10, Math.abs(yOf(returnLeg[i + 1]) - yOf(returnLeg[i])))) {
+        samples.push({
+          lat: returnLeg[i].lat + (returnLeg[i + 1].lat - returnLeg[i].lat) * t,
+          lng: returnLeg[i].lng + (returnLeg[i + 1].lng - returnLeg[i].lng) * t,
+        });
+      }
+    }
+    const back = samples.filter((p) => yOf(p) > 250 && yOf(p) < 1950);
+    expect(back.length).toBeGreaterThan(0);
+    for (const p of back) expect(projectPointOntoPolyline(p, outbound).offsetMeters).toBeGreaterThanOrEqual(8);
+  });
+});
