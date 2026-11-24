@@ -419,6 +419,13 @@ const win = (): Win | undefined => {
   return w;
 };
 
+/**
+ * The scene whose handles the globals point at. A mid-row rebuild (#753 FR5)
+ * builds the new scene before the old one is disposed, so the old one must
+ * not clear, or write over, the newer scene's globals.
+ */
+let owner: TelemetryHandles | null = null;
+
 export const createTelemetry = (forceRender: () => void): TelemetryHandles => {
   const renderStats: Rower3DRenderStats = {
     draws: 0,
@@ -519,6 +526,7 @@ export const createTelemetry = (forceRender: () => void): TelemetryHandles => {
       updates: 0,
     },
   };
+  owner = handles;
   const w = win();
   if (w) {
     w['__ROWER3D_RENDER_STATS'] = handles.renderStats;
@@ -560,6 +568,7 @@ export const createTelemetry = (forceRender: () => void): TelemetryHandles => {
  */
 export const publishSpeedMps = (handles: TelemetryHandles, speedMps: number): void => {
   handles.speed.value = speedMps;
+  if (owner !== handles) return;
   const w = win();
   if (w) w['__ROWER3D_SPEED_MPS'] = speedMps;
 };
@@ -575,7 +584,13 @@ export const publishBanner = (
   handles.banner.variant = variant;
 };
 
-export const releaseTelemetry = (): void => {
+/**
+ * Clear the globals. Given the releasing scene's handles, a no-op once a
+ * newer scene has published its own; with none, clears unconditionally.
+ */
+export const releaseTelemetry = (handles?: TelemetryHandles): void => {
+  if (handles && owner !== handles) return;
+  owner = null;
   const w = win();
   if (!w) return;
   for (const key of [
