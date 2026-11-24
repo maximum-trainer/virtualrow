@@ -291,6 +291,11 @@ export interface SceneryRoute {
    * per-segment banks are a follow-up.
    */
   dominantProfile?: string;
+  /**
+   * #725 FR5 — each bank's scenery profile along the route (0..1). The bank
+   * pass shades its ground cover from it. Omitted → the fallback look.
+   */
+  profileForProgress?: (progress: number, side: 'left' | 'right') => SceneryProfile;
 }
 
 export const isSceneryRoute = (route: unknown): route is SceneryRoute =>
@@ -1137,6 +1142,9 @@ export const createRideScene = async (
     footprint: bankFootprint,
     grass: { profile: bankGrassProfile, strength: bankGrassStrength },
     landSide: routeLandSide,
+    ...(isSceneryRoute(opts.route) && opts.route.profileForProgress
+      ? { profileForProgress: opts.route.profileForProgress }
+      : {}),
   });
   // #493 Phase 3b — if the enrichment carried lake polygons AND the kill
   // switch isn't disabled, draw polygon water in place of the strip. The
@@ -1938,6 +1946,7 @@ export const createRideScene = async (
       measureSceneryClearance(sceneryClearance, waterCurveSource, sceneryLoaded, sceneryInstanceMats, sceneryFailed);
     }
     streamScenery(boatPlacement.progress * totalDistanceMeters, !!rideFrame?.loop);
+    bankPass.setBoatProgress(boatPlacement.progress);
     const ghostInfo = placeGhost(
       ghostPlacement,
       routeCurve,

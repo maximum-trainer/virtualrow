@@ -30,6 +30,13 @@ struct Grass {
   // place of the tile, which has no mips and would shimmer at distance.
   grassMean: vec3<f32>,
   _pad2: f32,
+  // #725 FR5 — the ground plane's biome mix (fields, scrub, green, marsh in
+  // xyzw; woodland in groundWood), taken at the boat each frame.
+  groundBiome: vec4<f32>,
+  groundWood: f32,
+  _pad3: f32,
+  _pad4: f32,
+  _pad5: f32,
 };
 
 @group(0) @binding(0) var<uniform> frame: Frame;
@@ -65,17 +72,25 @@ struct VSOut {
   @location(1) side: vec2<f32>,
   @location(2) worldPos: vec3<f32>,
   @location(3) viewZ: f32,
+  // #725 FR5 — biome weights (fields, scrub, green, marsh) and woodland;
+  // meadow is what is left over.
+  @location(4) biome: vec4<f32>,
+  @location(5) wood: f32,
 };
 
 @vertex
 fn vs_main(
   @location(0) position: vec3<f32>,
   @location(1) side: vec2<f32>,
+  @location(2) biome: vec4<f32>,
+  @location(3) wood: f32,
 ) -> VSOut {
   var out: VSOut;
   out.pos = frame.viewProj * vec4<f32>(position, 1.0);
   out.worldXZ = position.xz;
   out.side = side;
+  out.biome = biome;
+  out.wood = wood;
   out.worldPos = position;
   let viewPos = frame.view * vec4<f32>(position, 1.0);
   out.viewZ = -viewPos.z;
@@ -88,8 +103,8 @@ fn vs_main(
 // surfaces are the same colour where they meet.
 const GROUND_SHORE_DIST_M: f32 = 60.0;
 // Where, across the bank strip, plain riverside grass starts giving way to
-// the field pattern. Complete at the outer edge.
-const FIELD_BLEND_START_M: f32 = 30.0;
+// the biome's own ground (#725 FR5). Complete at the outer edge.
+const BIOME_BLEND_START_M: f32 = 10.0;
 
 @vertex
 fn vs_ground(@location(0) position: vec3<f32>) -> VSOut {
@@ -98,6 +113,8 @@ fn vs_ground(@location(0) position: vec3<f32>) -> VSOut {
   out.pos = frame.viewProj * vec4<f32>(world, 1.0);
   out.worldXZ = world.xz;
   out.side = vec2<f32>(0.0, GROUND_SHORE_DIST_M);
+  out.biome = grass.groundBiome;
+  out.wood = grass.groundWood;
   out.worldPos = world;
   let viewPos = frame.view * vec4<f32>(world, 1.0);
   out.viewZ = -viewPos.z;
@@ -160,6 +177,90 @@ fn fieldPattern(worldXZ: vec2<f32>, dist: f32) -> vec4<f32> {
   return vec4<f32>(tint, keepTex);
 }
 
+// Smooth value noise, 0..1, one lattice cell per unit.
+fn valueNoise(p: vec2<f32>) -> f32 {
+  let i = floor(p);
+  let f = fract(p);
+  let u = f * f * (3.0 - 2.0 * f);
+  let a = hash12(i);
+  let b = hash12(i + vec2<f32>(1.0, 0.0));
+  let c = hash12(i + vec2<f32>(0.0, 1.0));
+  let d = hash12(i + vec2<f32>(1.0, 1.0));
+  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+
+// Stripes `periodM` apart along `dir`, faded out before they would alias.
+fn stripes(worldXZ: vec2<f32>, dir: vec2<f32>, periodM: f32, dist: f32, fadeM: f32) -> f32 {
+  let w = 0.5 + 0.5 * sin(dot(worldXZ, dir) * 6.2832 / periodM);
+  return mix(w, 0.5, smoothstep(fadeM * 0.4, fadeM, dist));
+}
+
+// #725 FR5 — the ground of each biome as a tint (rgb) and how much of the
+// grass texture to keep (a). Tints come from `plan/bankBiome.ts`.
+fn meadowGround(worldXZ: vec2<f32>, dist: f32) -> vec4<f32> {
+  // Drifts of seed heads and buttercups at tens of metres.
+  let drift = valueNoise(worldXZ / 23.0);
+  let tint = BIOME_TINT_MEADOW * mix(vec3<f32>(0.92, 0.98, 0.95), vec3<f32>(1.12, 1.06, 0.80), drift);
+  return vec4<f32>(tint, 0.85);
+}
+
+fn fieldsGround(worldXZ: vec2<f32>, dist: f32) -> vec4<f32> {
+  let field = fieldPattern(worldXZ, dist);
+  // Drill rows inside cropped and ploughed fields (the ones that drop the
+  // grass texture), at 3 m, running with the field rows.
+  let rows = stripes(worldXZ, vec2<f32>(0.574, 0.819), 3.0, dist, 160.0);
+  let cropped = 1.0 - field.a;
+  let striped = field.rgb * mix(1.0, 0.82 + 0.36 * rows, cropped);
+  return vec4<f32>(striped * BIOME_TINT_FIELDS, field.a);
+}
+
+fn scrubGround(worldXZ: vec2<f32>, dist: f32) -> vec4<f32> {
+  // Dry ochre ground with dark gorse and bramble clumps.
+  let clumps = smoothstep(0.55, 0.75, valueNoise(worldXZ / 7.0));
+  let clumpsFar = mix(clumps, 0.3, smoothstep(120.0, 360.0, dist));
+  let tint = mix(BIOME_TINT_SCRUB, BIOME_TINT_SCRUB * vec3<f32>(0.42, 0.55, 0.40), clumpsFar);
+  return vec4<f32>(tint, 0.55);
+}
+
+fn greenGround(worldXZ: vec2<f32>, dist: f32) -> vec4<f32> {
+  // Mown: an even bright green in light and dark mower stripes.
+  let band = stripes(worldXZ, vec2<f32>(0.819, -0.574), 10.0, dist, 220.0);
+  let tint = BIOME_TINT_GREEN * (0.90 + 0.20 * band);
+  return vec4<f32>(tint, 0.35);
+}
+
+fn marshGround(worldXZ: vec2<f32>, dist: f32) -> vec4<f32> {
+  // Reed beds with dark wet hollows between them.
+  let wet = smoothstep(0.58, 0.72, valueNoise(worldXZ / 17.0));
+  let tint = mix(BIOME_TINT_MARSH, vec3<f32>(0.30, 0.42, 0.44), wet);
+  return vec4<f32>(tint, mix(0.7, 0.2, wet));
+}
+
+fn woodlandGround(worldXZ: vec2<f32>, dist: f32) -> vec4<f32> {
+  // Moss under the canopy, with patches of leaf litter.
+  let litter = smoothstep(0.45, 0.70, valueNoise(worldXZ / 9.0));
+  let litterFar = mix(litter, 0.35, smoothstep(140.0, 400.0, dist));
+  let tint = mix(BIOME_TINT_WOODLAND, vec3<f32>(0.95, 0.72, 0.46), litterFar * 0.6);
+  return vec4<f32>(tint, 0.6);
+}
+
+// Mixes the six looks by weight. Patterns with no weight are skipped (no
+// texture reads inside, so the branches are safe in non-uniform control flow).
+fn biomeGround(biome: vec4<f32>, wood: f32, worldXZ: vec2<f32>, dist: f32) -> vec4<f32> {
+  let meadowW = max(0.0, 1.0 - biome.x - biome.y - biome.z - biome.w - wood);
+  var acc = vec4<f32>(0.0);
+  if (meadowW > 0.001) { acc = acc + meadowGround(worldXZ, dist) * meadowW; }
+  if (biome.x > 0.001) { acc = acc + fieldsGround(worldXZ, dist) * biome.x; }
+  if (biome.y > 0.001) { acc = acc + scrubGround(worldXZ, dist) * biome.y; }
+  if (biome.z > 0.001) { acc = acc + greenGround(worldXZ, dist) * biome.z; }
+  if (biome.w > 0.001) { acc = acc + marshGround(worldXZ, dist) * biome.w; }
+  if (wood > 0.001) { acc = acc + woodlandGround(worldXZ, dist) * wood; }
+  // Low-frequency light and dark over a few hundred metres, so no biome is
+  // one flat colour from the high camera.
+  let broad = 0.86 + 0.28 * valueNoise(worldXZ / 180.0);
+  return vec4<f32>(acc.rgb * broad, acc.a);
+}
+
 @fragment
 fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   // Base palette: the pre-port damp-grass/dry-grass pair stays as a tint
@@ -203,11 +304,11 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   let farTex = smoothstep(90.0, 320.0, camDist);
   let grassCol = mix(grassTex, grass.grassMean, farTex);
   var albedo = mix(earthTex, grassCol, shoreMix);
-  // Fields take over from riverside grass across the outer half of the bank
-  // strip and cover the whole ground plane.
-  let field = fieldPattern(in.worldXZ, camDist);
-  let fieldW = smoothstep(FIELD_BLEND_START_M, GROUND_SHORE_DIST_M, shoreDist);
-  albedo = mix(albedo, mix(grass.grassMean, albedo, field.a) * field.rgb, fieldW);
+  // #725 FR5: the biome's own ground takes over from riverside grass across
+  // the bank strip and covers the whole ground plane.
+  let ground = biomeGround(in.biome, in.wood, in.worldXZ, camDist);
+  let groundW = smoothstep(BIOME_BLEND_START_M, GROUND_SHORE_DIST_M, shoreDist);
+  albedo = mix(albedo, mix(grass.grassMean, albedo, ground.a) * ground.rgb, groundW);
   // Palette-tint the albedo so a residential profile keeps the warm
   // sandstone tone and a wetland reads cool/green, same way the
   // triplanar tile is multiplied by `diffuseColor.rgb` on the React side.

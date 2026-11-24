@@ -5,6 +5,7 @@ import { routeWaterFootprint, withLakes } from '../waterFootprint';
 import { RouteCurve } from '../../math/curve';
 import { vec3 } from '../../math/vec3';
 import { WATER_SURFACE_Y } from '../waterStrip';
+import { BANK_BIOME_SLOTS, BANK_BIOME_WEIGHTS } from '../bankBiome';
 
 describe('buildBankStrips', () => {
   it('falls back to a straight ribbon on a null curve (smoke-page default)', () => {
@@ -215,5 +216,27 @@ describe('one-sided land for a coastal course (#755 FR4)', () => {
     expect([...left.signs]).toEqual([-1]);
     expect(left.triangles).toBe(both.triangles / 2);
     expect([...indexedSigns('right').signs]).toEqual([1]);
+  });
+});
+
+describe('biome weights per bank (#725 FR5)', () => {
+  it('are only built when asked for', () => {
+    expect(buildBankStrips({ footprint: null }).biomes).toBeUndefined();
+  });
+
+  it('carry each bank\'s own profile, the same across its columns', () => {
+    const geom = buildBankStrips({
+      footprint: null,
+      profileForProgress: (_t, side) => (side === 'left' ? 'wetland' : 'farmland'),
+    });
+    const biomes = geom.biomes!;
+    const verts = geom.positions.length / 3;
+    expect(biomes.length).toBe(verts * BANK_BIOME_WEIGHTS);
+    const marsh = BANK_BIOME_SLOTS.indexOf('marsh');
+    const fields = BANK_BIOME_SLOTS.indexOf('fields');
+    // Left strip first, then right.
+    expect(biomes[marsh]).toBeCloseTo(1);
+    expect(biomes[(verts - 1) * BANK_BIOME_WEIGHTS + fields]).toBeCloseTo(1);
+    expect(biomes[(verts - 1) * BANK_BIOME_WEIGHTS + marsh]).toBe(0);
   });
 });

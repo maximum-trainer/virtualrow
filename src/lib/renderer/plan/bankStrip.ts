@@ -14,6 +14,8 @@ import type { RouteCurve } from '../math/curve';
 import { vec3Normalize, vec3, type Vec3 } from '../math/vec3';
 import { WATER_SURFACE_Y, buildWaterStrip, type WaterEdges } from './waterStrip';
 import { routeWaterFootprint, type WaterFootprint } from './waterFootprint';
+import { BANK_BIOME_WEIGHTS, BIOME_BLEND_METRES, writeBiomeWeights } from './bankBiome';
+import type { SceneryProfile } from '../../services/routeEnrichmentService';
 
 /**
  * #742 VP-22 FR1 — columns across each bank, as fractions of its width, so
@@ -39,6 +41,11 @@ export interface BankStripGeometry {
   indices: Uint16Array | Uint32Array;
   /** `uint32` once a long route's banks pass 65 535 vertices. */
   indexFormat: 'uint16' | 'uint32';
+  /**
+   * #725 FR5 — per-vertex biome weights (`BANK_BIOME_WEIGHTS` floats each, in
+   * `BANK_BIOME_SLOTS` order) when `profileForProgress` was given.
+   */
+  biomes?: Float32Array;
   /** #742 — bank vertices sunk because they lie on the route's water. */
   sunkVertices: number;
   /** #742 — bank triangles left out of `indices` because their centre is on the route's water. */
@@ -71,6 +78,12 @@ export interface BuildBankStripsOptions {
    * other (sea) side is not emitted. Omitted → both banks.
    */
   landSide?: 'left' | 'right';
+  /**
+   * #725 FR5 — each bank's scenery profile along the route. Given, the strips
+   * carry per-vertex biome weights (`biomes`) blended over
+   * ±`BIOME_BLEND_METRES` of bank.
+   */
+  profileForProgress?: (progress: number, side: 'left' | 'right') => SceneryProfile;
 }
 
 const UP: Vec3 = vec3(0, 1, 0);
@@ -104,6 +117,10 @@ export const buildBankStrips = (
       : null
     : options.footprint;
   let sunkVertices = 0;
+  const profileForProgress = options.profileForProgress;
+  const biomes = profileForProgress ? new Float32Array(totalVerts * BANK_BIOME_WEIGHTS) : undefined;
+  const routeMetres = curve && curve.length >= 2 ? curve.approximateLength(64) : length;
+  const blendWindow = BIOME_BLEND_METRES / Math.max(1, routeMetres);
 
   const sampleCurve = (
     i: number,
@@ -152,11 +169,15 @@ export const buildBankStrips = (
 
   const writeStrip = (sign: 1 | -1, vertOffset: number): void => {
     const sample = { x: 0, z: 0, perpX: 0, perpZ: 0 };
+    const sideName = sign < 0 ? 'left' : 'right';
+    const profileAt = profileForProgress ? (t: number) => profileForProgress(t, sideName) : null;
+    const row = new Float32Array(BANK_BIOME_WEIGHTS);
     for (let i = 0; i <= divisions; i += 1) {
       sampleCurve(i, sample);
       const t = i / divisions;
       const { left, right } = edgesForProgress(t);
       const shore = sign < 0 ? left : right;
+      if (profileAt) writeBiomeWeights(profileAt, t, blendWindow, row);
       for (let c = 0; c < columns; c += 1) {
         const out = shore + bankWidth * BANK_COLUMNS[c];
         const x = sample.x + sample.perpX * sign * out;
@@ -173,6 +194,7 @@ export const buildBankStrips = (
         // wet-shore vs lush-mid off the distance from the waterline.
         sides[v * 2] = sign;
         sides[v * 2 + 1] = bankWidth * BANK_COLUMNS[c];
+        if (biomes) biomes.set(row, v * BANK_BIOME_WEIGHTS);
       }
     }
     for (let i = 0; i < divisions; i += 1) {
@@ -198,7 +220,15 @@ export const buildBankStrips = (
   if (options.landSide !== 'right') writeStrip(-1, 0);
   if (options.landSide !== 'left') writeStrip(1, vertsPerStrip);
 
-  return { positions, sides, indices: indices.slice(0, written), indexFormat, sunkVertices, droppedTriangles };
+  return {
+    positions,
+    sides,
+    ...(biomes ? { biomes } : {}),
+    indices: indices.slice(0, written),
+    indexFormat,
+    sunkVertices,
+    droppedTriangles,
+  };
 };
 
 /**
