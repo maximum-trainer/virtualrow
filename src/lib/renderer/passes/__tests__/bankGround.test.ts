@@ -154,6 +154,21 @@ describe('ground cover by biome (#725 FR5)', () => {
   });
 });
 
+describe('the ground plane at the land relief (#745 FR1)', () => {
+  it('lifts the ground to the relief at the boat and lights the bank from its own slope', async () => {
+    const { device } = makeDevice();
+    const pass = await createBankPass({ ...opts(device), reliefForProgress: (t: number) => 4 * t });
+    const write = device.queue.writeBuffer as unknown as ReturnType<typeof vi.fn>;
+    const last = () => write.mock.calls.filter((c) => c[1] === GROUND_BIOME_OFFSET).at(-1)![2] as Float32Array;
+    expect(last()[BANK_BIOME_WEIGHTS]).toBe(0);
+    pass.setBoatProgress(0.5);
+    expect(last()[BANK_BIOME_WEIGHTS]).toBeCloseTo(2);
+    const src = read('bank.wgsl');
+    expect(src).toContain('position.y + grass.groundLift');
+    expect(src).toMatch(/cross\(dpdy\(in\.worldPos\), dpdx\(in\.worldPos\)\)/);
+  });
+});
+
 describe('horizon haze range', () => {
   it('is generated from the plan constants, not typed twice', () => {
     expect(HORIZON_HAZE_WGSL).toContain(`const HAZE_START_M: f32 = ${GROUND_HAZE_START_M.toFixed(1)};`);

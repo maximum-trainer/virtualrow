@@ -33,6 +33,8 @@ export interface BankDepthOptions {
   footprint?: WaterFootprint | null;
   /** #755 FR4 — the same one-sided land as the lit bank pass. */
   landSide?: 'left' | 'right';
+  /** #745 FR1 — the route's land relief, so the bank casts from where it is drawn. */
+  reliefForProgress?: (progress: number) => number;
 }
 
 export const createBankDepthPipeline = async (
@@ -65,6 +67,7 @@ export const createBankDepthPipeline = async (
     edgesForProgress: options.edgesForProgress,
     footprint: options.footprint,
     landSide: options.landSide,
+    reliefForProgress: options.reliefForProgress,
   });
   const positions = device.createBuffer({
     label: 'bankDepth-pos',

@@ -61,13 +61,20 @@ export interface BankPassOptions {
    * cover. Omitted → the 'fallback' look (a patchwork of fields) everywhere.
    */
   profileForProgress?: (progress: number, side: 'left' | 'right') => SceneryProfile;
+  /**
+   * #745 FR1 — the route's land relief (scene units above the flat bank) at a
+   * progress. The strips climb to it; the ground plane sits at it at the boat.
+   * Omitted → flat.
+   */
+  reliefForProgress?: (progress: number) => number;
 }
 
 export interface BankPass extends Pass {
   /**
    * #725 FR5 — the ground plane beyond the strips takes the biome mix at the
    * boat (both banks, blended over ±{@link GROUND_BIOME_BLEND_METRES}), so it
-   * changes with the bands as the boat rows through them. Call per frame;
+   * changes with the bands as the boat rows through them, and sits at the
+   * land relief there (#745 FR1). Call per frame;
    * writes the uniform only when the mix changes.
    */
   setBoatProgress(progress: number): void;
@@ -112,6 +119,7 @@ export const createBankPass = async ({
   footprint,
   landSide,
   profileForProgress,
+  reliefForProgress,
 }: BankPassOptions): Promise<BankPass> => {
   // #725 FR6 — the shared aerial fog, in the sky's horizon colour.
   const code = SHADOW_UNIFORMS_WGSL + SAMPLE_SHADOW_WGSL + HORIZON_HAZE_WGSL + SKY_COLOUR_WGSL + AERIAL_FOG_WGSL
@@ -321,7 +329,9 @@ export const createBankPass = async ({
   });
 
   const profileAt = profileForProgress ?? ((): SceneryProfile => 'fallback');
-  const geom = buildBankStrips({ curve, edgesForProgress, footprint, landSide, profileForProgress: profileAt });
+  const geom = buildBankStrips({
+    curve, edgesForProgress, footprint, landSide, profileForProgress: profileAt, reliefForProgress,
+  });
   const biomes = geom.biomes!;
   const biomeBuffer = device.createBuffer({
     label: 'bank-biome',
@@ -337,7 +347,8 @@ export const createBankPass = async ({
   const leftAt = (t: number) => profileAt(t, 'left');
   const rightAt = (t: number) => profileAt(t, 'right');
   const sideMix = new Float32Array(BANK_BIOME_WEIGHTS * 2);
-  const groundMix = new Float32Array(BANK_BIOME_WEIGHTS);
+  // The five biome weights, then the ground plane's lift (`groundLift`).
+  const groundMix = new Float32Array(BANK_BIOME_WEIGHTS + 1);
   let groundWritten = false;
   const setBoatProgress = (progress: number): void => {
     const p = Number.isFinite(progress) ? Math.max(0, Math.min(1, progress)) : 0;
@@ -350,6 +361,9 @@ export const createBankPass = async ({
       if (w !== groundMix[k]) changed = true;
       groundMix[k] = w;
     }
+    const lift = reliefForProgress ? reliefForProgress(p) : 0;
+    if (lift !== groundMix[BANK_BIOME_WEIGHTS]) changed = true;
+    groundMix[BANK_BIOME_WEIGHTS] = lift;
     if (!changed) return;
     groundWritten = true;
     device.queue.writeBuffer(grassUniforms, GROUND_BIOME_OFFSET, groundMix as BufferSource);

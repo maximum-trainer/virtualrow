@@ -241,3 +241,16 @@ describe('toEngineRoute bank profiles (#725 FR5)', () => {
     expect(toEngineRoute(makeRoute())?.profileForProgress?.(0.5, 'left')).toBe('fallback');
   });
 });
+
+describe('toEngineRoute land relief (#745 FR1)', () => {
+  it('hands the bank the relief from the enrichment\'s elevations, and nothing on flat water', () => {
+    const base = makeRoute();
+    const enrichment = {
+      waterWidthMeters: 40, segmentProfiles: [], elevations: [0, 100], buildings: null, crossings: null, waterBodyType: 'river',
+    } as unknown as Parameters<typeof toEngineRoute>[1];
+    const route = toEngineRoute(base, enrichment);
+    expect(route?.reliefForProgress?.(0)).toBe(0);
+    expect(route?.reliefForProgress?.(1)).toBeCloseTo(2);
+    expect(toEngineRoute(base)?.reliefForProgress).toBeUndefined();
+  });
+});

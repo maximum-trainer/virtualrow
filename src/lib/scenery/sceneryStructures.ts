@@ -8,6 +8,7 @@
  * (that file is three-free data).
  */
 
+import { bankReliefRamp } from '../renderer/plan/bankRelief';
 import type { RouteCurve } from '../renderer/math/curve';
 import { vec3 } from '../renderer/math/vec3';
 import type { Coordinate } from '../types/index';
@@ -198,7 +199,8 @@ export const computeStructurePlacements = (
     // the lane, so it stays as-is.
     const sign = side === 'left' ? -1 : 1;
     const offset = sign * distance;
-    const y = floats ? 0 : getTerrainReliefForProgress(terrain, t);
+    // #745 FR1: on the bank at its height there, which climbs from the water.
+    const y = floats ? 0 : getTerrainReliefForProgress(terrain, t) * bankReliefRamp(distance - halfWidth);
     out.push({
       id,
       position: [sample.position[0] + px * offset, y, sample.position[2] + pz * offset] as [number, number, number],
