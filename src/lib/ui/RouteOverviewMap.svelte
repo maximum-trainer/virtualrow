@@ -257,7 +257,11 @@
     </svg>
   {/if}
   <div class="route-overview-map__pin-layer">
-    {#each entries as entry (entry.kind === 'cluster' ? `cluster-${entry.id}` : entry.route.id)}
+    {#each entries as entry (entry.kind === 'cluster'
+      ? `cluster-${entry.id}`
+      : entry.kind === 'pin-rownative'
+        ? `rn-${entry.preview.id}`
+        : entry.route.id)}
       {#if entry.kind === 'cluster'}
         {@const pos = activeProjection ? activeProjection({ lat: entry.lat, lng: entry.lng }) : null}
         <button
