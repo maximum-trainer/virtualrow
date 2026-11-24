@@ -114,6 +114,10 @@
   // water strip. Shell's `WaterRoute` carries none of this, so adapt it, and
   // pass whatever enrichment the routes store already has cached so the water
   // bends with the OSM-measured river (#570 AC2 + #549 scenery slice).
+  // #764 — the route's map landscape (#762), once it has loaded.
+  const selectedLandscape = $derived(
+    routes.selectedRoute ? routes.routeLandscapes[routes.selectedRoute.id] ?? null : null,
+  );
   const selectedEnrichment = $derived(
     routes.selectedRoute ? routes.routeEnrichments[routes.selectedRoute.id] ?? null : null,
   );
@@ -136,7 +140,9 @@
   });
   // #729 FR5 — the route layout is timed as `vr:attach:route`.
   const engineRoute = $derived(
-    measureAttach('route', () => toEngineRouteCached(routes.selectedRoute, selectedEnrichment, resolvedTier)),
+    measureAttach('route', () =>
+      toEngineRouteCached(routes.selectedRoute, selectedEnrichment, resolvedTier, selectedLandscape),
+    ),
   );
 
   // #542 AC11: when the engine declines (no WebGPU, software adapter, attach

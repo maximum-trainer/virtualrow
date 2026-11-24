@@ -230,6 +230,13 @@ export interface Rower3DScenery {
   nearStartIds: string[];
   /** #726 FR1 — models registered when the first frame was drawn; null before it. */
   registeredAtFirstFrame: string[] | null;
+  /** #764 FR10 — what the map's land cover put in the scene; null without it. */
+  landCover?: {
+    classesPresent: number[];
+    woodlandPolygons: number;
+    treelineInstances: number;
+    hedgeMetres: number;
+  } | null;
 }
 
 /**

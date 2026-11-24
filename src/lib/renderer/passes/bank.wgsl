@@ -38,6 +38,13 @@ struct Grass {
   groundLift: f32,
   _pad4: f32,
   _pad5: f32,
+  // #764 FR1 — the land-cover class mask: world XZ of texel (0, 0)'s corner,
+  // metres per texel, 1 when a mask is bound (0: the 1x1 placeholder).
+  maskOrigin: vec2<f32>,
+  maskTexel: f32,
+  maskOn: f32,
+  maskSize: vec2<f32>,
+  _pad6: vec2<f32>,
 };
 
 @group(0) @binding(0) var<uniform> frame: Frame;
@@ -63,6 +70,9 @@ struct Lighting {
 @group(2) @binding(2) var grassSampler: sampler;
 @group(2) @binding(3) var bankAtlas: texture_2d<f32>;
 @group(2) @binding(4) var bankAtlasSampler: sampler;
+// #764 FR1 — one class per texel (low 4 bits, `plan`'s LandCoverClass), bit 7
+// set where a real hedge lies within 500 m (FR3).
+@group(2) @binding(5) var landCover: texture_2d<u32>;
 
 struct VSOut {
   @builtin(position) pos: vec4<f32>,
@@ -138,7 +148,7 @@ const FIELD_ROW_M: f32 = 140.0;
 const FIELD_LEN_M: f32 = 230.0;
 const HEDGE_HALF_M: f32 = 2.5;
 
-fn fieldPattern(worldXZ: vec2<f32>, dist: f32) -> vec4<f32> {
+fn fieldPattern(worldXZ: vec2<f32>, dist: f32, inventedHedges: f32) -> vec4<f32> {
   let c = 0.819; // cos 35 deg
   let s = 0.574; // sin 35 deg
   let p = vec2<f32>(worldXZ.x * c - worldXZ.y * s, worldXZ.x * s + worldXZ.y * c);
@@ -172,7 +182,8 @@ fn fieldPattern(worldXZ: vec2<f32>, dist: f32) -> vec4<f32> {
   // Widen with distance so a hedge stays about a pixel wide, then fade it
   // out before it would alias.
   let halfW = HEDGE_HALF_M + dist * 0.004;
-  let hedge = (1.0 - smoothstep(halfW * 0.6, halfW, d)) * (1.0 - smoothstep(700.0, 1300.0, dist));
+  // #764 FR3: none where the map has real hedges within 500 m.
+  let hedge = (1.0 - smoothstep(halfW * 0.6, halfW, d)) * (1.0 - smoothstep(700.0, 1300.0, dist)) * inventedHedges;
   tint = mix(tint, vec3<f32>(0.36, 0.50, 0.33), hedge * 0.85);
   keepTex = mix(keepTex, 1.0, hedge);
   return vec4<f32>(tint, keepTex);
@@ -205,8 +216,8 @@ fn meadowGround(worldXZ: vec2<f32>, dist: f32) -> vec4<f32> {
   return vec4<f32>(tint, 0.85);
 }
 
-fn fieldsGround(worldXZ: vec2<f32>, dist: f32) -> vec4<f32> {
-  let field = fieldPattern(worldXZ, dist);
+fn fieldsGround(worldXZ: vec2<f32>, dist: f32, inventedHedges: f32) -> vec4<f32> {
+  let field = fieldPattern(worldXZ, dist, inventedHedges);
   // Drill rows inside cropped and ploughed fields (the ones that drop the
   // grass texture), at 3 m, running with the field rows.
   let rows = stripes(worldXZ, vec2<f32>(0.574, 0.819), 3.0, dist, 160.0);
@@ -245,13 +256,30 @@ fn woodlandGround(worldXZ: vec2<f32>, dist: f32) -> vec4<f32> {
   return vec4<f32>(tint, 0.6);
 }
 
+fn builtGround(worldXZ: vec2<f32>, dist: f32) -> vec4<f32> {
+  // #764 FR2: a town from afar: grey roofs and roads over garden green, in
+  // blocks of tens of metres. Never the field patchwork.
+  let blocks = smoothstep(0.35, 0.65, valueNoise(worldXZ / 31.0));
+  let blocksFar = mix(blocks, 0.5, smoothstep(300.0, 900.0, dist));
+  let tint = mix(vec3<f32>(0.72, 0.86, 0.64), vec3<f32>(1.05, 0.98, 0.92), blocksFar);
+  return vec4<f32>(tint, mix(0.7, 0.15, blocksFar));
+}
+
 // Mixes the six looks by weight. Patterns with no weight are skipped (no
 // texture reads inside, so the branches are safe in non-uniform control flow).
-fn biomeGround(biome: vec4<f32>, wood: f32, worldXZ: vec2<f32>, dist: f32) -> vec4<f32> {
-  let meadowW = max(0.0, 1.0 - biome.x - biome.y - biome.z - biome.w - wood);
+fn biomeGround(
+  biome: vec4<f32>,
+  wood: f32,
+  built: f32,
+  inventedHedges: f32,
+  worldXZ: vec2<f32>,
+  dist: f32,
+) -> vec4<f32> {
+  let meadowW = max(0.0, 1.0 - biome.x - biome.y - biome.z - biome.w - wood - built);
   var acc = vec4<f32>(0.0);
   if (meadowW > 0.001) { acc = acc + meadowGround(worldXZ, dist) * meadowW; }
-  if (biome.x > 0.001) { acc = acc + fieldsGround(worldXZ, dist) * biome.x; }
+  if (biome.x > 0.001) { acc = acc + fieldsGround(worldXZ, dist, inventedHedges) * biome.x; }
+  if (built > 0.001) { acc = acc + builtGround(worldXZ, dist) * built; }
   if (biome.y > 0.001) { acc = acc + scrubGround(worldXZ, dist) * biome.y; }
   if (biome.z > 0.001) { acc = acc + greenGround(worldXZ, dist) * biome.z; }
   if (biome.w > 0.001) { acc = acc + marshGround(worldXZ, dist) * biome.w; }
@@ -260,6 +288,53 @@ fn biomeGround(biome: vec4<f32>, wood: f32, worldXZ: vec2<f32>, dist: f32) -> ve
   // one flat colour from the high camera.
   let broad = 0.86 + 0.28 * valueNoise(worldXZ / 180.0);
   return vec4<f32>(acc.rgb * broad, acc.a);
+}
+
+// #764 FR1/FR2 — one mask texel; 0 (unknown) outside the mask.
+fn maskTexel(ij: vec2<i32>) -> u32 {
+  let size = vec2<i32>(grass.maskSize);
+  if (any(ij < vec2<i32>(0)) || any(ij >= size)) { return 0u; }
+  return textureLoad(landCover, ij, 0).r;
+}
+
+// A class as weights: a = (fields, scrub, green, marsh), b = (woodland,
+// built, hedge, known). Pasture is the meadow left over; unknown is not known.
+struct ClassWeights {
+  a: vec4<f32>,
+  b: vec4<f32>,
+};
+
+fn classWeights(raw: u32) -> ClassWeights {
+  var w: ClassWeights;
+  w.a = vec4<f32>(0.0);
+  w.b = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+  switch (raw & 15u) {
+    case 1u: { }
+    case 2u: { w.a.x = 1.0; }
+    case 3u: { w.b.x = 1.0; }
+    case 4u, 6u, 7u: { w.a.y = 1.0; }
+    case 5u, 9u: { w.a.w = 1.0; }
+    case 8u: { w.b.y = 1.0; }
+    case 10u: { w.b.z = 1.0; }
+    default: { w.b.w = 0.0; }
+  }
+  return w;
+}
+
+// The mask's classes at a point, blended across the four nearest texels.
+fn landCoverAt(worldXZ: vec2<f32>) -> ClassWeights {
+  let f = (worldXZ - grass.maskOrigin) / grass.maskTexel - vec2<f32>(0.5);
+  let base = floor(f);
+  let t = f - base;
+  let i = vec2<i32>(base);
+  let c00 = classWeights(maskTexel(i));
+  let c10 = classWeights(maskTexel(i + vec2<i32>(1, 0)));
+  let c01 = classWeights(maskTexel(i + vec2<i32>(0, 1)));
+  let c11 = classWeights(maskTexel(i + vec2<i32>(1, 1)));
+  var w: ClassWeights;
+  w.a = mix(mix(c00.a, c10.a, t.x), mix(c01.a, c11.a, t.x), t.y);
+  w.b = mix(mix(c00.b, c10.b, t.x), mix(c01.b, c11.b, t.x), t.y);
+  return w;
 }
 
 @fragment
@@ -307,7 +382,26 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   var albedo = mix(earthTex, grassCol, shoreMix);
   // #725 FR5: the biome's own ground takes over from riverside grass across
   // the bank strip and covers the whole ground plane.
-  let ground = biomeGround(in.biome, in.wood, in.worldXZ, camDist);
+  // #764 FR2: where the map knows the land, its class decides the ground;
+  // elsewhere (and with no mask, FR9) the route's biome bands do.
+  var biome = in.biome;
+  var wood = in.wood;
+  var built = 0.0;
+  var realHedge = 0.0;
+  var inventedHedges = 1.0;
+  if (grass.maskOn > 0.5) {
+    let lc = landCoverAt(in.worldXZ);
+    let known = lc.b.w;
+    biome = biome * (1.0 - known) + lc.a;
+    wood = wood * (1.0 - known) + lc.b.x;
+    built = lc.b.y;
+    realHedge = lc.b.z;
+    let here = vec2<i32>(floor((in.worldXZ - grass.maskOrigin) / grass.maskTexel));
+    inventedHedges = select(1.0, 0.0, (maskTexel(here) & 128u) != 0u);
+  }
+  var ground = biomeGround(biome, wood, built, inventedHedges, in.worldXZ, camDist);
+  // #764 FR3: the map's hedges and tree rows as the dark hedge line.
+  ground = vec4<f32>(mix(ground.rgb, vec3<f32>(0.36, 0.50, 0.33), realHedge * 0.85), mix(ground.a, 1.0, realHedge));
   let groundW = smoothstep(BIOME_BLEND_START_M, GROUND_SHORE_DIST_M, shoreDist);
   albedo = mix(albedo, mix(grass.grassMean, albedo, ground.a) * ground.rgb, groundW);
   // Palette-tint the albedo so a residential profile keeps the warm

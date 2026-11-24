@@ -192,7 +192,8 @@ import { createShadowStage, type ShadowTelemetry } from './shadowStage';
 import { createMsaaResolvePass, sceneSampleCountFor, setSceneSampleCount } from './msaa';
 import { measureAttachAsync } from './attachMeasure';
 import { chromaticAberrationEnabled, tierCapsFor } from './tierCaps';
-import { publishSpeedMps, type TelemetryHandles } from './telemetry';
+import { publishSpeedMps, type Rower3DScenery, type TelemetryHandles } from './telemetry';
+import type { LandCoverMask } from '../../scenery/landCoverMask';
 import { createPostFx, type PostFxCaps } from './postFx';
 import {
   conditionsToFrameLighting,
@@ -224,6 +225,10 @@ import {
  */
 export interface SceneryRoute {
   pools: PoolInput[];
+  /** #764 FR1 — the map's land-cover class mask; the ground samples it. Absent → biome bands only (FR9). */
+  landCover?: LandCoverMask;
+  /** #764 FR10 — what the land cover put in the scene, for `__ROWER3D_SCENERY.landCover`. */
+  landCoverSummary?: Rower3DScenery['landCover'];
   /**
    * Extruded OSM building footprints to draw as prisms (#566 FR1). Absent
    * on a route with no mapped buildings — the engine then skips the
@@ -712,6 +717,7 @@ export const createRideScene = async (
   telemetry.scenery.reveals = [];
   telemetry.scenery.nearStartIds = [];
   telemetry.scenery.registeredAtFirstFrame = null;
+  telemetry.scenery.landCover = isSceneryRoute(opts.route) ? (opts.route.landCoverSummary ?? null) : null;
   const scenePools: InstancePool[] = sceneryPoolInputs.map((input) => createInstancePool(device, input));
 
   // #566 P6 — buildings pool. Per D5-b we skip the pool entirely when the
@@ -1190,6 +1196,8 @@ export const createRideScene = async (
     grass: { profile: bankGrassProfile, strength: bankGrassStrength },
     landSide: routeLandSide,
     reliefForProgress: routeRelief,
+    // #764 FR1/FR2 — the ground takes the map's land cover where it is known.
+    ...(isSceneryRoute(opts.route) && opts.route.landCover ? { landCover: opts.route.landCover } : {}),
     // #745 FR2 — a shore round each drawn lake, open where the ribbon runs out.
     ...(useLakePolygonWater
       ? {

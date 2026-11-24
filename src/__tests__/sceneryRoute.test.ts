@@ -275,3 +275,54 @@ describe('turn buoys (#753 FR1)', () => {
     expect(toEngineRoute(makeRoute())?.turnBuoys).toBeUndefined();
   });
 });
+
+describe('the map landscape in the engine route (#764)', () => {
+  const landscape = (source: 'network' | 'unavailable') =>
+    ({
+      origin: { lat: 0, lng: 0 },
+      key: 'k',
+      elevation: { source: 'unavailable', ms: 0, count: 0, data: null },
+      landCover: {
+        source,
+        ms: 0,
+        count: 1,
+        data:
+          source === 'network'
+            ? [
+                {
+                  kind: 'wood',
+                  shape: 'polygon',
+                  points: [[-50, -300], [150, -300], [150, -500], [-50, -500], [-50, -300]],
+                },
+              ]
+            : null,
+      },
+      built: { source: 'unavailable', ms: 0, count: 0, data: null },
+    }) as never;
+
+  it('carries the land-cover mask, its summary, and treelines on the wood that faces the course', () => {
+    const route = toEngineRoute(makeRoute(), null, 'medium', landscape('network'))!;
+    expect(route.landCover).toBeDefined();
+    expect(route.landCoverSummary).toMatchObject({ woodlandPolygons: 1, treelineInstances: 2 });
+    const strips = route.sceneryGlbs!.filter((g) => g.id === 'f45-treeline-strip').flatMap((g) => g.instances);
+    expect(strips.filter((s) => Math.abs(s.position[2] + 303) < 1)).toHaveLength(2);
+  });
+
+  it('is unchanged without land-cover data (FR9)', () => {
+    const route = toEngineRoute(makeRoute(), null, 'medium', landscape('unavailable'))!;
+    expect(route.landCover).toBeUndefined();
+    expect(route.landCoverSummary).toBeUndefined();
+    const plain = toEngineRoute(makeRoute(), null, 'medium')!;
+    expect(Object.keys(route).sort()).toEqual(Object.keys(plain).sort());
+    expect(route.sceneryGlbs).toEqual(plain.sceneryGlbs);
+  });
+
+  it('lays out again when the landscape arrives', () => {
+    const r = makeRoute({ id: 'cache-landscape' });
+    const before = toEngineRouteCached(r, null, 'medium');
+    const land = landscape('network');
+    const after = toEngineRouteCached(r, null, 'medium', land);
+    expect(after).not.toBe(before);
+    expect(toEngineRouteCached(r, null, 'medium', land)).toBe(after);
+  });
+});

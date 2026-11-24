@@ -89,3 +89,21 @@ describe('buildLandCoverMask (#764 FR1, FR3)', () => {
     expect(mask.data.byteLength).toBeLessThanOrEqual(4 * 1024 * 1024);
   });
 });
+
+describe('real hedges replace invented ones (#764 FR3, AC)', () => {
+  it('marks every texel within 500 m of a hedge, and none well beyond', async () => {
+    const { realHedgeNear } = await import('../lib/scenery/landCoverMask');
+    const mask = buildLandCoverMask({
+      bounds: BOUNDS,
+      features: [{ kind: 'hedge', shape: 'line', points: [[0, -100], [0, 100]] }],
+    });
+    for (const [x, z] of [[0, 0], [490, 0], [0, 590], [-350, 350]] as const) expect(realHedgeNear(mask, x, z)).toBe(true);
+    expect(realHedgeNear(mask, 1200, 0)).toBe(false);
+    expect(realHedgeNear(mask, 99999, 0)).toBe(false);
+    // The bit leaves the class readable.
+    expect(classAt(mask, 0, 0)).toBe(LandCoverClass.hedge);
+    expect(classAt(mask, 300, 0)).toBe(LandCoverClass.unknown);
+    const bare = buildLandCoverMask({ bounds: BOUNDS, features: [] });
+    expect(realHedgeNear(bare, 0, 0)).toBe(false);
+  });
+});

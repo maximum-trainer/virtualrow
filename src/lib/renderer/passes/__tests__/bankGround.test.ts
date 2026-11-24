@@ -198,3 +198,51 @@ describe('horizon haze range', () => {
     expect(src).toMatch(/smoothstep\(\s*BIOME_BLEND_START_M\s*,\s*GROUND_SHORE_DIST_M/);
   });
 });
+
+describe('the ground from the map land cover (#764 FR1-FR3, FR9)', () => {
+  it('uploads the class mask as r8uint, binds it, and switches the shader to it', async () => {
+    const { buildLandCoverMask } = await import('../../../scenery/landCoverMask');
+    const { LAND_COVER_MASK_OFFSET } = await import('../bank');
+    const mask = buildLandCoverMask({
+      bounds: { minX: -100, minZ: -50, maxX: 100, maxZ: 50 },
+      features: [{ kind: 'wood', shape: 'polygon', points: [[0, 0], [40, 0], [40, 40], [0, 0]] }],
+    });
+    const { device } = makeDevice();
+    const textures = (device.createTexture as unknown as ReturnType<typeof vi.fn>);
+    await createBankPass({ ...opts(device), landCover: mask });
+    const landCover = textures.mock.calls.map((c) => c[0]).find((d: { label: string }) => d.label === 'bank-land-cover');
+    expect(landCover).toMatchObject({ format: 'r8uint', size: { width: mask.width, height: mask.height } });
+    const writes = (device.queue.writeTexture as unknown as ReturnType<typeof vi.fn>).mock.calls;
+    expect(writes.some((c) => c[1] === mask.data)).toBe(true);
+    const uniform = (device.queue.writeBuffer as unknown as ReturnType<typeof vi.fn>).mock.calls.find(
+      (c) => c[1] === LAND_COVER_MASK_OFFSET,
+    )!;
+    expect(Array.from(uniform[2] as Float32Array)).toEqual([-100, -50, 8, 1, mask.width, mask.height, 0, 0]);
+    const groups = (device.createBindGroup as unknown as ReturnType<typeof vi.fn>).mock.calls
+      .map((c) => c[0] as { label: string; entries: { binding: number }[] })
+      .filter((g) => g.entries.some((e) => e.binding === 5));
+    expect(groups).toHaveLength(2);
+  });
+
+  it('binds a 1x1 unknown stand-in with the mask off when there is no land cover (FR9)', async () => {
+    const { packLandCoverUniform } = await import('../bank');
+    const { device } = makeDevice();
+    await createBankPass(opts(device));
+    const landCover = (device.createTexture as unknown as ReturnType<typeof vi.fn>).mock.calls
+      .map((c) => c[0])
+      .find((d: { label: string }) => d.label === 'bank-land-cover');
+    expect(landCover.size).toEqual({ width: 1, height: 1 });
+    expect(packLandCoverUniform(null)[3]).toBe(0);
+  });
+
+  it('decides the ground by class where it is known and drops invented hedges near real ones', () => {
+    const wgsl = read('bank.wgsl');
+    expect(wgsl).toContain('var landCover: texture_2d<u32>;');
+    expect(wgsl).toContain('fn landCoverAt(');
+    // The hash-field patchwork only through the fields weight, and its
+    // hedge grid scaled by the near-real-hedge bit.
+    expect(wgsl).toMatch(/fieldsGround\(worldXZ, dist, inventedHedges\) \* biome\.x/);
+    expect(wgsl).toContain('select(1.0, 0.0, (maskTexel(here) & 128u) != 0u)');
+    expect(wgsl).toContain('builtGround(worldXZ, dist) * built');
+  });
+});

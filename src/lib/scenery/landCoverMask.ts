@@ -43,6 +43,12 @@ export const LAND_COVER_PRIORITY: Record<LandCoverClassId, number> = {
 };
 
 export const LAND_COVER_TEXEL_M = 8;
+/** FR3 — the invented hedge grid is dropped this close to a real hedge. */
+export const REAL_HEDGE_REACH_M = 500;
+/** Bit set on a texel within `REAL_HEDGE_REACH_M` of a real hedge; the class is the low 4 bits. */
+export const REAL_HEDGE_NEAR_BIT = 0x80;
+/** Coarse cells the hedge reach is worked out on, in texels a side. */
+const HEDGE_CELL_TEXELS = 8;
 export const LAND_COVER_MAX_TEXELS = 2048;
 
 /** The class an OSM land-cover kind paints. Coastline is not an area: null. */
@@ -151,6 +157,9 @@ export const buildLandCoverMask = (input: LandCoverMaskInput): LandCoverMask => 
   };
 
   let hedgeMetres = 0;
+  const cellsX = Math.ceil(width / HEDGE_CELL_TEXELS);
+  const cellsZ = Math.ceil(height / HEDGE_CELL_TEXELS);
+  const hedgeCells = new Uint8Array(cellsX * cellsZ);
   const drawLine = (points: ScenePoint[], cls: LandCoverClassId) => {
     for (let s = 1; s < points.length; s += 1) {
       const [x0, z0] = points[s - 1];
@@ -163,7 +172,10 @@ export const buildLandCoverMask = (input: LandCoverMaskInput): LandCoverMask => 
         const z = z0 + ((z1 - z0) * t) / steps;
         const i = Math.floor((x - minX) / texelM);
         const j = Math.floor((z - minZ) / texelM);
-        if (i >= 0 && i < width && j >= 0 && j < height) paint(j * width + i, cls);
+        if (i >= 0 && i < width && j >= 0 && j < height) {
+          paint(j * width + i, cls);
+          hedgeCells[Math.floor(j / HEDGE_CELL_TEXELS) * cellsX + Math.floor(i / HEDGE_CELL_TEXELS)] = 1;
+        }
       }
     }
     present.add(cls);
@@ -179,6 +191,7 @@ export const buildLandCoverMask = (input: LandCoverMaskInput): LandCoverMask => 
     fillPolygon(feature.points, cls);
   }
   for (const ring of input.water ?? []) fillPolygon(ring, LandCoverClass.water);
+  markRealHedgeReach(data, width, height, texelM, hedgeCells);
 
   return {
     originX: minX,
@@ -192,11 +205,52 @@ export const buildLandCoverMask = (input: LandCoverMaskInput): LandCoverMask => 
   };
 };
 
+/**
+ * FR3 — set `REAL_HEDGE_NEAR_BIT` on every texel whose coarse cell lies within
+ * `REAL_HEDGE_REACH_M` of a cell a hedge crosses (centre to centre, plus a
+ * cell's half-diagonal so no texel in reach is missed).
+ */
+const markRealHedgeReach = (data: Uint8Array, width: number, height: number, texelM: number, cells: Uint8Array) => {
+  const cellsX = Math.ceil(width / HEDGE_CELL_TEXELS);
+  const cellsZ = Math.ceil(height / HEDGE_CELL_TEXELS);
+  const cellM = HEDGE_CELL_TEXELS * texelM;
+  const reach = Math.ceil((REAL_HEDGE_REACH_M + cellM * Math.SQRT2) / cellM);
+  const near = new Uint8Array(cells.length);
+  for (let cz = 0; cz < cellsZ; cz += 1) {
+    for (let cx = 0; cx < cellsX; cx += 1) {
+      if (!cells[cz * cellsX + cx]) continue;
+      for (let dz = -reach; dz <= reach; dz += 1) {
+        const z = cz + dz;
+        if (z < 0 || z >= cellsZ) continue;
+        for (let dx = -reach; dx <= reach; dx += 1) {
+          const x = cx + dx;
+          if (x < 0 || x >= cellsX || Math.hypot(dx, dz) * cellM > REAL_HEDGE_REACH_M + cellM * Math.SQRT2) continue;
+          near[z * cellsX + x] = 1;
+        }
+      }
+    }
+  }
+  for (let j = 0; j < height; j += 1) {
+    const row = Math.floor(j / HEDGE_CELL_TEXELS) * cellsX;
+    for (let i = 0; i < width; i += 1) {
+      if (near[row + Math.floor(i / HEDGE_CELL_TEXELS)]) data[j * width + i] |= REAL_HEDGE_NEAR_BIT;
+    }
+  }
+};
+
+/** Whether a real hedge lies within `REAL_HEDGE_REACH_M` of world (x, z) (FR3). */
+export const realHedgeNear = (mask: LandCoverMask, x: number, z: number): boolean => {
+  const i = Math.floor((x - mask.originX) / mask.texelM);
+  const j = Math.floor((z - mask.originZ) / mask.texelM);
+  if (i < 0 || j < 0 || i >= mask.width || j >= mask.height) return false;
+  return (mask.data[j * mask.width + i] & REAL_HEDGE_NEAR_BIT) !== 0;
+};
+
 /** The class at world (x, z); unknown outside the mask. */
 export const classAt = (mask: LandCoverMask, x: number, z: number): LandCoverClassId => {
   const i = Math.floor((x - mask.originX) / mask.texelM);
   const j = Math.floor((z - mask.originZ) / mask.texelM);
   if (i < 0 || j < 0 || i >= mask.width || j >= mask.height) return LandCoverClass.unknown;
-  return mask.data[j * mask.width + i] as LandCoverClassId;
+  return (mask.data[j * mask.width + i] & 0x0f) as LandCoverClassId;
 };
 
