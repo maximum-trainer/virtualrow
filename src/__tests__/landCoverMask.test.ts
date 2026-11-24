@@ -6,6 +6,7 @@ import {
   buildLandCoverMask,
   classAt,
   classForKind,
+  seawardOfCoast,
 } from '../lib/scenery/landCoverMask';
 import type { LandCoverFeature, ScenePoint } from '../lib/services/landscapeService';
 
@@ -105,5 +106,75 @@ describe('real hedges replace invented ones (#764 FR3, AC)', () => {
     expect(classAt(mask, 300, 0)).toBe(LandCoverClass.unknown);
     const bare = buildLandCoverMask({ bounds: BOUNDS, features: [] });
     expect(realHedgeNear(bare, 0, 0)).toBe(false);
+  });
+});
+
+describe('buildLandCoverMask — the coast (#764 FR6)', () => {
+  // OSM coastline runs with the land on its left: walking north (scene -z)
+  // along x = 300, the land is west and the sea east.
+  const coast: LandCoverFeature = { kind: 'coastline', shape: 'line', points: [[300, 2000], [300, -2000]] };
+
+  it('makes everything seaward of the coastline sea, out to the edge of the mask', () => {
+    const mask = buildLandCoverMask({ bounds: BOUNDS, features: [coast] });
+    expect(classAt(mask, 600, 0)).toBe(LandCoverClass.sea);
+    expect(classAt(mask, 1990, -1990)).toBe(LandCoverClass.sea);
+    expect(classAt(mask, 1990, 1990)).toBe(LandCoverClass.sea);
+    expect(classAt(mask, 0, 0)).toBe(LandCoverClass.unknown);
+    expect(classAt(mask, -1990, 1990)).toBe(LandCoverClass.unknown);
+    expect(mask.classesPresent).toContain(LandCoverClass.sea);
+  });
+
+  it('follows the coastline to the texel', () => {
+    const mask = buildLandCoverMask({ bounds: BOUNDS, features: [coast] });
+    for (let z = -1996; z < 2000; z += 40) {
+      expect(classAt(mask, 305, z)).toBe(LandCoverClass.sea);
+      expect(classAt(mask, 295, z)).toBe(LandCoverClass.unknown);
+    }
+  });
+
+  it('puts the sea over anything the land cover drew past the coast', () => {
+    const wood: LandCoverFeature = { kind: 'wood', shape: 'polygon', points: square(300, 0, 100) };
+    const mask = buildLandCoverMask({ bounds: BOUNDS, features: [wood, coast], water: [square(350, 0, 20)] });
+    expect(classAt(mask, 250, 0)).toBe(LandCoverClass.woodland);
+    expect(classAt(mask, 380, 50)).toBe(LandCoverClass.sea);
+    expect(classAt(mask, 350, 0)).toBe(LandCoverClass.sea);
+  });
+
+  it('keeps a headland land on both sides of its corner', () => {
+    // East along z = 0 then north along x = 0: land to the north-west (x < 0, z < 0).
+    const headland: LandCoverFeature = { kind: 'coastline', shape: 'line', points: [[-2000, 0], [0, 0], [0, -2000]] };
+    const mask = buildLandCoverMask({ bounds: BOUNDS, features: [headland] });
+    expect(classAt(mask, -500, -500)).toBe(LandCoverClass.unknown);
+    expect(classAt(mask, -20, -20)).toBe(LandCoverClass.unknown);
+    expect(classAt(mask, 500, 500)).toBe(LandCoverClass.sea);
+    expect(classAt(mask, 20, 20)).toBe(LandCoverClass.sea);
+    expect(classAt(mask, 500, -500)).toBe(LandCoverClass.sea);
+    expect(classAt(mask, -500, 500)).toBe(LandCoverClass.sea);
+  });
+
+  it('takes the whole mask as one side when the coastline lies outside it', () => {
+    const west: LandCoverFeature = { kind: 'coastline', shape: 'line', points: [[-3000, 2000], [-3000, -2000]] };
+    const east: LandCoverFeature = { kind: 'coastline', shape: 'line', points: [[3000, 2000], [3000, -2000]] };
+    expect(classAt(buildLandCoverMask({ bounds: BOUNDS, features: [west] }), 0, 0)).toBe(LandCoverClass.sea);
+    const inland = buildLandCoverMask({ bounds: BOUNDS, features: [east] });
+    expect(classAt(inland, 0, 0)).toBe(LandCoverClass.unknown);
+    expect(inland.classesPresent).not.toContain(LandCoverClass.sea);
+  });
+
+  it('answers which side of the coast a point is on, and false with no coastline', () => {
+    expect(seawardOfCoast([coast], 600, 0)).toBe(true);
+    expect(seawardOfCoast([coast], 0, 0)).toBe(false);
+    expect(seawardOfCoast([], 600, 0)).toBe(false);
+  });
+
+  it('paints a long wiggly coast over the largest mask in good time', () => {
+    const points: ScenePoint[] = [];
+    for (let k = 0; k <= 2000; k += 1) points.push([Math.sin(k / 7) * 60, 8000 - k * 8]);
+    const big = { minX: -8000, minZ: -8000, maxX: 8000, maxZ: 8000 };
+    const start = performance.now();
+    const mask = buildLandCoverMask({ bounds: big, features: [{ kind: 'coastline', shape: 'line', points }] });
+    expect(performance.now() - start).toBeLessThan(4000);
+    expect(classAt(mask, 4000, 0)).toBe(LandCoverClass.sea);
+    expect(classAt(mask, -4000, 0)).toBe(LandCoverClass.unknown);
   });
 });

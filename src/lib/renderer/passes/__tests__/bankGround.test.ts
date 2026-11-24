@@ -242,7 +242,14 @@ describe('the ground from the map land cover (#764 FR1-FR3, FR9)', () => {
     // The hash-field patchwork only through the fields weight, and its
     // hedge grid scaled by the near-real-hedge bit.
     expect(wgsl).toMatch(/fieldsGround\(worldXZ, dist, inventedHedges\) \* biome\.x/);
-    expect(wgsl).toContain('select(1.0, 0.0, (maskTexel(here) & 128u) != 0u)');
+    expect(wgsl).toContain('select(1.0, 0.0, (raw & 128u) != 0u)');
     expect(wgsl).toContain('builtGround(worldXZ, dist) * built');
+  });
+
+  it('draws no ground seaward of the coastline, and shades the shore beside it as marsh (FR6)', () => {
+    const wgsl = read('bank.wgsl');
+    expect(wgsl).toContain('let raw = maskTexel(here);');
+    expect(wgsl).toMatch(/if \(\(raw & 15u\) == 11u\) \{ discard; \}/);
+    expect(wgsl).toContain('case 5u, 9u, 11u: { w.a.w = 1.0; }');
   });
 });

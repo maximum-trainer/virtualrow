@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { WaterRoute } from '../lib/types/index';
 import { toEngineRoute, toEngineRouteCached, turnBuoysInScene } from '../lib/ui/sceneryRoute';
+import { COASTAL_SEA_HALF_WIDTH_METERS } from '../lib/scenery/waterType';
 
 /**
  * #570 AC2 — the shell route → engine SceneryRoute adapter. The engine only
@@ -315,6 +316,25 @@ describe('the map landscape in the engine route (#764)', () => {
     const plain = toEngineRoute(makeRoute(), null, 'medium')!;
     expect(Object.keys(route).sort()).toEqual(Object.keys(plain).sort());
     expect(route.sceneryGlbs).toEqual(plain.sceneryGlbs);
+  });
+
+  it('takes the land side of a sea course from the coastline, even with map enrichment (FR6)', () => {
+    // The course heads east; walking west along z = -200 the land is south,
+    // so the sea is north of the course, on its left bank.
+    const coastal = {
+      ...(landscape('network') as object),
+      landCover: {
+        source: 'network',
+        ms: 0,
+        count: 1,
+        data: [{ kind: 'coastline', shape: 'line', points: [[2000, -200], [-2000, -200]] }],
+      },
+    } as never;
+    const enrichment = { routeId: 'r1', waterWidthMeters: 40, segmentProfiles: [] } as never;
+    const route = toEngineRoute(makeRoute(), enrichment, 'medium', coastal)!;
+    expect(route.landSide).toBe('right');
+    expect(route.waterEdgesForProgress!(0.5).left).toBe(COASTAL_SEA_HALF_WIDTH_METERS);
+    expect(toEngineRoute(makeRoute(), enrichment, 'medium', landscape('network'))!.landSide).toBeUndefined();
   });
 
   it('lays out again when the landscape arrives', () => {

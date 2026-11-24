@@ -70,8 +70,8 @@ struct Lighting {
 @group(2) @binding(2) var grassSampler: sampler;
 @group(2) @binding(3) var bankAtlas: texture_2d<f32>;
 @group(2) @binding(4) var bankAtlasSampler: sampler;
-// #764 FR1 — one class per texel (low 4 bits, `plan`'s LandCoverClass), bit 7
-// set where a real hedge lies within 500 m (FR3).
+// #764 FR1 — one class per texel (low 4 bits, `plan`'s LandCoverClass; 11 is
+// the sea, FR6), bit 7 set where a real hedge lies within 500 m (FR3).
 @group(2) @binding(5) var landCover: texture_2d<u32>;
 
 struct VSOut {
@@ -313,7 +313,7 @@ fn classWeights(raw: u32) -> ClassWeights {
     case 2u: { w.a.x = 1.0; }
     case 3u: { w.b.x = 1.0; }
     case 4u, 6u, 7u: { w.a.y = 1.0; }
-    case 5u, 9u: { w.a.w = 1.0; }
+    case 5u, 9u, 11u: { w.a.w = 1.0; }
     case 8u: { w.b.y = 1.0; }
     case 10u: { w.b.z = 1.0; }
     default: { w.b.w = 0.0; }
@@ -397,7 +397,10 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     built = lc.b.y;
     realHedge = lc.b.z;
     let here = vec2<i32>(floor((in.worldXZ - grass.maskOrigin) / grass.maskTexel));
-    inventedHedges = select(1.0, 0.0, (maskTexel(here) & 128u) != 0u);
+    let raw = maskTexel(here);
+    // #764 FR6: seaward of the coastline there is no ground; the sea shows.
+    if ((raw & 15u) == 11u) { discard; }
+    inventedHedges = select(1.0, 0.0, (raw & 128u) != 0u);
   }
   var ground = biomeGround(biome, wood, built, inventedHedges, in.worldXZ, camDist);
   // #764 FR3: the map's hedges and tree rows as the dark hedge line.
