@@ -169,6 +169,22 @@ describe('the ground plane at the land relief (#745 FR1)', () => {
   });
 });
 
+describe('the shore of a drawn lake (#745 FR2)', () => {
+  it('draws a shore band round each lake after the strips, and none without lakes', async () => {
+    const lake = { outer: [{ x: -200, z: -200 }, { x: 200, z: -200 }, { x: 200, z: 200 }, { x: -200, z: 200 }], holes: [] };
+    const { device } = makeDevice();
+    const pass = await createBankPass({ ...opts(device), lakes: [lake], lakeShoreOnWater: () => false });
+    const { ctx, calls } = makeCtx();
+    pass.encode(ctx);
+    expect(calls.filter((c) => c.startsWith('draw:')).length).toBe(3);
+    const plain = makeDevice();
+    const none = await createBankPass({ ...opts(plain.device), lakes: [] });
+    const quiet = makeCtx();
+    none.encode(quiet.ctx);
+    expect(quiet.calls.filter((c) => c.startsWith('draw:')).length).toBe(2);
+  });
+});
+
 describe('horizon haze range', () => {
   it('is generated from the plan constants, not typed twice', () => {
     expect(HORIZON_HAZE_WGSL).toContain(`const HAZE_START_M: f32 = ${GROUND_HAZE_START_M.toFixed(1)};`);
