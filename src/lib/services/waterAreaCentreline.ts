@@ -232,3 +232,27 @@ export const deriveAreaCentreline = (
   }
   return null;
 };
+
+/** Sample spacing for {@link straightOnWater}. */
+const ON_WATER_SAMPLE_M = 10;
+
+/**
+ * #751: is the straight line from `a` to `b` on the water of one area all the
+ * way? A gate set out in wide water, further from the mapped centreline than
+ * the snap limit allows, can still be reached by a run-in that never crosses
+ * land.
+ */
+export const straightOnWater = (a: Coordinate, b: Coordinate, rings: readonly WaterRing[]): boolean => {
+  const { toLocal } = localFrame(a);
+  const p = toLocal(a);
+  const q = toLocal(b);
+  const steps = Math.max(1, Math.ceil(Math.hypot(q.x - p.x, q.y - p.y) / ON_WATER_SAMPLE_M));
+  return rings.some((ring) => {
+    const local = ring.map(toLocal);
+    for (let k = 0; k <= steps; k++) {
+      const t = k / steps;
+      if (!insideRing({ x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t }, local)) return false;
+    }
+    return true;
+  });
+};
