@@ -156,7 +156,8 @@ describe('placement clearance property (#723 FR1/FR2/FR3, #760)', () => {
             // #725 — past either end of the course the nearest sample is the
             // end point, whose perpendicular says nothing about the lane: an
             // item behind the start line is measured by its straight distance.
-            const atEnd = bestT === 0 || bestT === 1;
+            // `sampleAt` clamps to 0.999, so the last two samples are both the end.
+            const atEnd = bestT <= 1 / SAMPLES || bestT >= 1 - 1 / SAMPLES;
             const distance = atEnd ? bestDist : Math.abs(offsetFromCentre);
 
             // Lane buoys (a01 + a02) sit on the racing lane, and bridge

@@ -19,8 +19,15 @@ export const TREE_DRAW_METRES = 400;
 /** Ground detail is a landscape (f*) or flora (e*) model no wider than this, metres. */
 export const DETAIL_MAX_RADIUS_METRES = 2.5;
 
+/**
+ * #725 FR4 — the backdrop strips are drawn to where the ground has all but
+ * dissolved into the sky (`GROUND_HAZE_END_M` is 1700 m).
+ */
+export const BACKDROP_DRAW_METRES = 1200;
+
 /** Metres from the camera beyond which `id` is not drawn; 0 draws it at any distance. */
 export const sceneryDrawDistanceFor = (id: string): number => {
+  if (BACKDROP_STRIP_IDS.has(id)) return BACKDROP_DRAW_METRES;
   const tier = id[0];
   if (tier !== 'e' && tier !== 'f') return 0;
   // Scrub is understory, not a tree: low and dense, so it counts as detail.
@@ -54,7 +61,19 @@ export const sceneryShadowDistanceFor = (id: string): number => {
 };
 
 
-/** Whether `id` casts a shadow; tiny ground detail (flower patches, boulder clusters) does not. */
+/**
+ * #725 FR4 — the far backdrop strips (treeline, ridge, skyline) stand a few
+ * hundred metres out, past every shadow cascade worth drawing; each cascade
+ * would otherwise redraw them all.
+ */
+export const BACKDROP_STRIP_IDS: ReadonlySet<string> = new Set([
+  'f45-treeline-strip',
+  'f46-hill-ridge-far',
+  'f47-skyline-strip',
+]);
+
+/** Whether `id` casts a shadow; tiny ground detail (flower patches, boulder clusters) and backdrop strips do not. */
 export const sceneryCastsShadowFor = (id: string): boolean =>
+  !BACKDROP_STRIP_IDS.has(id) &&
   !(sceneryDrawDistanceFor(id) === DETAIL_DRAW_METRES &&
     footprintRadiusFor(id, BUILT_IN_FOOTPRINT_LOOKUP) < NO_SHADOW_RADIUS_METRES);
