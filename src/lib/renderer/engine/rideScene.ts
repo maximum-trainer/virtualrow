@@ -17,6 +17,7 @@
 
 /// <reference types="@webgpu/types" />
 
+import { frozenClock, frozenProgress, frozenStrokeCycle, frozenVelocity, readSceneFreeze } from './sceneFreeze';
 import { CAMERA_FAR_M, CAMERA_NEAR_M } from './cameraRange';
 import {
   mat4,
@@ -1846,6 +1847,11 @@ export const createRideScene = async (
     cascades: createComputedCascades(),
   };
   const seekFrameScratch = emptyRideFrame();
+  // #745 FR5 — `__ROWER3D_FREEZE = { time, progress }`, set before load, pins
+  // the clock, the boat and the stroke so a visual baseline can be taken at
+  // any point on a route. Read once at attach.
+  const freeze = readSceneFreeze(globalThis as { __ROWER3D_FREEZE?: unknown });
+  const freezeFrameScratch = emptyRideFrame();
   // #724 — test mode: pin the boat at a distance along the route (null rows).
   let seekMeters: number | null = null;
   // #737 VP-19 FR1/FR3 — the real interval between drawn frames, and the
@@ -1879,7 +1885,7 @@ export const createRideScene = async (
     if (holdFrame && heldFrame) {
       frame.time = heldFrame.time;
     } else {
-      frame.time = (now() - start) / 1000;
+      frame.time = frozenClock(freeze, (now() - start) / 1000);
     }
     const rideFrame: RideFrame | null =
       holdFrame && heldFrame ? heldFrame.ride : opts.getFrame ? opts.getFrame() : null;
@@ -1908,6 +1914,13 @@ export const createRideScene = async (
     if (seekMeters !== null && rowedFrame) {
       smoothedFrame = copyRideFrame(seekFrameScratch, rowedFrame);
       smoothedFrame.distanceMeters = seekMeters;
+      smoothedFrame.holdBoat = false;
+      smoothedFrame.finished = false;
+    }
+    // #745 FR5 — a frozen scene puts the boat at the frozen progress, stopped.
+    if (freeze) {
+      smoothedFrame = smoothedFrame ? copyRideFrame(freezeFrameScratch, smoothedFrame) : freezeFrameScratch;
+      smoothedFrame.distanceMeters = frozenProgress(freeze, 0) * totalDistanceMeters;
       smoothedFrame.holdBoat = false;
       smoothedFrame.finished = false;
     }
@@ -1969,11 +1982,13 @@ export const createRideScene = async (
       resetStrokeClock(strokeClock);
     }
     strokeWasPlaying = isPlayingNow;
-    const phase = stepStrokeClock(strokeClock, {
+    const livePhase = stepStrokeClock(strokeClock, {
       cadence: rideFrame?.cadence ?? 0,
       dtSeconds: strokeDt,
       isPlaying: isPlayingNow,
     });
+    // #745 FR5 — the oars park at the fraction of the frozen second.
+    const phase = freeze ? frozenStrokeCycle(freeze, livePhase) : livePhase;
     const ghostSource = rideFrame?.ghost ?? null;
     const ghostElapsed = rideFrame?.elapsedSeconds ?? frame.time;
     const ghostRow = ghostSource ? ghostStroke(ghostSource, ghostElapsed) : { rowing: false, cadence: 0 };
@@ -2240,6 +2255,8 @@ export const createRideScene = async (
     }
     lastDistanceMeters = telemetry.boat.distanceMeters;
     lastSpeedTime = frame.time;
+    // #745 FR5 — a frozen scene has no speed (the camera reads it).
+    speedMps = frozenVelocity(freeze, speedMps);
     publishSpeedMps(telemetry, speedMps);
     streamSpeedMps = speedMps;
     telemetry.pos.x = boatPlacement.world[0];
