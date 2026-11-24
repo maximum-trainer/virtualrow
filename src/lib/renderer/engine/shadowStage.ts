@@ -46,9 +46,15 @@ import type { WaterEdges } from '../plan/waterStrip';
 import type { BoatMeshBuffers } from '../plan/boatMesh';
 import type { Mat4 } from '../math/mat4';
 import { BUILDINGS_VERTEX_COUNT } from '../passes/buildings';
+import { renderPipelineAsync } from './pipelineAsync';
 
 export interface ShadowFramePayload {
-  cascades: { viewProj: Mat4 }[];
+  /**
+   * #727 FR2: `refresh: false` keeps the cascade's tile as last drawn (the
+   * caller then keeps feeding the lit passes the matrix it was drawn with).
+   * Absent means redraw.
+   */
+  cascades: { viewProj: Mat4; refresh?: boolean }[];
   cascadeCount: number;
 }
 
@@ -62,6 +68,8 @@ export interface ShadowTelemetry {
   /** #737 FR2 — instances drawn into the cascades this frame. */
   instances: number;
   atlasBytes: number;
+  /** #727 FR2 — cascades redrawn this frame (the others kept their tile). */
+  cascadesDrawn?: number;
 }
 
 export interface ShadowStage extends Pass {
@@ -125,6 +133,32 @@ export interface ShadowStageOptions {
 
 const CASCADE_UNIFORM_BYTES = 64;
 
+/**
+ * #727 FR2 — reset one cascade's tile to the far plane. A render pass can
+ * only clear the whole atlas, so when some cascades keep last frame's depth
+ * the redrawn ones are cleared by a full-screen triangle at depth 1, inside
+ * their own viewport and scissor.
+ */
+const CASCADE_CLEAR_WGSL = `
+@vertex
+fn vs_main(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
+  var corners = array<vec2<f32>, 3>(vec2<f32>(-1.0, -1.0), vec2<f32>(3.0, -1.0), vec2<f32>(-1.0, 3.0));
+  return vec4<f32>(corners[index], 1.0, 1.0);
+}
+`;
+
+const createCascadeClearPipeline = (device: GPUDevice): Promise<GPURenderPipeline> =>
+  renderPipelineAsync(device, {
+    label: 'shadowCascadeClear',
+    layout: device.createPipelineLayout({ bindGroupLayouts: [] }),
+    vertex: {
+      module: device.createShaderModule({ label: 'shadowCascadeClear', code: CASCADE_CLEAR_WGSL }),
+      entryPoint: 'vs_main',
+    },
+    primitive: { topology: 'triangle-list', cullMode: 'none' },
+    depthStencil: { depthWriteEnabled: true, depthCompare: 'always', format: 'depth32float' },
+  });
+
 export const createShadowStage = async (
   opts: ShadowStageOptions,
 ): Promise<ShadowStage> => {
@@ -132,7 +166,7 @@ export const createShadowStage = async (
   const castFleetShadows = opts.castFleetShadows === true;
   // #803 — the depth pipelines compile in parallel.
   const sceneryMeshPass = opts.sceneryMeshPass ?? null;
-  const [bank, scenery, buildings, characters, sceneryMesh] = await Promise.all([
+  const [bank, scenery, buildings, characters, sceneryMesh, cascadeClear] = await Promise.all([
     createBankDepthPipeline(device, {
       curve: opts.bankCurve ?? null,
       edgesForProgress: opts.bankEdgesForProgress,
@@ -144,6 +178,7 @@ export const createShadowStage = async (
     createBuildingsDepthPipeline(device),
     charactersMesh ? createCharactersDepthPipeline(device, charactersMesh) : null,
     sceneryMeshPass ? createSceneryMeshDepthPipeline(device) : null,
+    createCascadeClearPipeline(device),
   ]);
   // #591-fu P1c (updated for #623 Phase 1): the procedural flora depth
   // pass is retired. Scenery depth comes exclusively from registered
@@ -316,11 +351,17 @@ export const createShadowStage = async (
       telemetry.draws = 0;
       telemetry.triangles = 0;
       telemetry.instances = 0;
+      telemetry.cascadesDrawn = 0;
       if (count === 0) return;
+
+      // #727 FR2 — a cascade not due this frame keeps last frame's tile.
+      const redraw = (i: number): boolean => payload.cascades[i]?.refresh !== false;
+      let allRedrawn = true;
+      for (let i = 0; i < count; i++) if (!redraw(i)) allRedrawn = false;
 
       for (let i = 0; i < count; i++) {
         const cascade = payload.cascades[i];
-        if (!cascade) continue;
+        if (!cascade || !redraw(i)) continue;
         uniformScratch.set(cascade.viewProj, 0);
         ctx.device.queue.writeBuffer(
           bankCascadeBuffers[i],
@@ -358,20 +399,30 @@ export const createShadowStage = async (
       let drawCount = 0;
       let triangleCount = 0;
       let instanceCount = 0;
+      let cascadesDrawn = 0;
       for (let i = 0; i < count; i++) {
+        if (!redraw(i)) continue;
         const [vx, vy, vw, vh] = cascadeViewport(atlas, i);
+        // Every cascade redrawn: the first pass clears the whole atlas, as
+        // before. Some kept: each redrawn tile is cleared on its own.
+        const clearAtlas = allRedrawn && i === 0;
         const pass = ctx.encoder.beginRenderPass({
           label: `shadow-cascade:${i}`,
           colorAttachments: [],
           depthStencilAttachment: {
             view: atlasView,
-            depthLoadOp: i === 0 ? 'clear' : 'load',
+            depthLoadOp: clearAtlas ? 'clear' : 'load',
             depthStoreOp: 'store',
             depthClearValue: 1.0,
           },
         });
         pass.setViewport(vx, vy, vw, vh, 0, 1);
         pass.setScissorRect(vx, vy, vw, vh);
+        if (!allRedrawn) {
+          pass.setPipeline(cascadeClear);
+          pass.draw(3);
+        }
+        cascadesDrawn += 1;
 
         pass.setPipeline(bank.pipeline);
         pass.setBindGroup(0, bankCascadeBindGroups[i]);
@@ -488,11 +539,12 @@ export const createShadowStage = async (
       }
 
       telemetry.cascades = count;
+      telemetry.cascadesDrawn = cascadesDrawn;
       telemetry.atlasSize = atlas.tileSize;
       telemetry.draws = drawCount;
       telemetry.triangles = triangleCount;
       telemetry.instances = instanceCount;
-      telemetry.drawsPerCascade = Math.floor(drawCount / Math.max(1, count));
+      telemetry.drawsPerCascade = Math.floor(drawCount / Math.max(1, cascadesDrawn));
       telemetry.atlasBytes = atlas.bytes;
     },
     dispose() {

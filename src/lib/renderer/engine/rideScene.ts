@@ -107,7 +107,7 @@ import {
 } from '../plan/crewPalette';
 import { dominantGrassProfile } from '../plan/grassDensityPlan';
 import { publishBoatSource, publishFallback } from './health';
-import { computeCascades, createComputedCascades } from './cascadedShadows';
+import { cascadeDue, computeCascades, createComputedCascades } from './cascadedShadows';
 import { createPlacement, placeBoat, placeGhost, strokeAmplitude } from './characterPlacement';
 import { createStrokeClock, resetStrokeClock, stepStrokeClock } from './strokeClock';
 import { createDistanceSmoother } from './distanceSmoother';
@@ -625,6 +625,8 @@ export const createRideScene = async (
 
   const shadowUniformsBuf = createShadowUniformBuffer(device);
   const shadowScratch = new Float32Array(80);
+  /** #727 FR2 — which cascades hold a tile drawn by this scene. */
+  const cascadeDrawn = [false, false, false, false];
   const shadowCpu: ShadowUniformsCpu = {
     cascadeViewProj: [mat4(), mat4(), mat4(), mat4()],
     cascadeSplits: new Float32Array(4),
@@ -2442,10 +2444,17 @@ export const createRideScene = async (
       const dst = shadowStage.payload.cascades[i] ?? { viewProj: mat4() };
       shadowStage.payload.cascades[i] = dst;
       if (i < atlas.cascades) {
-        dst.viewProj.set(computed.cascades[i].viewProj);
-        shadowCpu.cascadeViewProj[i].set(computed.cascades[i].viewProj);
+        // #727 FR2 — a far cascade not due this frame keeps its tile, so the
+        // lit passes keep reading it with the matrix it was drawn with.
+        const due = !cascadeDrawn[i] || cascadeDue(i, atlas.cascades, telemetry.frameStats.frame, opts.tier);
+        dst.refresh = due;
+        cascadeDrawn[i] = true;
+        if (due) {
+          dst.viewProj.set(computed.cascades[i].viewProj);
+          shadowCpu.cascadeViewProj[i].set(computed.cascades[i].viewProj);
+          shadowCpu.cascadeRadius[i] = computed.cascades[i].radius;
+        }
         shadowCpu.cascadeSplits[i] = computed.splits[i] ?? 0;
-        shadowCpu.cascadeRadius[i] = computed.cascades[i].radius;
       } else {
         shadowCpu.cascadeViewProj[i].fill(0);
         shadowCpu.cascadeSplits[i] = 0;

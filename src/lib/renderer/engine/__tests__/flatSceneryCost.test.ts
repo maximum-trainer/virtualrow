@@ -83,9 +83,12 @@ describe('flat scenery cost along Willowbrook (#727)', () => {
     })) as unknown as Harness;
     expect(renderer).not.toBeNull();
 
-    // Let each stop's model loads settle before reading the stats.
+    // Let each stop's model loads settle before reading the stats. Eight
+    // frames, a whole number of the far cascades' 4-frame cycle (#727 FR2),
+    // so every stop is read at the same point in it: the shadow cost of one
+    // frame swings with which cascades it redraws.
     const settle = async () => {
-      for (let i = 0; i < 6; i += 1) {
+      for (let i = 0; i < 8; i += 1) {
         renderer._frameOnce();
         await new Promise((r) => setTimeout(r, 0));
       }

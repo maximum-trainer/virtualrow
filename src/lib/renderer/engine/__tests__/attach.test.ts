@@ -994,3 +994,50 @@ describe('frame timing (#737 VP-19)', () => {
     Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
   });
 });
+
+// #727 VP-09 FR2 — below extra-high the far cascades skip frames.
+describe('far shadow cascades redraw less often (#727 FR2)', () => {
+  const drawnPerFrame = async (tier: string) => {
+    const canvas = makeMockCanvas();
+    const renderer = (await attach(canvas, {
+      testMode: true,
+      tier,
+      route: { pools: [], totalDistanceMeters: 4000 },
+      getFrame: () => ({
+        paceSPer500: 120,
+        distanceMeters: 100,
+        cadence: 24,
+        isPlaying: true,
+        holdBoat: false,
+        finished: false,
+        intensityFactor: 1,
+        elapsedSeconds: 30,
+        ghost: null,
+      }),
+    })) as unknown as WithTest & { _telemetry: { shadows: { cascades: number; cascadesDrawn?: number } } };
+    const drawn: number[] = [];
+    let cascades = 0;
+    for (let i = 0; i < 8; i++) {
+      renderer._frameOnce();
+      cascades = renderer._telemetry.shadows.cascades;
+      drawn.push(renderer._telemetry.shadows.cascadesDrawn ?? -1);
+    }
+    renderer.dispose();
+    return { drawn, cascades };
+  };
+
+  it('redraws the nearest every frame and at most one of the far two at high', async () => {
+    // attach's warm-up frames (#814) have already drawn every cascade once.
+    const { drawn, cascades } = await drawnPerFrame('high');
+    expect(cascades).toBe(3);
+    // The 2nd every other frame, the 3rd one frame in four, never together.
+    for (const n of drawn) expect(n).toBeGreaterThanOrEqual(1);
+    for (const n of drawn) expect(n).toBeLessThanOrEqual(2);
+    expect(drawn.reduce((a, b) => a + b, 0)).toBe(8 + 4 + 2);
+  });
+
+  it('draws every cascade every frame at extra-high', async () => {
+    const { drawn, cascades } = await drawnPerFrame('extra-high');
+    expect(drawn.every((n) => n === cascades)).toBe(true);
+  });
+});

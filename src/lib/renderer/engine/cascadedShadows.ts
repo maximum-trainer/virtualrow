@@ -321,3 +321,26 @@ export const computeCascades = (
   }
   return { cascades: out, splits };
 };
+
+/**
+ * #727 FR2 — how often cascade `index` of `count` is redrawn, in frames.
+ * The nearest cascade holds the boat and what the rower looks at, so it
+ * redraws every frame. Further out a boat moves well under a texel in a few
+ * frames, so below extra-high the farthest redraws every 4th frame and the
+ * ones between every 2nd: [1, 2] with two cascades (basic, low), [1, 2, 4]
+ * with three (medium, high), [1, 1, 2, 4] with four. The lit passes keep
+ * sampling a held cascade with the matrix it was drawn with, so a held tile
+ * is never misread, only up to three frames old.
+ */
+export const cascadeRefreshInterval = (index: number, count: number, tier: string | undefined): number => {
+  if (tier === 'extra-high' || index === 0) return 1;
+  if (index === count - 1) return count >= 3 ? 4 : 2;
+  return count >= 4 && index === 1 ? 1 : 2;
+};
+
+/**
+ * Whether cascade `index` is redrawn on `frame`. Offset by the index, so the
+ * 2nd-frame and 4th-frame cascades never land on the same frame.
+ */
+export const cascadeDue = (index: number, count: number, frame: number, tier: string | undefined): boolean =>
+  (frame + index) % cascadeRefreshInterval(index, count, tier) === 0;

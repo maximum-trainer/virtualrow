@@ -208,4 +208,34 @@ describe('shadowStage (#566 P6 — buildings cast through the same atlas)', () =
     pool.dispose();
     buildings.dispose();
   });
+
+  it('redraws only the cascades due this frame, clearing just their tiles (#727 FR2)', async () => {
+    const device = makeMockDevice();
+    const atlas = createShadowAtlas(device, 512, 4);
+    const telemetry: import('../shadowStage').ShadowTelemetry = emptyTelemetry();
+    const stage = await createShadowStage({ device, atlas, scenePools: [], buildingsPool: null, telemetry });
+    expect(device.__log.createdPipelines).toContain('shadowCascadeClear');
+    const ctx = {
+      device,
+      encoder: device.createCommandEncoder(),
+      swapView: {} as GPUTextureView,
+      outputView: {} as GPUTextureView,
+      depthView: {} as GPUTextureView,
+      width: 1,
+      height: 1,
+      frame: {} as unknown as import('../frameGraph').FrameUniforms,
+      colorCleared: false,
+      depthCleared: false,
+    };
+    stage.payload.cascadeCount = 4;
+    for (let i = 0; i < 4; i += 1) stage.payload.cascades[i] = { viewProj: new Float32Array(16), refresh: i !== 3 };
+    const before = device.__log.encoderPasses.length;
+    stage.encode(ctx);
+    const passes = device.__log.encoderPasses.slice(before);
+    expect(passes).toEqual(['shadow-cascade:0', 'shadow-cascade:1', 'shadow-cascade:2']);
+    expect(telemetry.cascadesDrawn).toBe(3);
+    // Only the bank is drawn here: one per redrawn cascade.
+    expect(telemetry.draws).toBe(3);
+    stage.dispose();
+  });
 });
