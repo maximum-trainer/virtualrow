@@ -160,6 +160,7 @@
             rownativePreviews={rownativePreviews}
             onRownativeSelect={rownativeImport}
             onViewChange={(view) => (mapView = view)}
+            offlineBasemap={!showAuthFeatures}
           />
         </div>
       </section>
@@ -167,6 +168,7 @@
       <RouteDetailOverlay
         route={routes.routeDetailOpen}
         onClose={() => (routes.routeDetailOpen = null)}
+        showBackdrop={showAuthFeatures}
         onStartRow={() => {
           if (routes.routeDetailOpen) {
             selectRoute(routes.routeDetailOpen);
@@ -267,7 +269,7 @@
                   width={120}
                   height={60}
                   class="route-item-thumbnail"
-                  showBackdrop
+                  showBackdrop={showAuthFeatures}
                 />
               {/if}
               {#if routes.routeEnrichmentLoading[route.id]}

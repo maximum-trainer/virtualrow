@@ -26,6 +26,8 @@ interface MockBluetoothCharacteristic {
 
 declare global {
   interface Window {
+    /** #822: puts the Routes overview map at a spot, set while MapLibre is live. */
+    __ROUTE_OVERVIEW_JUMP?: (lng: number, lat: number, zoom: number) => void;
     /**
      * Sends frames to the simulator server over its WebSocket. Only does
      * anything while `npm run start:sim` is up — the emitters are no-ops when

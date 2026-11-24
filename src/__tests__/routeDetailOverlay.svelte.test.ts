@@ -24,6 +24,20 @@ const ROUTE: WaterRoute = {
 
 // #542 P1: RouteDetailOverlay ported to Svelte, same DOM/classes/testids.
 describe('RouteDetailOverlay.svelte', () => {
+  it('#822 NFR3: draws the OSM tile behind the outline by default, and not when told not to', () => {
+    const withTile = render(RouteDetailOverlay, { route: ROUTE, onClose: vi.fn(), onStartRow: vi.fn() });
+    expect(withTile.container.querySelector('[data-testid="route-thumbnail-backdrop"]')).not.toBeNull();
+    withTile.unmount();
+
+    const guest = render(RouteDetailOverlay, {
+      route: ROUTE,
+      onClose: vi.fn(),
+      onStartRow: vi.fn(),
+      showBackdrop: false,
+    });
+    expect(guest.container.querySelector('[data-testid="route-thumbnail-backdrop"]')).toBeNull();
+  });
+
   it('renders nothing when route is null', () => {
     const { container } = render(RouteDetailOverlay, {
       route: null,

@@ -94,3 +94,84 @@
 .route-overview-map__pin--rownative svg {
   filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.55));
 }
+
+/* #822 FR2: chooser for routes that start within 1 km of each other. */
+.route-chooser {
+  position: absolute;
+  z-index: 3;
+  pointer-events: auto;
+  background: var(--surface-1, #fff);
+  color: var(--text-primary, #1b1f24);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  padding: 8px;
+  max-height: 280px;
+  display: flex;
+  flex-direction: column;
+}
+
+.route-chooser__title {
+  margin: 2px 6px 6px;
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0.75;
+}
+
+.route-chooser__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+}
+
+.route-chooser__item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.route-chooser__item:hover,
+.route-chooser__item:focus-visible {
+  background: rgba(0, 180, 255, 0.14);
+  outline: none;
+}
+
+.route-chooser__name {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.route-chooser__star {
+  color: #e0a800;
+  margin-right: 4px;
+}
+
+.route-chooser__meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+.route-overview-map__credit {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  padding: 2px 6px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font-size: 10px;
+  border-radius: 3px;
+  z-index: 2;
+}
