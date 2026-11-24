@@ -53,7 +53,10 @@ const COURSE: MetrePoint[] = [
   { x: 2000, y: 0 },
   { x: 2000, y: 1500 },
 ];
-const draw = (points: MetrePoint[], extra: { progressPercent?: number; highlightMode?: boolean } = {}) => {
+const draw = (
+  points: MetrePoint[],
+  extra: { progressPercent?: number; highlightMode?: boolean; landLegs?: { from: MetrePoint; to: MetrePoint }[] } = {},
+) => {
   const r = recorder();
   drawRouteMap(r.ctx, { points, bounds: boundsOf(points), width: 400, height: 300, ...extra });
   return r;
@@ -147,5 +150,20 @@ describe('drawRouteMap (#738)', () => {
 
   it('draws nothing for a route with fewer than two points', () => {
     expect(draw([{ x: 0, y: 0 }]).calls).toEqual([]);
+  });
+});
+
+// #752 FR2: a leg of a gates-only course that crosses land is drawn dashed.
+describe('drawRouteMap land crossings (#752 FR2)', () => {
+  it('draws each land-crossing leg dashed in the warning colour, then clears the dash', () => {
+    const r = draw(COURSE, { landLegs: [{ from: COURSE[0], to: COURSE[1] }] });
+    const dashes = r.calls.filter((c) => c.op === 'setLineDash');
+    expect(dashes.map((c) => (c.args[0] as number[]).length > 0)).toEqual([true, false]);
+    const dashed = r.calls.filter((c) => c.op === 'stroke' && c.strokeStyle === ROUTE_MAP_COLOURS.landCrossing);
+    expect(dashed).toHaveLength(1);
+  });
+
+  it('draws no dash on a course without any', () => {
+    expect(draw(COURSE).calls.some((c) => c.op === 'setLineDash')).toBe(false);
   });
 });
