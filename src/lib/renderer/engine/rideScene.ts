@@ -682,6 +682,7 @@ export const createRideScene = async (
   // #742 FR5 — where the lake polygons are drawn, the banks laid along the
   // racing line give way to them: the lake's own shore is the bank.
   const bankFootprint = useLakePolygonWater ? withLakes(routeWater, polygonLakes) : routeWater;
+  const drawnLakeWater = useLakePolygonWater ? lakeWater(polygonLakes) : undefined;
   const surfaceLakes = lakeWater(isSceneryRoute(opts.route) ? opts.route.lakePolygons ?? [] : []);
   let rejectedOnWater = 0;
 
@@ -1153,6 +1154,13 @@ export const createRideScene = async (
     grass: { profile: bankGrassProfile, strength: bankGrassStrength },
     landSide: routeLandSide,
     reliefForProgress: routeRelief,
+    // #745 FR2 — a shore round each drawn lake, open where the ribbon runs out.
+    ...(useLakePolygonWater
+      ? {
+        lakes: polygonLakes,
+        lakeShoreOnWater: (x: number, z: number) => routeWater.contains(x, z) || (drawnLakeWater?.(x, z) ?? false),
+      }
+      : {}),
     ...(isSceneryRoute(opts.route) && opts.route.profileForProgress
       ? { profileForProgress: opts.route.profileForProgress }
       : {}),

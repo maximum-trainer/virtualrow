@@ -12,7 +12,8 @@ import {
 } from '../engine/shaderSnippets';
 import { buildGroundPlane } from '../plan/groundPlane';
 import { buildBankStrips, indexUpload } from '../plan/bankStrip';
-import type { WaterFootprint } from '../plan/waterFootprint';
+import type { LakeOutline, WaterFootprint } from '../plan/waterFootprint';
+import { buildLakeShore } from '../plan/lakeShore';
 import type { WaterEdges } from '../plan/waterStrip';
 import { paintBiomeDensityR8 } from '../../scenery/biomeDensity';
 import { BANK_ATLAS_SIZE, paintBankAtlas } from '../../scenery/bankAtlas';
@@ -67,6 +68,13 @@ export interface BankPassOptions {
    * Omitted → flat.
    */
   reliefForProgress?: (progress: number) => number;
+  /**
+   * #745 FR2 — drawn lakes, for a shore band round each (`plan/lakeShore.ts`).
+   * Omitted or empty → none.
+   */
+  lakes?: ReadonlyArray<LakeOutline>;
+  /** #745 FR2 — water the lake shore must leave open: the route's ribbon and the lakes themselves. */
+  lakeShoreOnWater?: (x: number, z: number) => boolean;
 }
 
 export interface BankPass extends Pass {
@@ -120,6 +128,8 @@ export const createBankPass = async ({
   landSide,
   profileForProgress,
   reliefForProgress,
+  lakes,
+  lakeShoreOnWater,
 }: BankPassOptions): Promise<BankPass> => {
   // #725 FR6 — the shared aerial fog, in the sky's horizon colour.
   const code = SHADOW_UNIFORMS_WGSL + SAMPLE_SHADOW_WGSL + HORIZON_HAZE_WGSL + SKY_COLOUR_WGSL + AERIAL_FOG_WGSL
@@ -340,6 +350,38 @@ export const createBankPass = async ({
   });
   device.queue.writeBuffer(biomeBuffer, 0, biomes as BufferSource);
 
+  // #745 FR2 — the shore of each drawn lake, in the bank's own vertex layout.
+  // Its ground is the route's biome mix over its whole length.
+  const shore = lakes && lakes.length > 0 ? buildLakeShore(lakes, { onWater: lakeShoreOnWater }) : null;
+  const shoreBuffers = shore && shore.indices.length > 0
+    ? (() => {
+      const routeMix = new Float32Array(BANK_BIOME_WEIGHTS);
+      const sample = new Float32Array(BANK_BIOME_WEIGHTS);
+      const SAMPLES = 16;
+      for (let k = 0; k < SAMPLES; k++) {
+        for (const side of ['left', 'right'] as const) {
+          writeBiomeWeights((t) => profileAt(t, side), (k + 0.5) / SAMPLES, 0, sample);
+          for (let w = 0; w < BANK_BIOME_WEIGHTS; w++) routeMix[w] += sample[w] / (SAMPLES * 2);
+        }
+      }
+      const verts = shore.positions.length / 3;
+      const shoreBiomes = new Float32Array(verts * BANK_BIOME_WEIGHTS);
+      for (let v = 0; v < verts; v++) shoreBiomes.set(routeMix, v * BANK_BIOME_WEIGHTS);
+      const make = (label: string, data: Float32Array | Uint32Array, usage: number) => {
+        const buffer = device.createBuffer({ label, size: data.byteLength, usage: usage | GPUBufferUsage.COPY_DST });
+        device.queue.writeBuffer(buffer, 0, data as BufferSource);
+        return buffer;
+      };
+      return {
+        positions: make('bank-lake-shore-pos', shore.positions, GPUBufferUsage.VERTEX),
+        sides: make('bank-lake-shore-side', shore.sides, GPUBufferUsage.VERTEX),
+        biomes: make('bank-lake-shore-biome', shoreBiomes, GPUBufferUsage.VERTEX),
+        indices: make('bank-lake-shore-idx', shore.indices, GPUBufferUsage.INDEX),
+        count: shore.indices.length,
+      };
+    })()
+    : null;
+
   // The ground plane's mix, at the boat: both banks, over a wider stretch
   // than the strips so it turns over gently as the boat enters a band.
   const routeMetres = curve && curve.length >= 2 ? curve.approximateLength(64) : 400;
@@ -426,6 +468,13 @@ export const createBankPass = async ({
       pass.setVertexBuffer(2, biomeBuffer);
       pass.setIndexBuffer(indexBuffer, geom.indexFormat);
       pass.drawIndexed(geom.indices.length);
+      if (shoreBuffers) {
+        pass.setVertexBuffer(0, shoreBuffers.positions);
+        pass.setVertexBuffer(1, shoreBuffers.sides);
+        pass.setVertexBuffer(2, shoreBuffers.biomes);
+        pass.setIndexBuffer(shoreBuffers.indices, 'uint32');
+        pass.drawIndexed(shoreBuffers.count);
+      }
       pass.end();
     },
     dispose() {
@@ -436,6 +485,12 @@ export const createBankPass = async ({
       groundIndexBuffer.destroy();
       sideBuffer.destroy();
       biomeBuffer.destroy();
+      if (shoreBuffers) {
+        shoreBuffers.positions.destroy();
+        shoreBuffers.sides.destroy();
+        shoreBuffers.biomes.destroy();
+        shoreBuffers.indices.destroy();
+      }
       indexBuffer.destroy();
       grassTexture.destroy();
       grassUniforms.destroy();
