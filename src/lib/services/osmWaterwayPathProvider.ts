@@ -56,11 +56,19 @@ import type { Coordinate } from '../types/index';
 import { distanceBetweenMeters, polylineLengthMeters } from '../utils/coordinateUtils';
 import { slicePolyline } from '../utils/polylineGeometry';
 import type { WaterwayPathOptions, WaterwayPathProvider } from './rownativeGeometry';
+import { deriveAreaCentreline, parseWaterAreas } from './waterAreaCentreline';
 
 const OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
 
 /** Waterway classes a rowing course can plausibly follow. */
 const WATERWAY_FILTER = '^(river|canal|stream|tidal_channel|fairway)$';
+/** #751 FR1: water mapped as an area (`water=river|canal|dock` are `natural=water`). */
+const WATER_AREA_SELECTORS = [
+  'way["natural"="water"]',
+  'relation["natural"="water"]',
+  'way["waterway"="riverbank"]',
+  'relation["waterway"="riverbank"]',
+];
 
 /** Margin added around the gate bounding box, in metres. */
 const BBOX_MARGIN_M = 1000;
@@ -121,8 +129,16 @@ export interface OsmWaterwayPathProviderOptions {
 const METERS_PER_DEGREE_LAT = 111_320;
 
 interface OverpassWay {
+  type?: string;
+  tags?: Record<string, string>;
   geometry?: { lat: number; lon: number }[];
 }
+
+/** #751: a water area (bank outline), not a line to walk. */
+const isWaterArea = (element: OverpassWay): boolean =>
+  element?.type === 'relation'
+  || element?.tags?.natural === 'water'
+  || element?.tags?.waterway === 'riverbank';
 
 interface OverpassResponse {
   elements?: OverpassWay[];
@@ -307,14 +323,12 @@ export class OsmWaterwayPathProvider implements WaterwayPathProvider {
     return path;
   }
 
-  private async derivePath(
-    bbox: string,
-    gates: Coordinate[],
-    options: WaterwayPathOptions,
-  ): Promise<Coordinate[] | null> {
-    const query = `[out:json][timeout:25];way["waterway"~"${WATERWAY_FILTER}"](${bbox});out geom;`;
-    // One budget for the whole lookup: a single abort covers the request in
-    // flight and any wait between attempts.
+  /**
+   * POST one Overpass query with the retry policy, inside one budget that
+   * covers the request in flight and any wait between attempts. Resolves the
+   * parsed `elements`, or null when the server never answered well.
+   */
+  private async overpassElements(query: string): Promise<unknown[] | null> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.budgetMs);
     const pause = (ms: number) =>
@@ -342,15 +356,56 @@ export class OsmWaterwayPathProvider implements WaterwayPathProvider {
       clearTimeout(timeout);
     }
     if (!response?.ok) return null;
-
     const payload = await response.json() as OverpassResponse;
-    const graph = buildGraph(Array.isArray(payload?.elements) ? payload.elements : []);
-    if (graph.vertices.size === 0) return null;
+    return Array.isArray(payload?.elements) ? payload.elements : [];
+  }
+
+  /** The whole path is neither a long detour nor shorter than the gate chain (FR5). */
+  private static withinTotalDetour(gates: Coordinate[], path: Coordinate[]): boolean {
+    const chain = polylineLengthMeters(gates);
+    const total = polylineLengthMeters(path);
+    return !(chain > 0 && (total > chain * MAX_TOTAL_DETOUR_RATIO || total < chain * MIN_TOTAL_DETOUR_RATIO));
+  }
+
+  /**
+   * #751 FR1: no `waterway` way near a gate, so walk the water area the gates
+   * are in. Each leg is a centreline derived from the banks (FR2 checks live
+   * in {@link deriveAreaCentreline}); any leg without one declines the lot.
+   * The areas come back in the same answer as the waterways, so a course
+   * still costs one Overpass request (#756 FR5).
+   */
+  private static deriveAreaPath(areas: readonly unknown[], gates: Coordinate[]): Coordinate[] | null {
+    const rings = parseWaterAreas(areas);
+    if (rings.length === 0) return null;
+
+    let full: Coordinate[] = [];
+    for (let i = 0; i < gates.length - 1; i++) {
+      const leg = deriveAreaCentreline(gates[i], gates[i + 1], rings);
+      if (!leg) return null;
+      full = full.concat(full.length > 0 ? leg.coordinates.slice(1) : leg.coordinates);
+    }
+    return full.length >= 2 && OsmWaterwayPathProvider.withinTotalDetour(gates, full) ? full : null;
+  }
+
+  private async derivePath(
+    bbox: string,
+    gates: Coordinate[],
+    options: WaterwayPathOptions,
+  ): Promise<Coordinate[] | null> {
+    const selectors = [`way["waterway"~"${WATERWAY_FILTER}"]`, ...WATER_AREA_SELECTORS];
+    const elements = await this.overpassElements(
+      `[out:json][timeout:25];(${selectors.map((sel) => `${sel}(${bbox});`).join('')});out geom;`,
+    ) as OverpassWay[] | null;
+    if (!elements) return null;
+    const areas = elements.filter(isWaterArea);
+    const graph = buildGraph(elements.filter((element) => !isWaterArea(element)));
 
     const snaps: Snap[] = [];
     for (const [index, gate] of gates.entries()) {
-      const snap = snapToGraph(graph, gate);
-      if (!snap || snap.distanceMeters > snapLimitFor(options.gateExtentsMeters?.[index])) return null;
+      const snap = graph.vertices.size > 0 ? snapToGraph(graph, gate) : null;
+      if (!snap || snap.distanceMeters > snapLimitFor(options.gateExtentsMeters?.[index])) {
+        return OsmWaterwayPathProvider.deriveAreaPath(areas, gates);
+      }
       snaps.push(snap);
     }
 
@@ -396,11 +451,7 @@ export class OsmWaterwayPathProvider implements WaterwayPathProvider {
     }
     if (full.length < 2) return null;
 
-    const chain = polylineLengthMeters(gates);
-    const total = polylineLengthMeters(full);
-    if (chain > 0 && (total > chain * MAX_TOTAL_DETOUR_RATIO || total < chain * MIN_TOTAL_DETOUR_RATIO)) {
-      return null;
-    }
+    if (!OsmWaterwayPathProvider.withinTotalDetour(gates, full)) return null;
 
     return full.length >= 2 ? full : null;
   }
