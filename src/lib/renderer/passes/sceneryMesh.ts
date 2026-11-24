@@ -14,6 +14,7 @@ import sceneryMeshWgsl from './sceneryMesh.wgsl?raw';
 import type { ShadowResources } from './bank';
 import {
   AERIAL_FOG_WGSL,
+  HORIZON_HAZE_WGSL,
   lightingBindingWgsl,
   SAMPLE_SHADOW_WGSL,
   SHADOW_UNIFORMS_WGSL,
@@ -356,7 +357,7 @@ export const createSceneryMeshPass = async ({
   const module = device.createShaderModule({
     label: 'sceneryMesh',
     // #725 FR6 — the shared aerial fog, in the sky's horizon colour.
-    code: sceneryShadowWgsl(receiveShadows) + lightingBindingWgsl(1) + SKY_COLOUR_WGSL + AERIAL_FOG_WGSL + sceneryMeshWgsl,
+    code: sceneryShadowWgsl(receiveShadows) + lightingBindingWgsl(1) + SKY_COLOUR_WGSL + AERIAL_FOG_WGSL + HORIZON_HAZE_WGSL + sceneryMeshWgsl,
   });
   const vertexBuffers: GPUVertexBufferLayout[] = [
     { arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }] },
