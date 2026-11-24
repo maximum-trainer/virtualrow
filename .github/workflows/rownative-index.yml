@@ -1,0 +1,54 @@
+# Nightly refresh of the bundled rownative snapshot (#822 phase 1).
+#
+# The public rownative mirror adds and corrects courses continuously. The
+# browser reads a committed snapshot under
+# `public/assets/rownative/rownative-index.json` so guests can see every pin
+# without a runtime network call (NFR3), so the repository has to pull the
+# upstream index periodically and commit the diff. This workflow does that.
+#
+# No secrets. If the mirror is unreachable, `scripts/build_rownative_index.mjs`
+# already skips cleanly and this job stays green.
+
+name: Rownative index refresh (scheduled)
+
+on:
+  schedule:
+    # Nightly at 04:47 UTC — offset from the other scheduled jobs.
+    - cron: '47 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  refresh:
+    if: github.repository == 'maximum-trainer/virtualrow'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      - name: Install deps
+        run: npm ci --no-audit --no-fund
+
+      - name: Rebuild the bundled rownative snapshot
+        run: npm run build:rownative-index
+
+      - name: Open a PR with the refreshed snapshot
+        uses: peter-evans/create-pull-request@v7
+        with:
+          commit-message: 'chore(rownative): refresh bundled index (#822)'
+          title: 'chore(rownative): refresh bundled index'
+          body: |
+            Automated refresh of `public/assets/rownative/rownative-index.json`
+            from the upstream public mirror.
+
+            See #822 for context on the bundled snapshot.
+          branch: chore/rownative-index-refresh
+          delete-branch: true
+          add-paths: public/assets/rownative/rownative-index.json

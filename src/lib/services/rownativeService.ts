@@ -17,6 +17,19 @@ import {
   type AttachedTrack,
 } from './trackAttachmentStore';
 import { parseTrackFile } from '../utils/trackParsers';
+import { readBundledIndex, type RownativeBundledCourse } from './rownativeBundledIndex';
+import { assetUrl } from '../utils/assetUrl';
+
+export type { RownativeBundledCourse } from './rownativeBundledIndex';
+
+/**
+ * URL of the committed bundled rownative snapshot (#822 phase 1).
+ *
+ * Wrapped through {@link assetUrl} so the deploy's non-root `BASE_URL`
+ * (`/virtualrow/app` in production) is applied automatically — the
+ * caller can leave the default alone.
+ */
+export const bundledRownativeIndexUrl = (): string => assetUrl('/assets/rownative/rownative-index.json');
 
 // Discovery note (issue #46): rownative Worker API exposes /api/courses and related routes,
 // but browser CORS restricts origins to rownative.icu/localhost. VirtualRow therefore reads the
@@ -80,6 +93,9 @@ export interface RownativeCourseSummary {
 export class RownativeService {
   private courseIndexCache: RownativeCourseSummary[] | null = null;
   private courseIndexPromise: Promise<RownativeCourseSummary[]> | null = null;
+  /** #822 phase 1: in-memory cache for the bundled snapshot, keyed by URL. */
+  private bundledIndexCache = new Map<string, RownativeBundledCourse[]>();
+  private bundledIndexPromises = new Map<string, Promise<RownativeBundledCourse[]>>();
   private readonly fetchImpl: typeof fetch;
   private readonly importRoute: (data: RownativeRouteImportData) => WaterRoute;
   private readonly tracks: TrackAttachmentStore;
@@ -143,6 +159,46 @@ export class RownativeService {
         this.courseIndexPromise = null;
       });
     return this.courseIndexPromise;
+  }
+
+  /**
+   * Load the bundled rownative snapshot shipped as a static asset (#822
+   * phase 1, D14). Returns every established course with a valid centre
+   * so the Routes screen can render them as map pins without any runtime
+   * call to rownative.icu or the public mirror — guests and offline
+   * sessions see them too (NFR3).
+   *
+   * Returns `[]` on any load or parse failure so the map stays usable;
+   * the search panel still offers the paste-ID / name-search fallback
+   * (`getCourseIndex` / `searchCourses`) for courses that aren't in the
+   * snapshot.
+   */
+  async getBundledIndex(url: string = bundledRownativeIndexUrl()): Promise<RownativeBundledCourse[]> {
+    const cached = this.bundledIndexCache.get(url);
+    if (cached) return cached;
+    const inflight = this.bundledIndexPromises.get(url);
+    if (inflight) return inflight;
+
+    const promise = (async () => {
+      try {
+        const response = await this.fetchImpl(url);
+        if (!response.ok) return [];
+        const raw = (await response.json()) as unknown;
+        return readBundledIndex(raw);
+      } catch {
+        return [];
+      }
+    })()
+      .then((list) => {
+        this.bundledIndexCache.set(url, list);
+        return list;
+      })
+      .finally(() => {
+        this.bundledIndexPromises.delete(url);
+      });
+
+    this.bundledIndexPromises.set(url, promise);
+    return promise;
   }
 
   async searchCourses(query: string, limit = 30): Promise<RownativeCourseSummary[]> {

@@ -53,4 +53,56 @@ describe('clusterRoutePins', () => {
     expect(result).toHaveLength(1);
     expect(result[0].kind).toBe('pin');
   });
+
+  it('includes rownative preview pins alongside routes (#822)', () => {
+    const result = clusterRoutePins(
+      [route('a', 51, -1)],
+      10,
+      undefined,
+      [{ id: 'rn-77', name: 'Rhine', country: 'DE', lat: 48, lng: 2 }],
+    );
+    expect(result).toHaveLength(2);
+    const preview = result.find((e) => e.kind === 'pin-rownative');
+    expect(preview?.kind).toBe('pin-rownative');
+    if (preview?.kind === 'pin-rownative') {
+      expect(preview.preview.id).toBe('rn-77');
+    }
+  });
+
+  it('skips a preview whose id is already an imported route (#822)', () => {
+    const result = clusterRoutePins(
+      [route('rn-77', 48, 2)],
+      10,
+      undefined,
+      [{ id: 'rn-77', lat: 48, lng: 2 }],
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0].kind).toBe('pin');
+  });
+
+  it('clusters routes and rownative previews together, with both id lists (#822)', () => {
+    const result = clusterRoutePins(
+      [route('a', 51.5, -0.1), route('b', 51.5001, -0.1001)],
+      2,
+      undefined,
+      [{ id: 'rn-1', lat: 51.5, lng: -0.0999 }],
+    );
+    const cluster = result.find((e) => e.kind === 'cluster');
+    expect(cluster?.kind).toBe('cluster');
+    if (cluster?.kind === 'cluster') {
+      expect(cluster.routeIds.sort()).toEqual(['a', 'b']);
+      expect(cluster.rownativePreviewIds).toEqual(['rn-1']);
+      expect(cluster.count).toBe(3);
+    }
+  });
+
+  it('drops a preview pin with non-finite coordinates (#822)', () => {
+    const result = clusterRoutePins(
+      [],
+      10,
+      undefined,
+      [{ id: 'bad', lat: Number.NaN, lng: 0 }],
+    );
+    expect(result).toEqual([]);
+  });
 });

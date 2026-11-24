@@ -101,4 +101,27 @@ describe('RouteOverviewMap.svelte', () => {
     // Individual pins disappear while the cluster covers them.
     expect(container.querySelectorAll('[data-testid="route-pin"]').length).toBe(0);
   });
+
+  it('#822 phase 1 — renders rownative preview pins when the user has no imported routes', () => {
+    // Guest / signed-out case: `routes` is empty, so a bug in the keyed-each
+    // expression (previously `entry.route.id` for every entry) would silently
+    // render zero pins — which is exactly what the Playwright guest spec
+    // caught (`route-pin-rownative` never visible on any platform).
+    const previews = [
+      { id: 'thames', name: 'Thames', country: 'GB', distanceMeters: 3000, lat: 51.5, lng: -1.0 },
+      { id: 'swan', name: 'Swan', country: 'AU', distanceMeters: 2500, lat: -33.0, lng: 151.0 },
+    ];
+    const { container } = render(RouteOverviewMap, {
+      routes: [],
+      defaultRouteId: null,
+      selectedRouteId: null,
+      rownativePreviews: previews,
+      onSelect: vi.fn(),
+      onRownativeSelect: vi.fn(),
+    });
+
+    const rnPins = container.querySelectorAll('[data-testid="route-pin-rownative"]');
+    expect(rnPins.length).toBe(2);
+    expect(rnPins[0].getAttribute('data-rownative-id')).toBe('thames');
+  });
 });

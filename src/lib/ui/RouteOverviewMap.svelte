@@ -10,7 +10,11 @@
 <script lang="ts">
   import type { WaterRoute, Coordinate } from '../types/index';
   import { routeCentroid } from '../utils/routeCentroid';
-  import { clusterRoutePins, type ClusteredEntry } from '../utils/routePinClusters';
+  import {
+    clusterRoutePins,
+    type ClusteredEntry,
+    type RownativePreviewInput,
+  } from '../utils/routePinClusters';
   import { overviewFit } from './routeOverviewFit';
   import './RouteOverviewMap.css';
 
@@ -27,9 +31,21 @@
     selectedRouteId: string | null;
     dimmedRouteIds?: ReadonlySet<string>;
     onSelect: (route: WaterRoute) => void;
+    /** #822 phase 1: bundled rownative courses the user hasn't imported yet. */
+    rownativePreviews?: readonly RownativePreviewInput[];
+    /** #822 D15: click handler for a rownative preview pin — import then select. */
+    onRownativeSelect?: (preview: RownativePreviewInput) => void;
   }
 
-  let { routes, defaultRouteId, selectedRouteId, dimmedRouteIds, onSelect }: Props = $props();
+  let {
+    routes,
+    defaultRouteId,
+    selectedRouteId,
+    dimmedRouteIds,
+    onSelect,
+    rownativePreviews = [],
+    onRownativeSelect,
+  }: Props = $props();
 
   let canvasEl = $state<HTMLDivElement | undefined>(undefined);
   // Non-reactive holder for the live MapLibre instance (React's mapInstanceRef).
@@ -56,11 +72,22 @@
     return out;
   });
 
+  // #822 phase 1: rownative preview pins mapped into the same shape the
+  // fallback-projection bbox walker reads, so a routes-free catalogue still
+  // fits the world around the pins it does have.
+  const previewPins = $derived.by<Array<{ lng: number; lat: number }>>(() =>
+    rownativePreviews
+      .filter(
+        (p) => Number.isFinite(p.lat) && Number.isFinite(p.lng) && !routes.some((r) => r.id === p.id),
+      )
+      .map((p) => ({ lng: p.lng, lat: p.lat })),
+  );
+
   // #505 Phase 2c (D4-b): cluster against the live viewport, so a user zooming
   // in on a cluster watches it break apart as its members pass the cluster
   // radius. In the SVG fallback the viewport stays at the overview defaults.
   const entries = $derived.by<ClusteredEntry[]>(() =>
-    clusterRoutePins(routes, viewport.zoom, viewport.bbox),
+    clusterRoutePins(routes, viewport.zoom, viewport.bbox, rownativePreviews),
   );
 
   // Track rendered size so the fallback SVG and the pin layer agree on pixels.
@@ -84,12 +111,14 @@
     // Read the reactive deps synchronously so the effect re-runs like React's
     // [pins, defaultRouteId] dependency list.
     const currentPins = pins;
+    const currentPreviews = previewPins;
     const currentDefault = defaultRouteId;
     const el = canvasEl;
 
     let cancelled = false;
     let mapInstance: { remove: () => void } | null = null;
-    if (!el || currentPins.length === 0) {
+    const firstPoint = currentPins[0]?.centroid ?? currentPreviews[0];
+    if (!el || !firstPoint) {
       mapReady = false;
       return;
     }
@@ -135,7 +164,7 @@
           container: el,
           style,
           attributionControl: false,
-          center: [currentPins[0].centroid.lng, currentPins[0].centroid.lat],
+          center: [firstPoint.lng, firstPoint.lat],
           zoom: 2,
         });
         if (cancelled) {
@@ -146,7 +175,7 @@
         mapInstanceRef = map;
 
         // #738: a lone route fits to its own course; every fit is capped.
-        const fit = overviewFit(currentPins, currentDefault);
+        const fit = overviewFit(currentPins, currentDefault, currentPreviews);
         if (fit) {
           map.fitBounds(fit.bounds, { padding: fit.padding, maxZoom: fit.maxZoom, animate: false });
         }
@@ -181,7 +210,8 @@
   // Equirectangular projection for the fallback: a world sketch bounded by the
   // pin set (so a UK-only catalogue doesn't centre on the Atlantic).
   const fallbackProjection = $derived.by(() => {
-    if (pins.length === 0 || containerSize.w === 0 || containerSize.h === 0) return null;
+    const totalPins = pins.length + previewPins.length;
+    if (totalPins === 0 || containerSize.w === 0 || containerSize.h === 0) return null;
     let minLng = Infinity;
     let maxLng = -Infinity;
     let minLat = Infinity;
@@ -191,6 +221,12 @@
       if (p.centroid.lng > maxLng) maxLng = p.centroid.lng;
       if (p.centroid.lat < minLat) minLat = p.centroid.lat;
       if (p.centroid.lat > maxLat) maxLat = p.centroid.lat;
+    }
+    for (const p of previewPins) {
+      if (p.lng < minLng) minLng = p.lng;
+      if (p.lng > maxLng) maxLng = p.lng;
+      if (p.lat < minLat) minLat = p.lat;
+      if (p.lat > maxLat) maxLat = p.lat;
     }
     const padLng = Math.max(0.5, (maxLng - minLng) * 0.2);
     const padLat = Math.max(0.5, (maxLat - minLat) * 0.2);
@@ -223,7 +259,11 @@
     </svg>
   {/if}
   <div class="route-overview-map__pin-layer">
-    {#each entries as entry (entry.kind === 'cluster' ? `cluster-${entry.id}` : entry.route.id)}
+    {#each entries as entry (entry.kind === 'cluster'
+      ? `cluster-${entry.id}`
+      : entry.kind === 'pin-rownative'
+        ? `rn-${entry.preview.id}`
+        : entry.route.id)}
       {#if entry.kind === 'cluster'}
         {@const pos = activeProjection ? activeProjection({ lat: entry.lat, lng: entry.lng }) : null}
         <button
@@ -231,6 +271,7 @@
           class="route-overview-map__cluster"
           data-testid="route-cluster"
           data-cluster-count={entry.count}
+          data-rownative-count={entry.rownativePreviewIds.length}
           style="left: {pos ? `${pos.x}px` : '50%'}; top: {pos ? `${pos.y}px` : '50%'};"
           aria-label={`${entry.count} routes near this location — zoom in to see them`}
           onclick={() => {
@@ -246,7 +287,7 @@
         >
           {entry.count}
         </button>
-      {:else}
+      {:else if entry.kind === 'pin'}
         {@const centroid = { lat: entry.lat, lng: entry.lng }}
         {@const pos = activeProjection ? activeProjection(centroid) : null}
         {@const isDefault = entry.route.id === defaultRouteId}
@@ -272,6 +313,28 @@
               stroke-width="1"
             />
             <circle cx="9" cy="9" r="3" fill="#111" />
+          </svg>
+        </button>
+      {:else}
+        <!-- #822 phase 1: a rownative course the user hasn't imported yet. -->
+        {@const centroid = { lat: entry.lat, lng: entry.lng }}
+        {@const pos = activeProjection ? activeProjection(centroid) : null}
+        {@const label =
+          entry.preview.country && entry.preview.country !== 'Unknown'
+            ? `${entry.preview.name ?? entry.preview.id} — ${entry.preview.country}`
+            : (entry.preview.name ?? entry.preview.id)}
+        <button
+          type="button"
+          class="route-overview-map__pin route-overview-map__pin--rownative"
+          data-testid="route-pin-rownative"
+          data-rownative-id={entry.preview.id}
+          style="left: {pos ? `${pos.x}px` : '50%'}; top: {pos ? `${pos.y}px` : '50%'};"
+          title={label}
+          aria-label={`Import rownative course ${label}`}
+          onclick={() => onRownativeSelect?.(entry.preview)}
+        >
+          <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+            <circle cx="7" cy="7" r="5" fill="#38d26a" stroke="#0a3d1b" stroke-width="1.25" />
           </svg>
         </button>
       {/if}

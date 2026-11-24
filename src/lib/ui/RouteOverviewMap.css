@@ -87,3 +87,10 @@
   color: inherit;
   text-decoration: underline;
 }
+
+/* #822 phase 1: rownative preview pins — a smaller green dot so a cluster of
+   un-imported mirror courses reads apart from the user's own routes at a
+   glance. Hover title shows name — country. */
+.route-overview-map__pin--rownative svg {
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.55));
+}
