@@ -50,6 +50,8 @@ import type { Landscape } from '../services/landscapeService';
 import type { LandCoverMask } from '../scenery/landCoverMask';
 import { coastLandSide, landscapeScenery, type LandCoverSummary } from '../scenery/landscapeScenery';
 import { planHorizonRelief, type ReliefPlan } from '../scenery/horizonRelief';
+import { SKYLINE_MODEL_ID, planBuiltForm, type BuiltFormPlan } from '../scenery/builtFormPlan';
+import { tierCapsFor } from '../renderer/engine/tierCaps';
 import type { OsmBuilding } from '../services/routeEnrichmentService';
 import { SCENE_SCALE } from '../utils/worldScale';
 import { routeCurvePoints, ringToSceneXZ } from '../utils/routeWorldCurve';
@@ -154,6 +156,8 @@ export interface EngineRoute {
   landCoverSummary?: LandCoverSummary;
   /** #763 FR9 — what the real terrain put on the horizon. */
   reliefSummary?: ReliefPlan['summary'];
+  /** #765 FR10 — what the map's built form put in the scene. */
+  builtSummary?: BuiltFormPlan['summary'] & { source: 'network' | 'cache' | 'unavailable' };
   /** World-space boat/ghost curve; omitted when the route has too few points. */
   curvePoints?: [number, number, number][];
   /** Real route length in metres, matching the shell's finish detection. */
@@ -341,6 +345,9 @@ export const toEngineRoute = (
   // React side.
   const pools: PoolInput[] = [];
   let buildings: BuildingSpec[] = [];
+  // Where the enrichment's own OSM buildings start in `buildings`; #765's
+  // built form, when the landscape has it, stands in for them.
+  let enrichmentBuildingsFrom = 0;
   let sceneryGlbsResult: SceneryGlbGroup[] = [];
   if (curvePoints.length >= 2) {
     const curve = new RouteCurve(
@@ -393,6 +400,7 @@ export const toEngineRoute = (
     // Convert each footprint to an axis-aligned prism anchored at the
     // first route coordinate so lat/lng → scene metres uses one origin.
     const origin = route.coordinates?.[0];
+    enrichmentBuildingsFrom = buildings.length;
     if (origin && layoutEnrichment?.buildings?.length) {
       for (const osm of layoutEnrichment.buildings) {
         const spec = osmBuildingToSpec(osm, origin);
@@ -512,15 +520,38 @@ export const toEngineRoute = (
           water: lakePolygons.map((lake) => lake.outer.map(({ x, z }) => [x, z] as [number, number])),
         })
       : null;
-  for (const p of relief?.placements ?? []) {
-    const instance: SceneryInstance = { position: [p.x, 0, p.z], rotationY: p.yaw, scale: p.scale };
-    const existing = sceneryGlbsResult.find((g) => g.id === p.id);
+  const addKit = (id: string, instance: SceneryInstance) => {
+    const existing = sceneryGlbsResult.find((g) => g.id === id);
     if (existing) existing.instances = [...existing.instances, instance];
-    else sceneryGlbsResult = [...sceneryGlbsResult, { id: p.id, instances: [instance] }];
+    else sceneryGlbsResult = [...sceneryGlbsResult, { id: id as SceneryModelId, instances: [instance] }];
+  };
+  for (const p of relief?.placements ?? []) addKit(p.id, { position: [p.x, 0, p.z], rotationY: p.yaw, scale: p.scale });
+  // #765 — the map's buildings by distance band, town skylines and landmarks
+  // (none of it without built-form data, FR9).
+  const caps = tierCapsFor(tier);
+  const built =
+    landscape?.built.source !== 'unavailable' && landscape?.built.data && !routeTrack && curvePoints.length >= 2
+      ? planBuiltForm({
+          built: landscape.built.data,
+          course: curvePoints.map(([x, , z]) => [x, z] as [number, number]),
+          landCover: landscape.landCover.source !== 'unavailable' ? landscape.landCover.data : null,
+          mask: fromLandscape?.landCover ?? null,
+          water: lakePolygons.map((lake) => lake.outer.map(({ x, z }) => [x, z] as [number, number])),
+          grid: landscape.elevation.source !== 'unavailable' ? landscape.elevation.data : null,
+          relief: relief?.placements ?? [],
+          maxSkylines: caps.maxSkylineInstances,
+          maxLandmarks: caps.maxLandmarks,
+        })
+      : null;
+  if (built) {
+    buildings = [...buildings.slice(0, enrichmentBuildingsFrom), ...built.buildings];
+    for (const s of built.skylines) addKit(SKYLINE_MODEL_ID, { position: [s.x, s.y, s.z], rotationY: s.yaw, scale: s.scale });
+    for (const l of built.landmarks) addKit(l.id, { position: [l.x, l.y, l.z], rotationY: 0, scale: l.scale });
   }
   return {
     ...(fromLandscape ? { landCover: fromLandscape.landCover, landCoverSummary: fromLandscape.summary } : {}),
     ...(relief ? { reliefSummary: relief.summary } : {}),
+    ...(built && landscape ? { builtSummary: { ...built.summary, source: landscape.built.source } } : {}),
     pools,
     ...(buildings.length > 0 ? { buildings } : {}),
     ...(sceneryGlbsResult.length > 0 ? { sceneryGlbs: sceneryGlbsResult } : {}),

@@ -48,7 +48,7 @@ export const signedArea = (ring: ScenePoint[]): number => {
   return sum / 2;
 };
 
-const nearestOnCourse = (course: ScenePoint[], x: number, z: number): { point: ScenePoint; distance: number } => {
+export const nearestOnCourse = (course: ScenePoint[], x: number, z: number): { point: ScenePoint; distance: number } => {
   let best: ScenePoint = course[0];
   let bestD = Infinity;
   for (let i = 0; i < course.length; i += 1) {
@@ -69,8 +69,22 @@ const nearestOnCourse = (course: ScenePoint[], x: number, z: number): { point: S
   return { point: best, distance: bestD };
 };
 
-/** Strips along one chain of course-facing edges, every 100 m, inset into the wood. */
-const stripsAlong = (chain: Array<{ a: ScenePoint; b: ScenePoint; inward: ScenePoint }>, course: ScenePoint[]) => {
+export interface StripLayout {
+  /** The strip's length along its local X, metres. */
+  stripM: number;
+  /** A last piece shorter than this gets no strip. */
+  minPieceM: number;
+  /** How far inside the polygon a strip's centre sits. */
+  insetM: number;
+}
+const TREELINE_LAYOUT: StripLayout = { stripM: TREELINE_STRIP_M, minPieceM: TREELINE_MIN_PIECE_M, insetM: TREELINE_INSET_M };
+
+/** Strips along one chain of course-facing edges, every `stripM`, inset into the polygon. */
+const stripsAlong = (
+  chain: Array<{ a: ScenePoint; b: ScenePoint; inward: ScenePoint }>,
+  course: ScenePoint[],
+  layout: StripLayout,
+) => {
   const out: TreelineInstance[] = [];
   // Walk the chain as one polyline, cutting it into 100 m pieces.
   const points: Array<{ p: ScenePoint; inward: ScenePoint }> = [{ p: chain[0].a, inward: chain[0].inward }];
@@ -88,17 +102,63 @@ const stripsAlong = (chain: Array<{ a: ScenePoint; b: ScenePoint; inward: SceneP
     }
     return points[points.length - 1];
   };
-  for (let start = 0; start < total; start += TREELINE_STRIP_M) {
-    const end = Math.min(total, start + TREELINE_STRIP_M);
-    if (end - start < TREELINE_MIN_PIECE_M) break;
+  for (let start = 0; start < total; start += layout.stripM) {
+    const end = Math.min(total, start + layout.stripM);
+    if (end - start < layout.minPieceM) break;
     const from = at(start).p;
     const to = at(end).p;
     const mid = at((start + end) / 2);
-    const x = mid.p[0] + mid.inward[0] * TREELINE_INSET_M;
-    const z = mid.p[1] + mid.inward[1] * TREELINE_INSET_M;
+    const x = mid.p[0] + mid.inward[0] * layout.insetM;
+    const z = mid.p[1] + mid.inward[1] * layout.insetM;
     out.push({ x, z, yaw: Math.atan2(-(to[1] - from[1]), to[0] - from[0]), distance: nearestOnCourse(course, x, z).distance });
   }
   return out;
+};
+
+/**
+ * Strips laid end to end along the part of a polygon's outline that faces the
+ * course (#764 FR4, and #765 FR3's skylines). `open` is the ring without its
+ * repeated last point.
+ */
+export const stripsOnFacingEdges = (
+  open: ScenePoint[],
+  course: ScenePoint[],
+  layout: StripLayout = TREELINE_LAYOUT,
+): TreelineInstance[] => {
+  const instances: TreelineInstance[] = [];
+  if (open.length < 3 || course.length === 0) return instances;
+  const ccw = signedArea(open) > 0;
+
+  // Each edge, with its inward unit normal, and whether it faces the course.
+  const edges = open.map((a, i) => {
+    const b = open[(i + 1) % open.length];
+    const dx = b[0] - a[0];
+    const dz = b[1] - a[1];
+    const len = Math.hypot(dx, dz) || 1;
+    // Outward normal of an anticlockwise ring is (dz, -dx).
+    const out: ScenePoint = ccw ? [dz / len, -dx / len] : [-dz / len, dx / len];
+    const mx = (a[0] + b[0]) / 2;
+    const mz = (a[1] + b[1]) / 2;
+    const c = nearestOnCourse(course, mx, mz).point;
+    const faces = out[0] * (c[0] - mx) + out[1] * (c[1] - mz) > 0;
+    return { a, b, inward: [-out[0], -out[1]] as ScenePoint, faces };
+  });
+
+  // Chains of consecutive facing edges, starting after a non-facing one so
+  // a chain that wraps past the ring's first vertex stays whole.
+  const firstAway = edges.findIndex((e) => !e.faces);
+  if (firstAway === -1) return stripsAlong(edges, course, layout);
+  let chain: typeof edges = [];
+  for (let k = 1; k <= edges.length; k += 1) {
+    const edge = edges[(firstAway + k) % edges.length];
+    if (edge.faces) {
+      chain.push(edge);
+      continue;
+    }
+    if (chain.length > 0) instances.push(...stripsAlong(chain, course, layout));
+    chain = [];
+  }
+  return instances;
 };
 
 export const planTreelines = (
@@ -119,40 +179,7 @@ export const planTreelines = (
     const nearest = Math.min(...open.map(([x, z]) => nearestOnCourse(course, x, z).distance));
     if (nearest > TREELINE_REACH_M) continue;
     if (Math.abs(area) < SMALL_WOOD_M2 && nearest > SMALL_WOOD_REACH_M) continue;
-    const ccw = area > 0;
-
-    // Each edge, with its inward unit normal, and whether it faces the course.
-    const edges = open.map((a, i) => {
-      const b = open[(i + 1) % open.length];
-      const dx = b[0] - a[0];
-      const dz = b[1] - a[1];
-      const len = Math.hypot(dx, dz) || 1;
-      // Outward normal of an anticlockwise ring is (dz, -dx).
-      const out: ScenePoint = ccw ? [dz / len, -dx / len] : [-dz / len, dx / len];
-      const mx = (a[0] + b[0]) / 2;
-      const mz = (a[1] + b[1]) / 2;
-      const c = nearestOnCourse(course, mx, mz).point;
-      const faces = out[0] * (c[0] - mx) + out[1] * (c[1] - mz) > 0;
-      return { a, b, inward: [-out[0], -out[1]] as ScenePoint, faces };
-    });
-
-    // Chains of consecutive facing edges, starting after a non-facing one so
-    // a chain that wraps past the ring's first vertex stays whole.
-    const firstAway = edges.findIndex((e) => !e.faces);
-    if (firstAway === -1) {
-      instances.push(...stripsAlong(edges, course));
-      continue;
-    }
-    let chain: typeof edges = [];
-    for (let k = 1; k <= edges.length; k += 1) {
-      const edge = edges[(firstAway + k) % edges.length];
-      if (edge.faces) {
-        chain.push(edge);
-        continue;
-      }
-      if (chain.length > 0) instances.push(...stripsAlong(chain, course));
-      chain = [];
-    }
+    instances.push(...stripsOnFacingEdges(open, course));
   }
 
   instances.sort((p, q) => p.distance - q.distance);

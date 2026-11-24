@@ -287,5 +287,9 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   let ndotl = max(dot(n, normalize(frame.sunDir)), 0.0);
   let lit = sampleShadow(in.worldPos, in.viewZ);
   let diffuse = shaded * (0.28 + 0.72 * ndotl * lit);
-  return vec4<f32>(applyFog(diffuse, in.worldPos - frame.camPos), 1.0);
+  // #765 FR6 — past the ground's haze start a building fades into the sky
+  // behind it over the same range as the ground and the kit models.
+  let toFrag = in.worldPos - frame.camPos;
+  let hazed = mix(skyColourToward(normalize(toFrag)), applyFog(diffuse, toFrag), horizonAlpha(length(toFrag.xz)));
+  return vec4<f32>(hazed, 1.0);
 }

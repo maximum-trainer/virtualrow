@@ -11,6 +11,7 @@
 import type { FrameContext, Pass } from '../engine/frameGraph';
 import {
   AERIAL_FOG_WGSL,
+  HORIZON_HAZE_WGSL,
   lightingBindingWgsl,
   SAMPLE_SHADOW_WGSL,
   SHADOW_UNIFORMS_WGSL,
@@ -52,7 +53,7 @@ export interface BuildingsPass extends Pass {
 export const createBuildingsPass = async (opts: BuildingsPassOptions): Promise<BuildingsPass> => {
   const { device, format, frameUniforms, lightingUniforms, shadow, pool, telemetry } = opts;
   // #725 FR6 — the shared aerial fog, in the sky's horizon colour.
-  const code = SHADOW_UNIFORMS_WGSL + SAMPLE_SHADOW_WGSL + lightingBindingWgsl(1) + SKY_COLOUR_WGSL + AERIAL_FOG_WGSL + buildingsWgsl;
+  const code = SHADOW_UNIFORMS_WGSL + SAMPLE_SHADOW_WGSL + lightingBindingWgsl(1) + SKY_COLOUR_WGSL + AERIAL_FOG_WGSL + HORIZON_HAZE_WGSL + buildingsWgsl;
   const module = device.createShaderModule({ label: 'buildings', code });
   const pipeline = await renderPipelineAsync(device, {
     multisample: sceneMultisample(device),

@@ -313,3 +313,23 @@ export const planHorizonRelief = ({ grid, course, tier, landCover = null, water 
   placements.sort((a, b) => a.along - b.along || a.x - b.x);
   return { placements, summary: { runs, placed: placements.length, maxElevationDeg: Math.round(maxElevationDeg * 10) / 10 } };
 };
+
+/**
+ * #765 FR5 — the height of the drawn landforms' surface at world (x, z): each
+ * taken as a dome over its scaled footprint, 0 where none stands. What stands
+ * on a hill is raised no higher than this, so nothing floats over a landform.
+ */
+export const landformSurfaceAt = (placements: readonly ReliefPlacement[], x: number, z: number): number => {
+  let best = 0;
+  for (const p of placements) {
+    const { top, length, depth } = RELIEF_MODELS[p.id];
+    const dx = x - p.x;
+    const dz = z - p.z;
+    // Local +X is (cos yaw, -sin yaw); local +Z is (sin yaw, cos yaw).
+    const u = (dx * Math.cos(p.yaw) - dz * Math.sin(p.yaw)) / ((length * p.scale) / 2);
+    const v = (dx * Math.sin(p.yaw) + dz * Math.cos(p.yaw)) / ((depth * p.scale) / 2);
+    const q = u * u + v * v;
+    if (q < 1) best = Math.max(best, top * p.scale * (1 - q));
+  }
+  return best;
+};

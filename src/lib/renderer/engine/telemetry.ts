@@ -283,6 +283,14 @@ export interface Rower3DBuildings {
   footprintM2: number;
   resident: boolean;
   cast: boolean;
+  /** #765 FR10 — real footprints kept in the near (to 600 m) and mid (to 1,200 m) bands. */
+  near: number;
+  mid: number;
+  /** #765 FR10 — town skyline strips and landmark models placed from the map. */
+  skylineInstances: number;
+  landmarks: number;
+  /** #765 FR10 — where the built form came from: network, cache or unavailable. */
+  source: 'network' | 'cache' | 'unavailable';
 }
 
 /**
@@ -504,6 +512,11 @@ export const createTelemetry = (forceRender: () => void): TelemetryHandles => {
       footprintM2: 0,
       resident: false,
       cast: false,
+      near: 0,
+      mid: 0,
+      skylineInstances: 0,
+      landmarks: 0,
+      source: 'unavailable',
     },
     boat: {
       x: 0,

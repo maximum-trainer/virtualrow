@@ -84,7 +84,13 @@ import { synthesisePlacementsForRoute } from '../../scenery/syntheticPlacements'
 import type { BridgeKind } from '../../utils/bridgeCrossings';
 import type { RoutePlacementsRegistry } from '../../scenery/routePlacements';
 import { createInstancePool, type InstancePool, type PoolInput } from '../plan/instancePools';
-import { applyMaxBuildingsPerSegment, createBuildingPool, type BuildingPool, type BuildingSpec } from '../plan/buildings';
+import {
+  applyMaxBuildingsPerSegment,
+  createBuildingPool,
+  rankBuildingsByVisibility,
+  type BuildingPool,
+  type BuildingSpec,
+} from '../plan/buildings';
 import { ROUTE_SEGMENT_LENGTH_METERS } from '../../services/routeEnrichmentService';
 import {
   BOAT_BONE_COUNT,
@@ -192,7 +198,7 @@ import { createShadowStage, type ShadowTelemetry } from './shadowStage';
 import { createMsaaResolvePass, sceneSampleCountFor, setSceneSampleCount } from './msaa';
 import { measureAttachAsync } from './attachMeasure';
 import { chromaticAberrationEnabled, tierCapsFor } from './tierCaps';
-import { publishSpeedMps, type Rower3DScenery, type TelemetryHandles } from './telemetry';
+import { publishSpeedMps, type Rower3DBuildings, type Rower3DScenery, type TelemetryHandles } from './telemetry';
 import type { LandCoverMask } from '../../scenery/landCoverMask';
 import { createPostFx, type PostFxCaps } from './postFx';
 import {
@@ -231,6 +237,8 @@ export interface SceneryRoute {
   landCoverSummary?: Rower3DScenery['landCover'];
   /** #763 FR9 — what the terrain put on the horizon, for `__ROWER3D_SCENERY.relief`. */
   reliefSummary?: Rower3DScenery['relief'];
+  /** #765 FR10 — what the map's built form put in the scene, for `__ROWER3D_BUILDINGS`. */
+  builtSummary?: Pick<Rower3DBuildings, 'near' | 'mid' | 'skylineInstances' | 'landmarks' | 'source'>;
   /**
    * Extruded OSM building footprints to draw as prisms (#566 FR1). Absent
    * on a route with no mapped buildings — the engine then skips the
@@ -736,11 +744,14 @@ export const createRideScene = async (
   // not a geographic rule: LOD distance work (#497) still clips far-field
   // count on top. `maxBuildingsPerSegment <= 0` yields an empty list, matching
   // the basic tier's `drawBuildings: false` primary gate.
-  const buildingSpecs = applyMaxBuildingsPerSegment(
-    rawBuildingSpecs,
-    tierCaps.maxBuildingsPerSegment,
-    ROUTE_SEGMENT_LENGTH_METERS,
-  );
+  // #765 FR2 — with a course line, the budget goes to the buildings that
+  // look biggest from it, not to the first ones in each segment.
+  const buildingCourse = isSceneryRoute(opts.route) && opts.route.curvePoints && opts.route.curvePoints.length >= 2
+    ? opts.route.curvePoints.map(([x, , z]) => [x, z] as [number, number])
+    : null;
+  const buildingSpecs = buildingCourse
+    ? rankBuildingsByVisibility(rawBuildingSpecs, buildingCourse, tierCaps.maxBuildingsPerKm)
+    : applyMaxBuildingsPerSegment(rawBuildingSpecs, tierCaps.maxBuildingsPerSegment, ROUTE_SEGMENT_LENGTH_METERS);
   const buildingsPool: BuildingPool | null = buildingSpecs.length > 0
     ? createBuildingPool(device, buildingSpecs)
     : null;
@@ -750,6 +761,13 @@ export const createRideScene = async (
   telemetry.buildings.footprintM2 = buildingsPool?.footprintM2 ?? 0;
   telemetry.buildings.resident = !!buildingsPool;
   telemetry.buildings.cast = !!buildingsCastingPool;
+  // #765 FR10 — what the map's built form put in the scene.
+  const builtSummary = isSceneryRoute(opts.route) ? opts.route.builtSummary : undefined;
+  telemetry.buildings.near = builtSummary?.near ?? 0;
+  telemetry.buildings.mid = builtSummary?.mid ?? 0;
+  telemetry.buildings.skylineInstances = builtSummary?.skylineInstances ?? 0;
+  telemetry.buildings.landmarks = builtSummary?.landmarks ?? 0;
+  telemetry.buildings.source = builtSummary?.source ?? 'unavailable';
   // Per-species leaf atlas (#549 slice 3; #686 D1c grew it to
   // `species × variantCount` layers). Each layer is a 256×256 RGBA
   // billboard. Layout: layer `s * FOLIAGE_VARIANT_COUNT + v` carries

@@ -92,6 +92,17 @@ export interface BuildingTierCaps {
    */
   maxBuildingsPerSegment: number;
   /**
+   * #765 FR2 / FR8 — buildings kept per kilometre of course, ranked by
+   * apparent size from the course (height x width / distance), so a far
+   * tower can win a slot over a near shed. The per-segment cap above is
+   * the fallback for a scene with no course line (smoke pages).
+   */
+  maxBuildingsPerKm: number;
+  /** #765 FR3 / FR8 — `f47-skyline-strip` instances; none at `basic`. */
+  maxSkylineInstances: number;
+  /** #765 FR4 / FR8 — landmark kit instances; none at `basic`. */
+  maxLandmarks: number;
+  /**
    * #577 D2b — count of placeholder fleet boats drawn alongside the
    * player + ghost. `0` turns the fleet off (basic tier); higher tiers
    * carry a larger bow-and-stern pack. The engine's `fleet.ts` generates
@@ -130,6 +141,9 @@ const CAPS: Record<PerformanceTier, BuildingTierCaps> = {
     drawOarSplash: false,
     polygonWaterMaxVertices: 256,
     maxBuildingsPerSegment: 0,
+    maxBuildingsPerKm: 0,
+    maxSkylineInstances: 0,
+    maxLandmarks: 0,
     fleetCount: 0,
     castFleetShadows: false,
     maxPixelRatio: 1.0,
@@ -156,6 +170,9 @@ const CAPS: Record<PerformanceTier, BuildingTierCaps> = {
     drawOarSplash: true,
     polygonWaterMaxVertices: 512,
     maxBuildingsPerSegment: 8,
+    maxBuildingsPerKm: 160,
+    maxSkylineInstances: 20,
+    maxLandmarks: 6,
     fleetCount: 2,
     castFleetShadows: false,
     maxPixelRatio: 1.0,
@@ -182,6 +199,9 @@ const CAPS: Record<PerformanceTier, BuildingTierCaps> = {
     drawOarSplash: true,
     polygonWaterMaxVertices: 1024,
     maxBuildingsPerSegment: 16,
+    maxBuildingsPerKm: 320,
+    maxSkylineInstances: 40,
+    maxLandmarks: 12,
     fleetCount: 4,
     castFleetShadows: true,
     maxPixelRatio: 1.5,
@@ -208,6 +228,9 @@ const CAPS: Record<PerformanceTier, BuildingTierCaps> = {
     drawOarSplash: true,
     polygonWaterMaxVertices: 2048,
     maxBuildingsPerSegment: 32,
+    maxBuildingsPerKm: 640,
+    maxSkylineInstances: 60,
+    maxLandmarks: 20,
     fleetCount: 6,
     castFleetShadows: true,
     maxPixelRatio: 2.0,
@@ -234,6 +257,9 @@ const CAPS: Record<PerformanceTier, BuildingTierCaps> = {
     drawOarSplash: true,
     polygonWaterMaxVertices: 4096,
     maxBuildingsPerSegment: 64,
+    maxBuildingsPerKm: 1280,
+    maxSkylineInstances: 80,
+    maxLandmarks: 30,
     fleetCount: 8,
     castFleetShadows: true,
     maxPixelRatio: 2.0,
