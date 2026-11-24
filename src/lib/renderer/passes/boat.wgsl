@@ -80,5 +80,5 @@ fn fs_main(input: VsOut) -> @location(0) vec4<f32> {
   let shade = ambient + 0.65 * diffuse;
   let baseColor = boat.tint.rgb * shade;
   let alpha = boat.tint.a;
-  return vec4<f32>(applyFog(baseColor, input.worldPos - frame.camPos), alpha);
+  return vec4<f32>(applyFog(baseColor, input.worldPos - frame.camPos.xyz), alpha);
 }

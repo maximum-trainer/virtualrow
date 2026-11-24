@@ -66,6 +66,12 @@ describe('every lit pass applies the shared fog (#725 FR6)', () => {
       const fs = mod!.code.slice(mod!.code.indexOf('fn fs_main'));
       expect(fs, `${label} fs_main calls applyFog`).toMatch(/applyFog\(/);
       expect(() => new WgslReflect(mod!.code), `${label} parses`).not.toThrow();
+      // wgsl_reflect does not type-check: a vec4 camPos (the boat's Frame)
+      // must be swizzled before it meets a vec3 worldPos, or Dawn rejects
+      // the module and the ride never starts (caught on SwiftShader).
+      if (/camPos:\s*vec4<f32>/.test(mod!.code)) {
+        expect(fs, `${label} swizzles its vec4 camPos`).not.toMatch(/-\s*frame\.camPos\s*\)/);
+      }
     }
   });
 });
