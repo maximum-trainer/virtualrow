@@ -14,6 +14,7 @@
   import {
     externalDistanceNote,
     formatRouteDistanceKm,
+    formatSnapshotDistance,
     geometryProvenanceBadge,
   } from '$lib/utils/geometryProvenance';
   import { getAuth } from '$lib/ui/authContext';
@@ -160,6 +161,7 @@
             rownativePreviews={rownativePreviews}
             onRownativeSelect={rownativeImport}
             onViewChange={(view) => (mapView = view)}
+            offlineBasemap={!showAuthFeatures}
           />
         </div>
       </section>
@@ -167,6 +169,7 @@
       <RouteDetailOverlay
         route={routes.routeDetailOpen}
         onClose={() => (routes.routeDetailOpen = null)}
+        showBackdrop={showAuthFeatures}
         onStartRow={() => {
           if (routes.routeDetailOpen) {
             selectRoute(routes.routeDetailOpen);
@@ -267,7 +270,7 @@
                   width={120}
                   height={60}
                   class="route-item-thumbnail"
-                  showBackdrop
+                  showBackdrop={showAuthFeatures}
                 />
               {/if}
               {#if routes.routeEnrichmentLoading[route.id]}
@@ -291,6 +294,7 @@
           {/each}
           {#if areaList}
             {#each areaList.previews as preview (preview.id)}
+              {@const dist = formatSnapshotDistance(preview.distanceMeters)}
               <div
                 class="route-item route-item--rownative"
                 data-testid="route-item-rownative"
@@ -315,12 +319,12 @@
                   <p class="route-item-location">{preview.country}</p>
                 {/if}
                 <div class="route-item-meta">
-                  <span>{formatRouteDistanceKm(preview.distanceMeters / 1000)}</span>
+                  {#if dist}<span>{dist}</span>{/if}
                   {#if rownativeImporting === preview.id}
-                    <span>•</span>
+                    {#if dist}<span>•</span>{/if}
                     <span class="route-item-status">Importing…</span>
                   {:else if !showAuthFeatures}
-                    <span>•</span>
+                    {#if dist}<span>•</span>{/if}
                     <span>Sign in to row this course</span>
                   {/if}
                 </div>

@@ -23,9 +23,11 @@
     route: WaterRoute | null;
     onClose: () => void;
     onStartRow: () => void;
+    /** #822 NFR3: guests get the outline without an OSM tile behind it. */
+    showBackdrop?: boolean;
   }
 
-  let { route, onClose, onStartRow }: Props = $props();
+  let { route, onClose, onStartRow, showBackdrop = true }: Props = $props();
 
   function routeGeometrySource(r: WaterRoute): WaterRoute['geometrySource'] {
     if (r.geometrySource) return r.geometrySource;
@@ -100,7 +102,7 @@
           width={600}
           height={220}
           class="route-detail-overlay__outline"
-          showBackdrop
+          {showBackdrop}
         />
       {:else}
         <div class="route-detail-overlay__outline" aria-hidden="true"></div>

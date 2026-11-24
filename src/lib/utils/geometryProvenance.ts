@@ -67,6 +67,16 @@ export function formatRouteDistanceKm(distanceKm: number): string {
 }
 
 /**
+ * rownative's snapshot distance is the straight start-to-finish gate line, so a
+ * return course reads as ~0 m. Below 100 m it says nothing true: show no distance.
+ */
+export function formatSnapshotDistance(distanceMeters: number | undefined): string | null {
+  return distanceMeters !== undefined && distanceMeters >= 100
+    ? formatRouteDistanceKm(distanceMeters / 1000)
+    : null;
+}
+
+/**
  * #747: before the `path` source existed, a rownative course whose file
  * carried a `path` was stored as `track`. A rownative route marked `track`
  * with no track attached to its course id is read as `path`.

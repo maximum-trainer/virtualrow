@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { GeometrySource } from '../lib/types/index';
 import {
+  formatSnapshotDistance,
   externalDistanceNote,
   formatRouteDistanceKm,
   geometryProvenanceBadge,
@@ -51,5 +52,16 @@ describe('external distance note (AC-10)', () => {
   it('formats distances to two decimal places', () => {
     expect(formatRouteDistanceKm(21.954)).toBe('21.95 km');
     expect(formatRouteDistanceKm(5)).toBe('5.00 km');
+  });
+});
+
+describe('formatSnapshotDistance (#822)', () => {
+  it('shows a real course length', () => {
+    expect(formatSnapshotDistance(7259)).toBe('7.26 km');
+  });
+  it('hides the near-zero start-to-finish line of a return course', () => {
+    expect(formatSnapshotDistance(22)).toBeNull();
+    expect(formatSnapshotDistance(0)).toBeNull();
+    expect(formatSnapshotDistance(undefined)).toBeNull();
   });
 });

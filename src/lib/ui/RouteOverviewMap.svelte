@@ -17,6 +17,13 @@
   } from '../utils/routePinClusters';
   import { overviewFit } from './routeOverviewFit';
   import type { MapView } from '../utils/routesInView';
+  import {
+    chooserMembersForCluster,
+    chooserMembersForPin,
+    type ChooserMember,
+  } from '../utils/routeChooserMembers';
+  import { assetUrl } from '../utils/assetUrl';
+  import RouteChooserPopup from './RouteChooserPopup.svelte';
   import './RouteOverviewMap.css';
 
   const FALLBACK_ZOOM = 2;
@@ -41,6 +48,11 @@
      * for the opening fit. `null` when no live map is showing (SVG fallback).
      */
     onViewChange?: (view: MapView | null) => void;
+    /**
+     * #822 D6: draw the bundled Natural Earth outlines instead of OSM tiles, so a
+     * guest fetches no map data. Offline (`navigator.onLine === false`) does too.
+     */
+    offlineBasemap?: boolean;
   }
 
   let {
@@ -52,7 +64,20 @@
     rownativePreviews = [],
     onRownativeSelect,
     onViewChange,
+    offlineBasemap = false,
   }: Props = $props();
+
+  const bundledBasemap = $derived(
+    offlineBasemap || (typeof navigator !== 'undefined' && navigator.onLine === false),
+  );
+
+  let chooser = $state<{ members: ChooserMember[]; lat: number; lng: number } | null>(null);
+
+  function pickFromChooser(member: ChooserMember) {
+    chooser = null;
+    if (member.kind === 'route') onSelect(member.route);
+    else onRownativeSelect?.(member.preview);
+  }
 
   let canvasEl = $state<HTMLDivElement | undefined>(undefined);
   // Non-reactive holder for the live MapLibre instance (React's mapInstanceRef).
@@ -120,6 +145,7 @@
     const currentPins = pins;
     const currentPreviews = previewPins;
     const currentDefault = defaultRouteId;
+    const useBundled = bundledBasemap;
     const el = canvasEl;
 
     let cancelled = false;
@@ -141,6 +167,7 @@
               opts?: Record<string, unknown>,
             ) => void;
             flyTo: (opts: { center: [number, number]; zoom: number; animate?: boolean }) => void;
+            jumpTo: (opts: { center: [number, number]; zoom: number }) => void;
             on: (ev: string, cb: () => void) => void;
             off: (ev: string, cb: () => void) => void;
             getZoom: () => number;
@@ -153,19 +180,36 @@
           };
         };
 
-        const style = {
-          version: 8,
-          sources: {
-            osm: {
-              type: 'raster',
-              tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-              tileSize: 256,
-              maxzoom: 19,
-              attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-            },
-          },
-          layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
-        };
+        const style = useBundled
+          ? {
+              version: 8,
+              sources: {
+                world: { type: 'geojson', data: assetUrl('/assets/basemap/world-low.geojson') },
+              },
+              layers: [
+                { id: 'sea', type: 'background', paint: { 'background-color': '#a9cfe0' } },
+                { id: 'land', type: 'fill', source: 'world', paint: { 'fill-color': '#eef0e6' } },
+                {
+                  id: 'borders',
+                  type: 'line',
+                  source: 'world',
+                  paint: { 'line-color': '#9aa49a', 'line-width': 0.6 },
+                },
+              ],
+            }
+          : {
+              version: 8,
+              sources: {
+                osm: {
+                  type: 'raster',
+                  tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+                  tileSize: 256,
+                  maxzoom: 19,
+                  attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+                },
+              },
+              layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
+            };
 
         const map = new maplibre.Map({
           container: el,
@@ -202,6 +246,13 @@
         };
         readViewport();
         map.on('moveend', readViewport);
+        map.on('movestart', () => (chooser = null));
+        // Playwright seam: put the map on a known spot without dragging it.
+        (window as unknown as { __ROUTE_OVERVIEW_JUMP?: unknown }).__ROUTE_OVERVIEW_JUMP = (
+          lng: number,
+          lat: number,
+          zoom: number,
+        ) => map.jumpTo({ center: [lng, lat], zoom });
       } catch {
         mapReady = false;
       }
@@ -214,6 +265,8 @@
       mapInstanceRef = null;
       mapReady = false;
       projection = null;
+      chooser = null;
+      delete (window as unknown as { __ROUTE_OVERVIEW_JUMP?: unknown }).__ROUTE_OVERVIEW_JUMP;
       onViewChange?.(null);
     };
   });
@@ -286,6 +339,11 @@
           style="left: {pos ? `${pos.x}px` : '50%'}; top: {pos ? `${pos.y}px` : '50%'};"
           aria-label={`${entry.count} routes near this location — zoom in to see them`}
           onclick={() => {
+            const members = chooserMembersForCluster(entry, routes, rownativePreviews, defaultRouteId);
+            if (members) {
+              chooser = { members, lat: entry.lat, lng: entry.lng };
+              return;
+            }
             const map = mapInstanceRef;
             if (map) {
               map.flyTo({
@@ -314,7 +372,16 @@
           data-dimmed={isDimmed ? 'true' : 'false'}
           style="left: {pos ? `${pos.x}px` : '50%'}; top: {pos ? `${pos.y}px` : '50%'};"
           aria-label={`Select route ${entry.route.name}`}
-          onclick={() => onSelect(entry.route)}
+          onclick={() => {
+            const members = chooserMembersForPin(
+              { kind: 'route', id: entry.route.id },
+              routes,
+              rownativePreviews,
+              defaultRouteId,
+            );
+            if (members) chooser = { members, lat: entry.lat, lng: entry.lng };
+            else onSelect(entry.route);
+          }}
         >
           <svg width="18" height="22" viewBox="0 0 18 22">
             <path
@@ -342,7 +409,16 @@
           style="left: {pos ? `${pos.x}px` : '50%'}; top: {pos ? `${pos.y}px` : '50%'};"
           title={label}
           aria-label={`Import rownative course ${label}`}
-          onclick={() => onRownativeSelect?.(entry.preview)}
+          onclick={() => {
+            const members = chooserMembersForPin(
+              { kind: 'preview', id: entry.preview.id },
+              routes,
+              rownativePreviews,
+              defaultRouteId,
+            );
+            if (members) chooser = { members, lat: entry.lat, lng: entry.lng };
+            else onRownativeSelect?.(entry.preview);
+          }}
         >
           <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
             <circle cx="7" cy="7" r="5" fill="#38d26a" stroke="#0a3d1b" stroke-width="1.25" />
@@ -350,8 +426,23 @@
         </button>
       {/if}
     {/each}
+    {#if chooser}
+      {@const anchor = activeProjection ? activeProjection({ lat: chooser.lat, lng: chooser.lng }) : null}
+      <RouteChooserPopup
+        members={chooser.members}
+        anchor={anchor ?? { x: containerSize.w / 2, y: containerSize.h / 2 }}
+        {containerSize}
+        {defaultRouteId}
+        onPick={pickFromChooser}
+        onClose={() => (chooser = null)}
+      />
+    {/if}
   </div>
-  {#if pins.length > 0}
+  {#if bundledBasemap && mapReady}
+    <div class="route-overview-map__credit" data-testid="route-overview-credit">
+      Map outlines: Natural Earth
+    </div>
+  {:else if pins.length > 0 && !bundledBasemap}
     <div class="route-overview-map__attribution" data-testid="route-overview-attribution">
       ©
       <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">

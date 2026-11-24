@@ -19,6 +19,7 @@
     "default:webgpu-postfx-smoke.spec.ts": 45,
     "default:webgpu-loop-smoke.spec.ts": 30,
     "default:rownative-pins-on-map.spec.ts": 45,
+    "default:routes-colocated-chooser.spec.ts": 45,
     "default:webgpu-scenery-reveal.spec.ts": 60,
     "default:webgpu-dressed-start.spec.ts": 60,
     "default:webgpu-unsupported-row.spec.ts": 20,
