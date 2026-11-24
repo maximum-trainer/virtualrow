@@ -17,6 +17,7 @@ import { buildLakeShore } from '../plan/lakeShore';
 import type { WaterEdges } from '../plan/waterStrip';
 import { paintBiomeDensityR8 } from '../../scenery/biomeDensity';
 import { BANK_ATLAS_SIZE, paintBankAtlas } from '../../scenery/bankAtlas';
+import type { LandCoverMask } from '../../scenery/landCoverMask';
 import type { SceneryProfile } from '../../services/routeEnrichmentService';
 import bankWgsl from './bank.wgsl?raw';
 import { BANK_BIOME_WEIGHTS, bankBiomeWgsl, writeBiomeWeights } from '../plan/bankBiome';
@@ -75,6 +76,11 @@ export interface BankPassOptions {
   lakes?: ReadonlyArray<LakeOutline>;
   /** #745 FR2 — water the lake shore must leave open: the route's ribbon and the lakes themselves. */
   lakeShoreOnWater?: (x: number, z: number) => boolean;
+  /**
+   * #764 FR1/FR2 — the map's land cover as a class mask; the ground takes its
+   * class wherever it is known. Omitted → the biome bands alone (FR9).
+   */
+  landCover?: LandCoverMask | null;
 }
 
 export interface BankPass extends Pass {
@@ -92,7 +98,15 @@ export interface BankPass extends Pass {
 export const GROUND_BIOME_BLEND_METRES = 150;
 /** Byte offset of `groundBiome` in the bank's `Grass` uniform. */
 export const GROUND_BIOME_OFFSET = 32;
-const GRASS_UNIFORM_BYTES = 64;
+/** Byte offset of the land-cover mask block (#764) in the `Grass` uniform. */
+export const LAND_COVER_MASK_OFFSET = 64;
+const GRASS_UNIFORM_BYTES = 96;
+
+/** #764 — the mask block: origin x/z, texel metres, on, width, height, pad. */
+export const packLandCoverUniform = (mask: LandCoverMask | null | undefined): Float32Array =>
+  mask
+    ? new Float32Array([mask.originX, mask.originZ, mask.texelM, 1, mask.width, mask.height, 0, 0])
+    : new Float32Array([0, 0, 1, 0, 1, 1, 0, 0]);
 
 const srgbToLinear = (v: number): number => {
   const c = v / 255;
@@ -130,6 +144,7 @@ export const createBankPass = async ({
   reliefForProgress,
   lakes,
   lakeShoreOnWater,
+  landCover,
 }: BankPassOptions): Promise<BankPass> => {
   // #725 FR6 — the shared aerial fog, in the sky's horizon colour.
   const code = SHADOW_UNIFORMS_WGSL + SAMPLE_SHADOW_WGSL + HORIZON_HAZE_WGSL + SKY_COLOUR_WGSL + AERIAL_FOG_WGSL
@@ -281,6 +296,23 @@ export const createBankPass = async ({
     addressModeU: 'repeat',
     addressModeV: 'repeat',
   });
+  // #764 FR1 — the land-cover mask, or a 1x1 'unknown' stand-in with the
+  // uniform's `maskOn` at 0, so the shader keeps one binding layout.
+  const maskWidth = landCover?.width ?? 1;
+  const maskHeight = landCover?.height ?? 1;
+  const landCoverTexture = device.createTexture({
+    label: 'bank-land-cover',
+    size: { width: maskWidth, height: maskHeight },
+    format: 'r8uint',
+    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+  });
+  device.queue.writeTexture(
+    { texture: landCoverTexture },
+    (landCover?.data ?? new Uint8Array(1)) as BufferSource,
+    { bytesPerRow: maskWidth, rowsPerImage: maskHeight },
+    { width: maskWidth, height: maskHeight },
+  );
+  device.queue.writeBuffer(grassUniforms, LAND_COVER_MASK_OFFSET, packLandCoverUniform(landCover) as BufferSource);
 
   const grassBindGroup = device.createBindGroup({
     label: 'bank-grass',
@@ -291,6 +323,7 @@ export const createBankPass = async ({
       { binding: 2, resource: grassSampler },
       { binding: 3, resource: bankAtlasTexture.createView() },
       { binding: 4, resource: bankAtlasSampler },
+      { binding: 5, resource: landCoverTexture.createView() },
     ],
   });
 
@@ -335,6 +368,7 @@ export const createBankPass = async ({
       { binding: 2, resource: grassSampler },
       { binding: 3, resource: bankAtlasTexture.createView() },
       { binding: 4, resource: bankAtlasSampler },
+      { binding: 5, resource: landCoverTexture.createView() },
     ],
   });
 
@@ -495,6 +529,7 @@ export const createBankPass = async ({
       grassTexture.destroy();
       grassUniforms.destroy();
       bankAtlasTexture.destroy();
+      landCoverTexture.destroy();
     },
   };
 };

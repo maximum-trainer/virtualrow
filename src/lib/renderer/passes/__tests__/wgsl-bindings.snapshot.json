@@ -41,6 +41,12 @@
       "binding": 4,
       "name": "bankAtlasSampler",
       "resourceType": 4
+    },
+    {
+      "group": 2,
+      "binding": 5,
+      "name": "landCover",
+      "resourceType": 3
     }
   ],
   "bankDepth.wgsl": [

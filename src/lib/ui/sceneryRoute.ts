@@ -46,6 +46,9 @@ import {
 } from '../scenery/waterType';
 import { DEFAULT_WATER_WIDTH_METERS } from '../scenery/waterHalfWidth';
 import { distanceBetweenLatLng, latLngToMeters } from '../utils/geoUtils';
+import type { Landscape } from '../services/landscapeService';
+import type { LandCoverMask } from '../scenery/landCoverMask';
+import { landscapeScenery, type LandCoverSummary } from '../scenery/landscapeScenery';
 import type { OsmBuilding } from '../services/routeEnrichmentService';
 import { SCENE_SCALE } from '../utils/worldScale';
 import { routeCurvePoints, ringToSceneXZ } from '../utils/routeWorldCurve';
@@ -144,6 +147,10 @@ export interface EngineRoute {
   /** GLB scenery (bank-edge, scatter, buildings, trees, landform, backdrop,
    * course furniture, bridges, landmarks) — one group per model id. */
   sceneryGlbs?: SceneryGlbGroup[];
+  /** #764 FR1 — the map's land-cover class mask for the ground; omitted without land-cover data (FR9). */
+  landCover?: LandCoverMask;
+  /** #764 FR10 — what the land cover put in the scene. */
+  landCoverSummary?: LandCoverSummary;
   /** World-space boat/ghost curve; omitted when the route has too few points. */
   curvePoints?: [number, number, number][];
   /** Real route length in metres, matching the shell's finish detection. */
@@ -276,6 +283,7 @@ export const toEngineRoute = (
   route: WaterRoute | null | undefined,
   enrichment?: RouteEnrichmentData | null,
   tier: PerformanceMode = DEFAULT_SCENERY_TIER,
+  landscape?: Landscape | null,
 ): EngineRoute | null => {
   if (!route) return null;
 
@@ -469,7 +477,26 @@ export const toEngineRoute = (
   const turnBuoys = originCoord ? turnBuoysInScene(route.stakeTurns, originCoord) : [];
   // #745 FR1 — the land rises and falls with the route's elevations.
   const routeTerrain = buildTerrainProfile(layoutEnrichment?.elevations);
+  // #764 — the map's land cover: the ground's class mask, and treelines on
+  // the real woods beside the course (lakes count as water in the mask).
+  const fromLandscape = landscapeScenery(
+    landscape,
+    curvePoints,
+    tier,
+    lakePolygons.map((lake) => lake.outer.map(({ x, z }) => [x, z] as [number, number])),
+  );
+  if (fromLandscape && fromLandscape.treelines.length > 0) {
+    const strips: SceneryInstance[] = fromLandscape.treelines.map((t) => ({
+      position: [t.x, 0, t.z],
+      rotationY: t.yaw,
+      scale: 1,
+    }));
+    const existing = sceneryGlbsResult.find((g) => g.id === fromLandscape.treelineModelId);
+    if (existing) existing.instances = [...existing.instances, ...strips];
+    else sceneryGlbsResult = [...sceneryGlbsResult, { id: fromLandscape.treelineModelId, instances: strips }];
+  }
   return {
+    ...(fromLandscape ? { landCover: fromLandscape.landCover, landCoverSummary: fromLandscape.summary } : {}),
     pools,
     ...(buildings.length > 0 ? { buildings } : {}),
     ...(sceneryGlbsResult.length > 0 ? { sceneryGlbs: sceneryGlbsResult } : {}),
@@ -510,6 +537,7 @@ interface EngineRouteCacheEntry {
   coordinates: WaterRoute['coordinates'];
   enrichment: RouteEnrichmentData | null;
   tier: PerformanceMode;
+  landscape: Landscape | null;
   result: EngineRoute | null;
 }
 const engineRouteCache: EngineRouteCacheEntry[] = [];
@@ -518,25 +546,29 @@ export const toEngineRouteCached = (
   route: WaterRoute | null | undefined,
   enrichment?: RouteEnrichmentData | null,
   tier: PerformanceMode = DEFAULT_SCENERY_TIER,
+  landscape?: Landscape | null,
 ): EngineRoute | null => {
   if (!route) return null;
   const enr = enrichment ?? null;
+  const land = landscape ?? null;
   const hit = engineRouteCache.find(
     (e) =>
       e.routeId === route.id &&
       e.distance === route.distance &&
       e.coordinates === route.coordinates &&
       e.enrichment === enr &&
-      e.tier === tier,
+      e.tier === tier &&
+      e.landscape === land,
   );
   if (hit) return hit.result;
-  const result = toEngineRoute(route, enr, tier);
+  const result = toEngineRoute(route, enr, tier, land);
   engineRouteCache.unshift({
     routeId: route.id,
     distance: route.distance,
     coordinates: route.coordinates,
     enrichment: enr,
     tier,
+    landscape: land,
     result,
   });
   engineRouteCache.length = Math.min(engineRouteCache.length, ENGINE_ROUTE_CACHE_SIZE);
