@@ -86,6 +86,21 @@ describe('telemetry', () => {
     });
   });
 
+  it('leaves a newer scene\'s globals alone when an older scene is released (#753 FR5)', () => {
+    // A mid-row rebuild builds the new scene before the old one is disposed.
+    const older = createTelemetry(() => undefined);
+    const newer = createTelemetry(() => undefined);
+    newer.boat.distanceMeters = 42;
+    releaseTelemetry(older);
+    publishSpeedMps(older, 9);
+    const w = window as Win & { __ROWER3D_BOAT?: { distanceMeters: number } };
+    expect(w.__ROWER3D_BOAT?.distanceMeters).toBe(42);
+    expect(w.__ROWER3D_RENDER_STATS).toBe(newer.renderStats);
+    expect(w.__ROWER3D_SPEED_MPS).toBe(0);
+    releaseTelemetry(newer);
+    expect(w.__ROWER3D_BOAT).toBeUndefined();
+  });
+
   it('clears every global on release', () => {
     createTelemetry(() => undefined);
     releaseTelemetry();

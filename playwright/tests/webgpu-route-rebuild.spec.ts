@@ -57,22 +57,44 @@ const RIVER = {
   ],
 };
 
+/** Only a signed-in rower fetches map data (guests row the fallback scene). */
+const ATHLETE = { id: 'i12345', name: 'Test Athlete', email: 'athlete@example.com' };
+
 /** Longest the enrichment is held, inside the service's own 20 s water timeout. */
 const HOLD_LIMIT_MS = 15_000;
 
 /** Serve the course and Overpass; enrichment answers wait for `release()`. */
 async function bootstrap(page: Page) {
   await installRideHarness(page);
-  await page.addInitScript(() => {
-    const w = window as unknown as { __E2E_ENRICHMENT_NETWORK?: boolean; __ROWER3D_REBUILD_ON_ROUTE_CHANGE?: boolean };
+  await page.addInitScript((athlete) => {
+    const w = window as unknown as {
+      __AUTH_USER?: unknown;
+      __E2E_ENRICHMENT_NETWORK?: boolean;
+      __ROWER3D_REBUILD_ON_ROUTE_CHANGE?: boolean;
+    };
+    // Signed in, as in lake-offline.spec.ts: a seeded user and refresh token.
+    w.__AUTH_USER = athlete;
+    sessionStorage.setItem('vr_auth_user', JSON.stringify(athlete));
+    sessionStorage.setItem('vr_auth_refresh_token', 'e2e-refresh-token');
     w.__E2E_ENRICHMENT_NETWORK = true;
     w.__ROWER3D_REBUILD_ON_ROUTE_CHANGE = true;
-  });
+  }, ATHLETE);
+  await page.route('**/proxy/api/oauth/token**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ access_token: 'e2e-access-token', expires_in: 3600, token_type: 'Bearer', athlete_id: 12345 }),
+    }),
+  );
   await page.route('**/rownative/courses/**/901.json', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(COURSE) }),
   );
   await page.route('**/rownative.icu/api/**', (route) => route.abort());
 
+  // The first Overpass request is the import's river walk; every later one
+  // (the selected route's enrichment) waits for `release()` once `hold()`
+  // is set, or from the start when it overlaps the import.
+  let requests = 0;
   let holding = false;
   let release!: () => void;
   const released = new Promise<void>((resolve) => {
@@ -81,7 +103,8 @@ async function bootstrap(page: Page) {
   const headers = { 'Access-Control-Allow-Origin': '*' };
   const overpassHosts = new Set(['overpass-api.de', 'overpass.kumi.systems']);
   await page.route((url) => overpassHosts.has(url.hostname), async (route) => {
-    if (holding) {
+    requests += 1;
+    if (holding || requests > 1) {
       await Promise.race([released, new Promise((resolve) => setTimeout(resolve, HOLD_LIMIT_MS))]);
     }
     await route.fulfill({ status: 200, contentType: 'application/json', headers, body: JSON.stringify(RIVER) }).catch(() => {});
@@ -117,6 +140,9 @@ test('late enrichment rebuilds the scene once and the boat keeps its distance (#
   await page.getByRole('button', { name: 'Row', exact: true }).click();
   await page.waitForSelector('.btn-try-demo', { timeout: 15_000 });
   await page.evaluate(() => (document.querySelector('.btn-try-demo') as HTMLButtonElement | null)?.click());
+  // While the map data is out, a signed-in row waits for it unless the rower
+  // chooses to start now: the case a mid-row rebuild exists for.
+  await page.getByRole('button', { name: 'Start now with simple scenery' }).click();
   await page.waitForURL(/\/row(\/)?$/, { timeout: 15_000 });
 
   const outcome = await waitForRideOutcome(page);

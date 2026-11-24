@@ -334,7 +334,7 @@ export const attach: RideAttach = async (canvas, opts = {}) => {
 
   const initial = await buildScene(/* isRetry */ false);
   if (!initial) {
-    releaseTelemetry();
+    releaseTelemetry(telemetry);
     canvas.removeAttribute('data-backend');
     return null;
   }
@@ -402,7 +402,7 @@ export const attach: RideAttach = async (canvas, opts = {}) => {
       scene?.dispose();
       scene = null;
       removeForceLostSeam();
-      releaseTelemetry();
+      releaseTelemetry(telemetry);
       canvas.removeAttribute('data-backend');
     },
   };
