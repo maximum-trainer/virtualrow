@@ -99,14 +99,15 @@ describe('telemetry', () => {
     expect(w.__ROWER3D_SPEED_MPS).toBeUndefined();
   });
 
-  it('__ROWER3D_RENDER_STATS.drawCalls aliases .draws (legacy spec harness)', () => {
+  it('__ROWER3D_RENDER_STATS publishes drawCalls as its own field, not an alias of the pass count', () => {
     const handles = createTelemetry(() => undefined);
     const stats = handles.renderStats as { draws: number; drawCalls: number };
     expect(stats.drawCalls).toBe(0);
-    stats.draws = 42;
-    expect(stats.drawCalls).toBe(42);
-    const published = (window as Win).__ROWER3D_RENDER_STATS as { drawCalls: number };
-    expect(published.drawCalls).toBe(42);
+    stats.draws = 10;
+    stats.drawCalls = 366;
+    const published = (window as Win).__ROWER3D_RENDER_STATS as unknown as { draws: number; drawCalls: number };
+    expect(published.draws).toBe(10);
+    expect(published.drawCalls).toBe(366);
   });
 
   it('publishSpeedMps writes the scalar to window.__ROWER3D_SPEED_MPS', () => {

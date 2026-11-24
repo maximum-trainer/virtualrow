@@ -10,7 +10,8 @@ import {
 import { overBudget } from '../../renderBudget';
 import type { Rower3DRenderStats } from '../telemetry';
 
-const fresh = (): Omit<Rower3DRenderStats, 'drawCalls'> => ({
+const fresh = (): Rower3DRenderStats => ({
+  drawCalls: 0,
   draws: 0,
   triangles: 0,
   instances: 0,
@@ -30,6 +31,7 @@ const fresh = (): Omit<Rower3DRenderStats, 'drawCalls'> => ({
 
 const inputs = (): FrameRenderInputs => ({
   passes: 10,
+  otherPasses: 7,
   sceneryDispatch: 3,
   sceneryMesh: { draws: 5, instances: 40, triangles: 4000 },
   sprites: { draws: 3, pools: [{ drawn: 7 }, { drawn: -1 }, { drawn: 3 }] },
@@ -58,6 +60,9 @@ describe('assembleRenderStats', () => {
     expect(s.triangles).toBe(4400 + 5000);
     expect(s.instances).toBe(62 + 50);
     expect(s.draws).toBe(10);
+    // Every draw: 7 ungrouped passes + 9 scene draws + 6 shadow draws, not
+    // the 10 passes (the perf-budget spec's draw floor reads this).
+    expect(s.drawCalls).toBe(22);
     expect(s.sceneryDispatch).toBe(3);
     expect(s.sceneryDraws).toBe(8);
     expect(s.sceneryTriangles).toBe(4040);
@@ -97,7 +102,7 @@ describe('writePanelStats', () => {
     const s = fresh();
     assembleRenderStats(s, inputs());
     const out = emptyPanelStats();
-    writePanelStats(out, { stats: s, pacing, tier: 'high', otherPasses: 7, now: 1234 });
+    writePanelStats(out, { stats: s, pacing, tier: 'high', now: 1234 });
     expect(out.drawing).toBe('webgpu');
     expect(out.performanceMode).toBe('high');
     // 7 other passes + 9 scene draws + 6 shadow draws.
@@ -112,7 +117,7 @@ describe('writePanelStats', () => {
 
   it('leaves fps and p95 out until a frame interval has been measured, and defaults an unknown tier to medium', () => {
     const out = emptyPanelStats();
-    writePanelStats(out, { stats: fresh(), pacing: { ...pacing, samples: 0, p50: 0, p95: 0 }, tier: undefined, otherPasses: 0, now: 1 });
+    writePanelStats(out, { stats: fresh(), pacing: { ...pacing, samples: 0, p50: 0, p95: 0 }, tier: undefined, now: 1 });
     expect(out.fps).toBeUndefined();
     expect(out.p95Ms).toBeUndefined();
     expect(out.performanceMode).toBe('medium');

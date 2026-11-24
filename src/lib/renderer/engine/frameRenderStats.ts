@@ -6,8 +6,9 @@
  * breaks the frame down by what drew it; `scene` is the lit groups
  * together (kit meshes, sprite trees, buildings), `shadows` the cascades.
  * Top-level `triangles` / `instances` are everything submitted (scene +
- * shadows). Top-level `draws` stays the count of passes that ran, as the
- * legacy harness (`drawCalls`) has always read it.
+ * shadows). Top-level `draws` stays the count of passes that ran;
+ * `drawCalls` is every draw (ungrouped passes plus scene and shadow draws),
+ * which is what the perf specs read.
  */
 
 import type { PerformanceMode } from '../../../components/rower3d/constants';
@@ -21,6 +22,8 @@ export const SPRITE_TRIANGLES_PER_INSTANCE = 4;
 export interface FrameRenderInputs {
   /** Passes that ran this frame (the legacy `draws`). */
   passes: number;
+  /** Of those, the ones whose draws no group counts: one draw each. */
+  otherPasses: number;
   sceneryDispatch: number;
   sceneryMesh: Rower3DRenderGroup & { residentMeshes?: number; residentBytes?: number };
   /** Sprite pass: one indirect draw per pool; `drawn` read back from the cull, −1 before the first read. */
@@ -47,7 +50,7 @@ const set = (dst: Rower3DRenderGroup, draws: number, instances: number, triangle
 };
 
 export const assembleRenderStats = (
-  stats: Omit<Rower3DRenderStats, 'drawCalls'>,
+  stats: Rower3DRenderStats,
   input: FrameRenderInputs,
 ): void => {
   const g = stats.groups;
@@ -67,6 +70,8 @@ export const assembleRenderStats = (
   );
 
   stats.draws = input.passes;
+  // Every draw this frame, as the debug panel counts them.
+  stats.drawCalls = input.otherPasses + g.scene.draws + g.shadows.draws;
   stats.triangles = g.scene.triangles + g.shadows.triangles;
   stats.instances = g.scene.instances + g.shadows.instances;
   stats.sceneryDispatch = input.sceneryDispatch;
@@ -97,11 +102,9 @@ export const emptyPanelStats = (): RenderStats => ({
 });
 
 export interface PanelStatsInput {
-  stats: Omit<Rower3DRenderStats, 'drawCalls'>;
+  stats: Rower3DRenderStats;
   pacing: FramePacingSummary;
   tier: string | undefined;
-  /** Passes that ran this frame outside the grouped ones (sky, water, bank, boat, …): one draw each. */
-  otherPasses: number;
   now: number;
 }
 
@@ -111,13 +114,12 @@ export interface PanelStatsInput {
  * `overBudget` flag holds the frame to `RENDER_BUDGET[tier].p95Ms`.
  */
 export const writePanelStats = (out: RenderStats, input: PanelStatsInput): void => {
-  const g = input.stats.groups;
   out.backend = 'webgpu';
   out.drawing = 'webgpu';
   out.performanceMode = (TIERS as readonly string[]).includes(input.tier ?? '')
     ? (input.tier as PerformanceMode)
     : 'medium';
-  out.drawCalls = input.otherPasses + g.scene.draws + g.shadows.draws;
+  out.drawCalls = input.stats.drawCalls;
   out.triangles = input.stats.triangles;
   const measured = input.pacing.samples > 0 && input.pacing.p50 > 0;
   out.fps = measured ? 1000 / input.pacing.p50 : undefined;

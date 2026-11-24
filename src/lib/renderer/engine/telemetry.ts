@@ -34,8 +34,12 @@ export interface Rower3DRenderGroups {
 export interface Rower3DRenderStats {
   /** Passes that ran this frame. */
   draws: number;
-  /** Alias of `draws` for the legacy spec harness. Kept in sync via a getter. */
-  readonly drawCalls: number;
+  /**
+   * Real draw calls this frame: one per ungrouped pass (sky, water, bank,
+   * boat, …) plus every scene and shadow draw. What the spec harness reads
+   * as the frame's draw count (perf-budget, scenery-kit-budgets).
+   */
+  drawCalls: number;
   /** Triangles submitted this frame, scene and shadows. */
   triangles: number;
   /** Instances drawn this frame, scene and shadows. */
@@ -416,12 +420,9 @@ const win = (): Win | undefined => {
 };
 
 export const createTelemetry = (forceRender: () => void): TelemetryHandles => {
-  // `drawCalls` is a read-only alias of `draws` for the legacy spec harness
-  // (route-loading-progress.spec reads `__ROWER3D_RENDER_STATS.drawCalls`).
-  // A getter keeps it in sync without every per-frame writer having to set
-  // two fields.
-  const renderStats = {
+  const renderStats: Rower3DRenderStats = {
     draws: 0,
+    drawCalls: 0,
     triangles: 0,
     instances: 0,
     sceneryDispatch: 0,
@@ -436,15 +437,9 @@ export const createTelemetry = (forceRender: () => void): TelemetryHandles => {
     shadowAtlasBytes: 0,
     residentMeshes: 0,
     residentMeshBytes: 0,
-  } as Omit<Rower3DRenderStats, 'drawCalls'>;
-  Object.defineProperty(renderStats, 'drawCalls', {
-    enumerable: true,
-    get() {
-      return (this as { draws: number }).draws;
-    },
-  });
+  };
   const handles: TelemetryHandles = {
-    renderStats: renderStats as Rower3DRenderStats,
+    renderStats,
     frameStats: { frame: 0, dtMs: 0, simDtMs: 0, gpuMs: 0, cpuMs: 0 },
     framePacing: { samples: 0, p50: 0, p95: 0, p99: 0, max: 0, over25ms: 0, over50ms: 0, longestStallMs: 0 },
     camera: { x: 0, y: 0, z: 0, lookX: 0, lookY: 0, lookZ: 0, fov: 58 },
