@@ -12,7 +12,14 @@ import type { FrameContext, Pass } from '../engine/frameGraph';
 import type { Mat4 } from '../math/mat4';
 import sceneryMeshWgsl from './sceneryMesh.wgsl?raw';
 import type { ShadowResources } from './bank';
-import { SAMPLE_SHADOW_WGSL, SHADOW_UNIFORMS_WGSL } from '../engine/shaderSnippets';
+import {
+  AERIAL_FOG_WGSL,
+  lightingBindingWgsl,
+  SAMPLE_SHADOW_WGSL,
+  SHADOW_UNIFORMS_WGSL,
+  SKY_COLOUR_WGSL,
+} from '../engine/shaderSnippets';
+import { defaultLightingUniformBuffer } from '../engine/uniforms';
 import { buildCellLayout, frustumPlanes, maxScale, meshRadius, visibleRuns, type CellLayout } from '../plan/instanceCells';
 import { ALWAYS_REVEALED, packRevealUniform, SCENERY_REVEAL_UNIFORM_BYTES } from './sceneryReveal';
 import { renderPipelineAsync } from '../engine/pipelineAsync';
@@ -273,6 +280,8 @@ export interface CreateSceneryMeshPassOptions {
   device: GPUDevice;
   format: GPUTextureFormat;
   frameUniforms: GPUBuffer;
+  /** #725 FR6 — the conditions block, for the shared fog's horizon colour; midday when absent. */
+  lightingUniforms?: GPUBuffer;
   /**
    * #734 FR4 — sample the cascaded shadow atlas (medium and up). The atlas
    * comes later, through `setShadow`; until then the pass draws nothing.
@@ -309,11 +318,14 @@ export const createSceneryMeshPass = async ({
   device,
   format,
   frameUniforms,
+  lightingUniforms: liveLighting,
   receiveShadows = false,
 }: CreateSceneryMeshPassOptions): Promise<SceneryMeshPass> => {
+  const lightingUniforms = liveLighting ?? defaultLightingUniformBuffer(device);
   const module = device.createShaderModule({
     label: 'sceneryMesh',
-    code: sceneryShadowWgsl(receiveShadows) + sceneryMeshWgsl,
+    // #725 FR6 — the shared aerial fog, in the sky's horizon colour.
+    code: sceneryShadowWgsl(receiveShadows) + lightingBindingWgsl(1) + SKY_COLOUR_WGSL + AERIAL_FOG_WGSL + sceneryMeshWgsl,
   });
   const vertexBuffers: GPUVertexBufferLayout[] = [
     { arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }] },
@@ -359,14 +371,20 @@ export const createSceneryMeshPass = async ({
   const frameBind = device.createBindGroup({
     label: 'sceneryMesh-frame',
     layout: frameLayout,
-    entries: [{ binding: 0, resource: { buffer: frameUniforms } }],
+    entries: [
+      { binding: 0, resource: { buffer: frameUniforms } },
+      { binding: 1, resource: { buffer: lightingUniforms } },
+    ],
   });
   // `layout: 'auto'` gives each pipeline its own (equal) layouts, so the
   // translucent draws need bind groups made against its layouts.
   const translucentFrameBind = device.createBindGroup({
     label: 'sceneryMesh-translucent-frame',
     layout: translucentPipeline.getBindGroupLayout(0),
-    entries: [{ binding: 0, resource: { buffer: frameUniforms } }],
+    entries: [
+      { binding: 0, resource: { buffer: frameUniforms } },
+      { binding: 1, resource: { buffer: lightingUniforms } },
+    ],
   });
   const translucentMeshLayout = translucentPipeline.getBindGroupLayout(1);
 
@@ -832,6 +850,7 @@ export const createSceneryMeshPass = async ({
       residentBytes = 0;
       for (const group of groups.values()) group.buffer.destroy();
       groups.clear();
+      if (!liveLighting) lightingUniforms.destroy();
     },
   };
 };

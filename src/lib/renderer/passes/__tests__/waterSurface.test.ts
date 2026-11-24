@@ -10,6 +10,7 @@ import {
   SAMPLE_SHADOW_WGSL,
   SHADOW_UNIFORMS_WGSL,
   SKY_COLOUR_WGSL,
+  AERIAL_FOG_WGSL,
   WATER_SURFACE_WGSL,
 } from '../../engine/shaderSnippets';
 import { WATER_BODY_COLOUR, WATER_WAVE_TRAINS } from '../../plan/waterWaves';
@@ -20,7 +21,7 @@ const read = (f: string) => readFileSync(join(passesDir, f), 'utf8');
 describe('shared water surface (#734)', () => {
   it.each(['water.ts', 'waterPolygon.ts'])('%s builds its shader from the shared sky and water snippets (FR5)', (f) => {
     expect(read(f)).toContain(
-      'SHADOW_UNIFORMS_WGSL + SAMPLE_SHADOW_WGSL + HORIZON_HAZE_WGSL + SKY_COLOUR_WGSL + WATER_SURFACE_WGSL + waterWgsl',
+      'SHADOW_UNIFORMS_WGSL + SAMPLE_SHADOW_WGSL + HORIZON_HAZE_WGSL + SKY_COLOUR_WGSL + AERIAL_FOG_WGSL + WATER_SURFACE_WGSL + waterWgsl',
     );
   });
 
@@ -32,7 +33,7 @@ describe('shared water surface (#734)', () => {
   });
 
   it('composes into WGSL that parses', () => {
-    const water = SHADOW_UNIFORMS_WGSL + SAMPLE_SHADOW_WGSL + HORIZON_HAZE_WGSL + SKY_COLOUR_WGSL + WATER_SURFACE_WGSL + read('water.wgsl');
+    const water = SHADOW_UNIFORMS_WGSL + SAMPLE_SHADOW_WGSL + HORIZON_HAZE_WGSL + SKY_COLOUR_WGSL + AERIAL_FOG_WGSL + WATER_SURFACE_WGSL + read('water.wgsl');
     expect(() => new WgslReflect(water)).not.toThrow();
     for (const fn of ['fn waterSlope(', 'fn skyColourToward(', 'fn fs_main(']) expect(water).toContain(fn);
     expect(() => new WgslReflect(SKY_COLOUR_WGSL + read('sky.wgsl'))).not.toThrow();

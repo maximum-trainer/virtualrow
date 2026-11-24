@@ -12,6 +12,7 @@
 
 /// <reference types="@webgpu/types" />
 
+import { defaultLightingUniformBuffer } from './uniforms';
 import { extractFrustum, frustum, type FrustumPlanes } from '../math/frustum';
 import type { FrameContext, Pass } from './frameGraph';
 import {
@@ -60,6 +61,8 @@ export interface SceneryPassOptions {
    * `attach.ts` creates one at startup and writes per-tier near/far metres.
    */
   sproutUniforms: GPUBuffer;
+  /** #725 FR6 — the conditions block, for the shared fog's horizon colour; midday when absent. */
+  lightingUniforms?: GPUBuffer;
   pools: InstancePool[];
   /**
    * Maximum distance from the camera at which a pool instance is drawn.
@@ -106,6 +109,7 @@ const INDIRECT_INSTANCE_COUNT_OFFSET = 4;
 
 export const createSceneryPass = async (opts: SceneryPassOptions): Promise<SceneryPass> => {
   const { device, format, frameUniforms, sproutUniforms, pools } = opts;
+  const lightingUniforms = opts.lightingUniforms ?? defaultLightingUniformBuffer(device);
   // 1×1 placeholder atlas so a caller without textures (unit tests) can still
   // mount the pass; attach always supplies the real `paintFoliage` atlas.
   let placeholderTex: GPUTexture | null = null;
@@ -160,6 +164,7 @@ export const createSceneryPass = async (opts: SceneryPassOptions): Promise<Scene
       { binding: 1, resource: { buffer: sproutUniforms } },
       { binding: 2, resource: foliageAtlasView },
       { binding: 3, resource: foliageSampler },
+      { binding: 4, resource: { buffer: lightingUniforms } },
     ],
   });
 
@@ -270,6 +275,7 @@ export const createSceneryPass = async (opts: SceneryPassOptions): Promise<Scene
       if (disposed) return;
       disposed = true;
       drawnRead?.destroy();
+      if (!opts.lightingUniforms) lightingUniforms.destroy();
       for (const r of resources) {
         r.cull.dispose();
       }

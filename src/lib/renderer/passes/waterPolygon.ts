@@ -5,6 +5,7 @@ import {
   HORIZON_BLEND,
   HORIZON_HAZE_WGSL,
   SKY_COLOUR_WGSL,
+  AERIAL_FOG_WGSL,
   WATER_SURFACE_WGSL,
   SAMPLE_SHADOW_WGSL,
   SHADOW_UNIFORMS_WGSL,
@@ -118,7 +119,7 @@ export const createWaterPolygonPass = async ({
   const mesh = tessellateAll(polygons, discCentre, discRadius);
   if (mesh.indices.length === 0) return null;
 
-  const code = SHADOW_UNIFORMS_WGSL + SAMPLE_SHADOW_WGSL + HORIZON_HAZE_WGSL + SKY_COLOUR_WGSL + WATER_SURFACE_WGSL + waterWgsl;
+  const code = SHADOW_UNIFORMS_WGSL + SAMPLE_SHADOW_WGSL + HORIZON_HAZE_WGSL + SKY_COLOUR_WGSL + AERIAL_FOG_WGSL + WATER_SURFACE_WGSL + waterWgsl;
   const module = device.createShaderModule({ label: 'water-polygon', code });
   const pipeline = await renderPipelineAsync(device, {
     multisample: sceneMultisample(device),

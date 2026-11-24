@@ -55,6 +55,8 @@ struct VSOut {
   // to jitter hue + lightness so a stand of billboard trees doesn't read
   // as the same stamp repeated. Reuses the sway seed.
   @location(8) tintSeed: f32,
+  // #725 FR6 — camera to instance on the ground plane, for the fog.
+  @location(9) toFragXZ: vec2<f32>,
 };
 
 // Four verts per billboard pair (two crossed quads, 6 indices each via a
@@ -162,6 +164,7 @@ fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> 
   let d = p - frame.camPos;
   let worldDist = length(vec3<f32>(d.x, 0.0, d.z));
   out.worldDist = worldDist;
+  out.toFragXZ = d.xz;
   // Sprite fades IN above `sproutNear`, peaks at `sproutFar` and beyond.
   let span = max(1.0, sprout.far - sprout.near);
   out.fade = clamp((worldDist - sprout.near) / span, 0.0, 1.0);
@@ -210,14 +213,9 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   let paletteCol = mix(in.baseCol, in.crownCol, clamp(in.worldY, 0.0, 1.0)) * tintMul * lightMul;
   // Leaf texture's RGB is a grey leaf tone; multiply by the species palette.
   let col = paletteCol * tex.rgb * shade;
-  // No fog on sprite trees. Dan reported trees rendering as pale, washed-out
-  // silhouettes while the buildings and bank next to them stayed saturated —
-  // the exponential ramp (`f ≈ 0.42` at 30 m, `0.84` at 60 m against the pale
-  // blue-grey `fogCol`) bleached the sprite leaves to near-pure sky even at
-  // short range, because the sprite's alpha is `fade * tex.a` and the premult
-  // colour blends with the actual sky behind. Buildings don't apply fog at
-  // all (bank/water/sky/buildings/boat declare `fog` but never consume it),
-  // so dropping it here matches that look. The sceneryMesh pass still haze-
-  // caps at 0.35 (#678) for the GLB kit scenery.
-  return vec4<f32>(col, in.fade * tex.a);
+  // #725 FR6 — the shared aerial fog. The old exponential fog bleached
+  // sprite leaves toward a pale fixed colour from ~30 m (so it was dropped
+  // here); this one leaves everything within 150 m alone and eases toward
+  // the sky's own horizon colour, as the bank and buildings beside them do.
+  return vec4<f32>(applyFog(col, vec3<f32>(in.toFragXZ.x, 0.0, in.toFragXZ.y)), in.fade * tex.a);
 }

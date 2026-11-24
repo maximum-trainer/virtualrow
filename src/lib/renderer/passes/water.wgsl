@@ -94,5 +94,5 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   col = col + vec3<f32>(1.0, 0.96, 0.88) * lighting.sun.rgb * lobe;
   // FR3: dissolve into the sky at the horizon in step with the land
   // (HORIZON_HAZE_WGSL), so the far waterline is soft.
-  return vec4<f32>(col, horizonAlpha(camDist));
+  return vec4<f32>(applyFog(col, in.worldPos - frame.camPos), horizonAlpha(camDist));
 }

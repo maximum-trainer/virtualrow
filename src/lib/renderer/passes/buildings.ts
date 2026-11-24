@@ -9,7 +9,13 @@
 /// <reference types="@webgpu/types" />
 
 import type { FrameContext, Pass } from '../engine/frameGraph';
-import { SAMPLE_SHADOW_WGSL, SHADOW_UNIFORMS_WGSL } from '../engine/shaderSnippets';
+import {
+  AERIAL_FOG_WGSL,
+  lightingBindingWgsl,
+  SAMPLE_SHADOW_WGSL,
+  SHADOW_UNIFORMS_WGSL,
+  SKY_COLOUR_WGSL,
+} from '../engine/shaderSnippets';
 import type { ShadowResources } from './bank';
 import type { BuildingPool } from '../plan/buildings';
 import { BUILDING_ATLAS_SIZE, paintBuildingAtlas } from '../../scenery/buildingAtlas';
@@ -28,6 +34,8 @@ export interface BuildingsPassOptions {
   device: GPUDevice;
   format: GPUTextureFormat;
   frameUniforms: GPUBuffer;
+  /** #725 FR6 — the conditions block, for the shared fog's horizon colour. */
+  lightingUniforms: GPUBuffer;
   shadow: ShadowResources;
   pool: BuildingPool | null;
   /**
@@ -42,8 +50,9 @@ export interface BuildingsPass extends Pass {
 }
 
 export const createBuildingsPass = async (opts: BuildingsPassOptions): Promise<BuildingsPass> => {
-  const { device, format, frameUniforms, shadow, pool, telemetry } = opts;
-  const code = SHADOW_UNIFORMS_WGSL + SAMPLE_SHADOW_WGSL + buildingsWgsl;
+  const { device, format, frameUniforms, lightingUniforms, shadow, pool, telemetry } = opts;
+  // #725 FR6 — the shared aerial fog, in the sky's horizon colour.
+  const code = SHADOW_UNIFORMS_WGSL + SAMPLE_SHADOW_WGSL + lightingBindingWgsl(1) + SKY_COLOUR_WGSL + AERIAL_FOG_WGSL + buildingsWgsl;
   const module = device.createShaderModule({ label: 'buildings', code });
   const pipeline = await renderPipelineAsync(device, {
     multisample: sceneMultisample(device),
@@ -61,7 +70,10 @@ export const createBuildingsPass = async (opts: BuildingsPassOptions): Promise<B
   const frameBindGroup = device.createBindGroup({
     label: 'buildings-frame',
     layout: pipeline.getBindGroupLayout(0),
-    entries: [{ binding: 0, resource: { buffer: frameUniforms } }],
+    entries: [
+      { binding: 0, resource: { buffer: frameUniforms } },
+      { binding: 1, resource: { buffer: lightingUniforms } },
+    ],
   });
   const shadowBindGroup = device.createBindGroup({
     label: 'buildings-shadow',

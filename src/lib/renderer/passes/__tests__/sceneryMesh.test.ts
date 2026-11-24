@@ -322,14 +322,9 @@ describe('createSceneryMeshPass', () => {
   // trees were being bleached to the fog colour, not actually blended out.
   // The fix caps the mix at a modest ceiling so distant trees retain their
   // authored tint while still sitting under atmospheric haze.
-  it('caps the fog mix so distant trees never bleach to pure fog colour', () => {
-    // The shader clamps `f` to `≤ TREE_FOG_MAX` where TREE_FOG_MAX is well
-    // under 1.0. Encoded as `min(..., 0.X)` in the mix argument.
-    const match = sceneryMeshWgsl.match(/min\(\s*f\s*,\s*(0?\.\d+)\s*\)/);
-    expect(match, 'sceneryMesh.wgsl should clamp fog mix via min(f, C)').not.toBeNull();
-    const ceiling = Number(match![1]);
-    expect(ceiling).toBeGreaterThan(0);
-    expect(ceiling).toBeLessThanOrEqual(0.5);
+  it('fogs distant trees with the shared aerial fog, capped below pure fog colour (#725 FR6)', () => {
+    // The ceiling now lives in AERIAL_FOG_MAX (shaderSnippets), shared by every lit pass.
+    expect(sceneryMeshWgsl).toMatch(/applyFog\(col,\s*in\.worldPos\s*-\s*frame\.camPos\)/);
   });
 
   // #726 VP-08 FR3 — a model streamed in mid-ride fades in over 1.5 s,
@@ -345,7 +340,7 @@ describe('createSceneryMeshPass', () => {
       const { device, bindGroups } = makeDevice();
       const p = await createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
       p.register(makeInput({ id: 'boathouse' }));
-      const meshGroups = (bindGroups as Desc[]).filter((d) => d.entries.some((e) => e.binding === 1));
+      const meshGroups = (bindGroups as Desc[]).filter((d) => d.entries.some((e) => e.binding === 2));
       expect(meshGroups).toHaveLength(2);
       const reveal = meshGroups.map((d) => d.entries.find((e) => e.binding === 2)?.resource.buffer);
       expect(reveal[0]).toBeDefined();
@@ -502,7 +497,7 @@ describe('createSceneryMeshPass', () => {
     });
 
     it('scales the distance haze by the instance share, so the ghost can opt out', () => {
-      expect(sceneryMeshWgsl).toMatch(/min\(f,\s*0\.35\)\s*\*\s*inst\.fx\.w/);
+      expect(sceneryMeshWgsl).toMatch(/mix\(col,\s*fogged,\s*inst\.fx\.w\)/);
     });
   });
 });

@@ -251,5 +251,5 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   let shade = ambient + halfLambert * halfLambert * 0.75 * lit * lighting.sun.rgb;
   let shaded = col * shade;
   // Dissolve into the sky behind at the horizon (HORIZON_HAZE_WGSL).
-  return vec4<f32>(shaded, horizonAlpha(camDist));
+  return vec4<f32>(applyFog(shaded, in.worldPos - frame.camPos), horizonAlpha(camDist));
 }
