@@ -443,6 +443,7 @@ export class RownativeService {
       geometryWarnings: geometry.warnings.filter((w) => /^(Course path|Attached track) ignored/.test(w)),
       externalDistanceMeters: detail.distance_m ?? fallback.distanceMeters,
       status: detail.status ?? fallback.status,
+      stakeTurns: geometry.stakeTurns,
     });
   }
 }

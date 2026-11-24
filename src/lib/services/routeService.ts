@@ -78,6 +78,8 @@ export interface RownativeRouteImportData {
   status?: string;
   /** #747 FR3: why a better line was refused, shown on the route card. */
   geometryWarnings?: string[];
+  /** #753 FR1: gate centres where the course turns back. */
+  stakeTurns?: Coordinate[];
 }
 
 /**
@@ -200,6 +202,7 @@ export class RouteService {
       geometrySource: data.geometrySource,
       externalDistanceMeters: data.externalDistanceMeters,
       ...(data.geometryWarnings?.length ? { geometryWarnings: data.geometryWarnings } : {}),
+      ...(data.stakeTurns?.length ? { stakeTurns: data.stakeTurns } : {}),
     };
 
     this.routes.push(newRoute);
@@ -469,6 +472,7 @@ export class RouteService {
       geometrySource: data.geometrySource,
       externalDistanceMeters: data.externalDistanceMeters,
       geometryWarnings: data.geometryWarnings,
+      stakeTurns: data.stakeTurns,
     });
   }
 

@@ -265,6 +265,11 @@ export interface SceneryRoute {
    */
   lakePolygons?: Array<{ outer: { x: number; z: number }[]; holes: { x: number; z: number }[][] }>;
   /**
+   * #753 FR1 — one turn buoy (`a02-buoy-turn-cylinder`) at each stake the
+   * course turns about, in scene XZ, at water level.
+   */
+  turnBuoys?: Array<{ x: number; z: number }>;
+  /**
    * #685 wire-up — OSM bridge crossings along the route (progress + kind).
    * Already computed by the enrichment service; the synthetic placement
    * generator (#691) turns each into a tier-c bridge at the river centre.
@@ -307,6 +312,10 @@ export interface SceneryRoute {
 
 export const isSceneryRoute = (route: unknown): route is SceneryRoute =>
   !!route && typeof route === 'object' && Array.isArray((route as SceneryRoute).pools);
+
+/** #753 FR1 — the route's stake turns in scene XZ; none on a smoke route. */
+export const turnBuoysOf = (route: unknown): ReadonlyArray<{ x: number; z: number }> =>
+  isSceneryRoute(route) ? route.turnBuoys ?? [] : [];
 
 export interface RideSceneOpts {
   tier?: string;
@@ -898,6 +907,8 @@ export const createRideScene = async (
   let currentAppearance: CrewPalette = opts.appearance ?? DEFAULT_CREW_PALETTE;
   const COURSE_FURNITURE_MODELS: SceneryModelId[] = [
     'a01-buoy-lane-sphere',
+    // #753 FR1 — turn buoys at the stakes of an out-and-back course.
+    'a02-buoy-turn-cylinder',
     'a06-finish-tower',
     'a07-distance-marker-post',
     // #685 slice 1 — start / finish line flagpoles. The GLB already ships
@@ -1498,6 +1509,16 @@ export const createRideScene = async (
     t[14] = place.position[2];
     mat4Multiply(trs, t, rot);
     byModel.get(place.id)?.push(trs);
+  }
+  // #753 FR1 — a turn buoy at each stake, at water level, the same scale as
+  // the lane buoys. It sits off the racing line: the line is an arc round it.
+  for (const stake of turnBuoysOf(opts.route)) {
+    const trs = mat4();
+    mat4Identity(trs);
+    trs[0] = ASSET_SCALE; trs[5] = ASSET_SCALE; trs[10] = ASSET_SCALE;
+    trs[12] = stake.x;
+    trs[14] = stake.z;
+    byModel.get('a02-buoy-turn-cylinder')?.push(trs);
   }
   // Combine course-furniture + GLB-scenery instance transforms into one map,
   // keyed by model id. #723 FR5: when a model id appears in BOTH the

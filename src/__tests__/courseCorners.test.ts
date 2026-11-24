@@ -8,6 +8,7 @@ import {
   STAKE_TURN_MAX_RADIUS_M,
   STAKE_TURN_MIN_RADIUS_M,
   roundCourseCorners,
+  stakeTurnCentres,
 } from '../lib/utils/courseCorners';
 
 // #743: a gates-only course is a chain of gate centres. Rowed as-is, the boat,
@@ -145,5 +146,23 @@ describe('roundCourseCorners', () => {
       return at(80 * Math.sin(a), 80 * (1 - Math.cos(a)));
     });
     expect(roundCourseCorners(traced)).toEqual(traced);
+  });
+});
+
+describe('stakeTurnCentres (#753 FR1)', () => {
+  it('finds the gate an out-and-back course turns about', () => {
+    const stake = at(0, 1500);
+    expect(stakeTurnCentres([at(0, 0), stake, at(30, 0)])).toEqual([stake]);
+  });
+
+  it('finds every stake of a there-and-back-twice course', () => {
+    const chain = [at(0, 0), at(0, 1000), at(20, 0), at(40, 1000), at(60, 0)];
+    expect(stakeTurnCentres(chain)).toEqual([chain[1], chain[2], chain[3]]);
+  });
+
+  it('ignores bends below the stake threshold, and short chains', () => {
+    expect(stakeTurnCentres([at(0, 0), at(0, 600), at(600, 600)])).toEqual([]);
+    expect(stakeTurnCentres([at(0, 0), at(0, 600)])).toEqual([]);
+    expect(stakeTurnCentres([at(0, 0), at(0, 0), at(0, 600)])).toEqual([]);
   });
 });

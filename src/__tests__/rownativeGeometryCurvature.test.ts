@@ -87,6 +87,18 @@ describe('gate-chain courses', () => {
     expect(polylineLengthMeters(resolved.coordinates)).toBeGreaterThan(3000);
     expect(projectPointOntoPolyline(resolved.gates[1], resolved.coordinates).offsetMeters).toBeLessThanOrEqual(20.5);
   });
+
+  // #753 FR1: the stake is where a turn buoy goes.
+  it('names the middle gate of a three-gate out-and-back course as its one stake', async () => {
+    const input = course(gate('Start', 0, 0, 0), gate('Stake', 1, 0, 1500), gate('Finish', 2, 30, 0));
+    const resolved = await resolveCourseGeometry(input);
+    expect(resolved.stakeTurns).toEqual([resolved.gates[1]]);
+  });
+
+  it('names no stake on a course that only bends', async () => {
+    const input = course(gate('Start', 0, 0, 0), gate('WP1', 1, 0, 800), gate('WP2', 2, 700, 1200), gate('Finish', 3, 700, 2000));
+    expect((await resolveCourseGeometry(input)).stakeTurns).toEqual([]);
+  });
 });
 
 describe('the waterway provider seam', () => {

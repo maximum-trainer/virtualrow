@@ -180,6 +180,8 @@ export interface EngineRoute {
    * the polygon-water flag is off.
    */
   lakePolygons?: Array<{ outer: { x: number; z: number }[]; holes: { x: number; z: number }[][] }>;
+  /** #753 FR1 — a turn buoy at each stake, in scene XZ against the route's origin. */
+  turnBuoys?: Array<{ x: number; z: number }>;
   /**
    * #685 wire-up — OSM bridge crossings along the route, consumed by the
    * synthetic placement generator (#691). Already computed by the
@@ -258,6 +260,16 @@ const detectClosedLoop = (route: WaterRoute): boolean => {
  * The `/row` page always passes a real tier so this only applies to tests
  * and other callers that don't care about scenery density.
  */
+/** #753 FR1 — stake-turn gate centres in scene XZ against `origin`. */
+export const turnBuoysInScene = (
+  stakes: readonly { lat: number; lng: number }[] | undefined,
+  origin: { lat: number; lng: number },
+): Array<{ x: number; z: number }> =>
+  (stakes ?? []).map((c) => {
+    const m = latLngToMeters(c.lat, c.lng, origin.lat, origin.lng);
+    return { x: m.x * SCENE_SCALE, z: -m.y * SCENE_SCALE };
+  });
+
 export const DEFAULT_SCENERY_TIER: PerformanceMode = 'medium';
 
 export const toEngineRoute = (
@@ -453,6 +465,8 @@ export const toEngineRoute = (
   }
 
   const crossings = enrichment?.crossings;
+  // #753 FR1 — stake turns, projected like the lakes (same origin, same scale).
+  const turnBuoys = originCoord ? turnBuoysInScene(route.stakeTurns, originCoord) : [];
   // #745 FR1 — the land rises and falls with the route's elevations.
   const routeTerrain = buildTerrainProfile(layoutEnrichment?.elevations);
   return {
@@ -463,6 +477,7 @@ export const toEngineRoute = (
     ...(totalDistanceMeters !== undefined ? { totalDistanceMeters } : {}),
     ...(isClosedLoop ? { isClosedLoop } : {}),
     ...(lakePolygons.length > 0 ? { lakePolygons } : {}),
+    ...(turnBuoys.length > 0 ? { turnBuoys } : {}),
     ...(crossings && crossings.length > 0 ? { crossings } : {}),
     // #741 — what the engine publishes as __ROWER3D_WATER_DETECTION.
     // #755 FR6 — with the water type and where it came from.

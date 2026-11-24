@@ -96,6 +96,11 @@ export interface WaterRoute {
    * ignored: ...". Shown on the route card.
    */
   geometryWarnings?: string[];
+  /**
+   * #753 FR1: the gate centres where the course turns back (stake races).
+   * The engine marks each with a turn buoy.
+   */
+  stakeTurns?: Coordinate[];
   enrichment?: RouteEnrichmentMetadata; // Optional enrichment metadata
   /**
    * #712 FR3 phase 1 — route-authored biome schedule, read by
@@ -284,6 +289,8 @@ export interface RouteFormData {
   geometrySource?: WaterRoute['geometrySource'];
   externalDistanceMeters?: WaterRoute['externalDistanceMeters'];
   geometryWarnings?: WaterRoute['geometryWarnings'];
+  /** #753 FR1: gate centres where the course turns back. */
+  stakeTurns?: WaterRoute['stakeTurns'];
 }
 
 // Structured workout with intervals (like intervals.icu)
