@@ -142,6 +142,7 @@ export type AuthPort = Pick<
 export type RownativePort = Pick<
   RownativeService,
   | 'getCourseIndex'
+  | 'getBundledIndex'
   | 'searchCourses'
   | 'importCourse'
   | 'importCourseById'

@@ -19,13 +19,34 @@
   import { getAuth } from '$lib/ui/authContext';
   import { getRoutesStore } from '$lib/ui/routesContext';
   import { extractRouteStatus, routeGeometrySource } from '$lib/ui/routesStore.svelte';
+  import { getServices } from '$lib/ui/servicesContext';
   import RouteOverviewMap from '$lib/ui/RouteOverviewMap.svelte';
   import RouteDetailOverlay from '$lib/ui/RouteDetailOverlay.svelte';
   import RownativeRouteImport from '$lib/ui/RownativeRouteImport.svelte';
   import RouteThumbnail from '$lib/ui/RouteThumbnail.svelte';
+  import type { RownativeBundledCourse } from '$lib/services/rownativeService';
+  import type { RownativePreviewInput } from '$lib/utils/routePinClusters';
 
   const auth = getAuth();
   const routes = getRoutesStore();
+  const services = getServices();
+
+  // #822 phase 1: every established rownative course renders as a pin on
+  // the world map, read from the bundled snapshot (ships with the app, so
+  // guests see the pins too — NFR3). Importing one still requires sign-in;
+  // see rownativeImport below.
+  let rownativePreviews = $state<readonly RownativeBundledCourse[]>([]);
+  let rownativeImporting = $state<string | null>(null);
+
+  $effect(() => {
+    let cancelled = false;
+    void services.rownativeService.getBundledIndex().then((list) => {
+      if (!cancelled) rownativePreviews = list;
+    });
+    return () => {
+      cancelled = true;
+    };
+  });
 
   // Playwright drives the signed-in flows without a live OAuth round trip.
   const showAuthFeatures = $derived(
@@ -44,6 +65,30 @@
   function importRoute(route: WaterRoute) {
     routes.routeImported(route);
     void goto(`${base}/`);
+  }
+
+  /**
+   * #822 phase 1 (D15): clicking a rownative preview pin kicks off the
+   * existing import flow and opens the detail overlay on success. A
+   * signed-out guest is bounced to the sign-in prompt in the drawer so
+   * no silent network call happens on a guest session (NFR3).
+   */
+  async function rownativeImport(preview: RownativePreviewInput) {
+    if (!showAuthFeatures) {
+      routes.routesDrawerOpen = true;
+      return;
+    }
+    if (rownativeImporting) return;
+    rownativeImporting = preview.id;
+    try {
+      const route = await services.rownativeService.importCourseById(preview.id);
+      routes.routeImported(route);
+      routes.routeDetailOpen = route;
+    } catch (err) {
+      routes.importError = err instanceof Error ? err.message : 'Import failed.';
+    } finally {
+      rownativeImporting = null;
+    }
   }
 
   async function onFileChange(e: Event) {
@@ -97,6 +142,8 @@
             selectedRouteId={routes.selectedRoute?.id ?? null}
             dimmedRouteIds={routes.dimmedRouteIds}
             onSelect={(route: WaterRoute) => (routes.routeDetailOpen = route)}
+            rownativePreviews={rownativePreviews}
+            onRownativeSelect={rownativeImport}
           />
         </div>
       </section>
