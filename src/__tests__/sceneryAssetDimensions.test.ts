@@ -55,7 +55,8 @@ const shippedModels = (): string[] =>
         .flatMap((tier) =>
           fs
             .readdirSync(path.join(SCENERY_ROOT, tier))
-            .filter((file) => file.endsWith('.glb'))
+            // An LOD1 (#727 FR4) is derived from its model, which is the one declared and measured.
+            .filter((file) => file.endsWith('.glb') && !file.endsWith('.lod1.glb'))
             .map((file) => path.join(tier, file)),
         )
     : [];

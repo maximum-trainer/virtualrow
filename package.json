@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "build:assets": "node scripts/compress-scenery.mjs && node scripts/generate-scenery-manifest.mjs",
+    "build:assets": "node scripts/compress-scenery.mjs && node scripts/build-scenery-lod.mjs && node scripts/generate-scenery-manifest.mjs",
     "build:rownative-index": "node --experimental-strip-types scripts/build_rownative_index.mjs",
     "build:boat-mesh": "node scripts/build-boat-mesh.mjs",
     "build:crew": "node scripts/build-boat-mesh.mjs",

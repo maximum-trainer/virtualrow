@@ -133,6 +133,7 @@ import { DEFAULT_WATER_HALF_WIDTH_M, buildWaterStrip } from '../plan/waterStrip'
 import { GLB_WATER_MARGIN_METRES, lakeWater, poolsOffWater, routeWaterFootprint, surfaceAt, withLakes } from '../plan/waterFootprint';
 import { FLEET_INSTANCE_CAPACITY } from '../passes/boat';
 import { assetUrl } from '../../utils/assetUrl';
+import { loadSceneryManifest } from '../../utils/sceneryManifest';
 import { createSceneryPass } from './sceneryPass';
 import { recordClearance } from './clearance';
 import { createPixelProbe } from './pixelProbe';
@@ -1079,15 +1080,26 @@ export const createRideScene = async (
    * Fetch and decode one scenery GLB off-thread. Registration (the GPU
    * buffers) happens later, one model per frame (#726 FR5).
    */
-  const loadSceneryModel = async (id: string): Promise<DecodedScenery> => {
+  const loadSceneryModel = async (id: string): Promise<DecodedScenery & { lod1?: DecodedScenery }> => {
     const url = assetUrl(`/assets/scenery/${tierFolderFor(id)}/${id}.glb`);
     const applyVegetationGain = tierFolderFor(id) === 'tier-e';
     // Decode + merge off-thread. Tier-E vegetation is lifted inside the
     // worker via `VEGETATION_ALBEDO_GAIN` so the main thread never touches
     // the raw colour buffer; buildings (tier-D) pass through unchanged.
-    return decoderPool.decode(id, url, applyVegetationGain);
+    // #727 FR4 — and its LOD1 alongside, when the manifest lists one. An
+    // LOD1 that fails to load only costs the distant cells their saving.
+    const hasLod = !!(await loadSceneryManifest())?.models[id]?.lod1;
+    const [decoded, lod1] = await Promise.all([
+      decoderPool.decode(id, url, applyVegetationGain),
+      hasLod
+        ? decoderPool
+            .decode(`${id}.lod1`, assetUrl(`/assets/scenery/${tierFolderFor(id)}/${id}.lod1.glb`), applyVegetationGain)
+            .catch(() => undefined)
+        : undefined,
+    ]);
+    return lod1 ? { ...decoded, lod1 } : decoded;
   };
-  const registerSceneryModel = (id: string, decoded: DecodedScenery, revealAt?: number): void => {
+  const registerSceneryModel = (id: string, decoded: DecodedScenery & { lod1?: DecodedScenery }, revealAt?: number): void => {
     sceneryMeshPass.register({
       id,
       positions: decoded.positions,
@@ -1103,6 +1115,17 @@ export const createRideScene = async (
       drawDistanceMetres: sceneryDrawDistanceFor(id),
       shadowDistanceMetres: sceneryShadowDistanceFor(id),
       ...(revealAt !== undefined ? { revealAt } : {}),
+      // #727 FR4 — drawn for the cells beyond 120 m.
+      ...(decoded.lod1
+        ? {
+            lod1: {
+              positions: decoded.lod1.positions,
+              normals: decoded.lod1.normals,
+              indices: decoded.lod1.indices,
+              colors: decoded.lod1.colors,
+            },
+          }
+        : {}),
     });
   };
 

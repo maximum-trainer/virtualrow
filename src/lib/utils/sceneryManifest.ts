@@ -43,6 +43,11 @@ export interface SceneryManifestEntry {
   triangles: number;
   compressed: boolean;
   footprint?: SceneryModelFootprint;
+  /**
+   * #727 FR4 — the model's LOD1 (at most 35% of its triangles), drawn for
+   * instances beyond 120 m. Only models above 1,500 triangles have one.
+   */
+  lod1?: { path: string; bytes: number; triangles: number };
 }
 
 export interface SceneryManifest {
@@ -70,7 +75,10 @@ const looksLikeAManifest = (value: unknown): value is SceneryManifest =>
 export const loadSceneryManifest = (): Promise<SceneryManifest | null> => {
   // The literal stays here beside its assetUrl call: a path lifted out into
   // a constant is a path that can be fetched without the deploy's base (#251).
-  pending ??= fetch(assetUrl('/assets/scenery/manifest.json'))
+  // Started inside a promise, so a fetch that throws at once (none in this
+  // environment) still lands in the catch below.
+  pending ??= Promise.resolve()
+    .then(() => fetch(assetUrl('/assets/scenery/manifest.json')))
     .then((response) => (response.ok ? response.json() : null))
     .then((value: unknown) => (looksLikeAManifest(value) ? value : null))
     .catch(() => null);

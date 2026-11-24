@@ -37,7 +37,8 @@ const glbsUnder = (dir) => {
   return fs
     .readdirSync(absolute, { recursive: true })
     .map((entry) => entry.toString())
-    .filter((entry) => entry.toLowerCase().endsWith('.glb'))
+    // #727 FR4 — an LOD1 is listed on its model's entry, not as a model.
+    .filter((entry) => entry.toLowerCase().endsWith('.glb') && !entry.toLowerCase().endsWith('.lod1.glb'))
     .map((entry) => path.join(dir, entry).split(path.sep).join('/'))
     .sort();
 };
@@ -216,6 +217,13 @@ async function main() {
       ...(span ? { span } : {}),
     };
     if (span) spans[id] = span;
+    // #727 FR4 — the LOD1 beside it, if `build-scenery-lod.mjs` made one.
+    const lodRelative = relative.replace(/\.glb$/i, '.lod1.glb');
+    const lodFile = path.join(PUBLIC, lodRelative);
+    if (fs.existsSync(lodFile)) {
+      const lod = await io.read(lodFile);
+      models[id].lod1 = { path: lodRelative, bytes: fs.statSync(lodFile).size, triangles: trianglesIn(lod) };
+    }
   }
 
   const manifest = { totalBytes, models };

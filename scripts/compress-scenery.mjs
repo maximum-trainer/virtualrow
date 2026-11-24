@@ -48,7 +48,8 @@ const glbsUnder = (dir) => {
   return fs
     .readdirSync(absolute, { recursive: true })
     .map((entry) => path.join(absolute, entry.toString()))
-    .filter((file) => file.toLowerCase().endsWith('.glb'))
+    // #727 FR4 — LOD1s are made from the compressed model, never re-compressed.
+    .filter((file) => file.toLowerCase().endsWith('.glb') && !file.toLowerCase().endsWith('.lod1.glb'))
     .sort();
 };
 
