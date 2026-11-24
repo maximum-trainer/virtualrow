@@ -2,6 +2,11 @@ import { describe, it, expect } from 'vitest';
 import type { WaterRoute } from '../lib/types/index';
 import { toEngineRoute, toEngineRouteCached, turnBuoysInScene } from '../lib/ui/sceneryRoute';
 import { COASTAL_SEA_HALF_WIDTH_METERS } from '../lib/scenery/waterType';
+import { RING_RIDGE_ID, RING_SKYLINE_ID } from '../lib/scenery/sceneryPlacement';
+import { RELIEF_MODELS } from '../lib/scenery/horizonRelief';
+
+/** The kit landform models (#763's set covers every profile's landform list). */
+const LANDFORM_IDS: ReadonlySet<string> = new Set(Object.keys(RELIEF_MODELS));
 
 /**
  * #570 AC2 — the shell route → engine SceneryRoute adapter. The engine only
@@ -385,11 +390,30 @@ describe('hills from the real terrain in the engine route (#763)', () => {
     expect(route.reliefSummary!.maxElevationDeg).toBeGreaterThan(5);
     const plain = toEngineRoute(makeRoute(), null, 'medium')!;
     const count = (r: typeof route) => (r.sceneryGlbs ?? []).reduce((n, g) => n + g.instances.length, 0);
-    expect(count(route) - count(plain)).toBe(route.reliefSummary!.placed);
+    const ridgeCount = (r: typeof route) => (r.sceneryGlbs ?? []).find((g) => g.id === RING_RIDGE_ID)?.instances.length ?? 0;
+    // The invented ring ridges and landforms give way to the real ones.
+    const invented = (plain.sceneryGlbs ?? [])
+      .filter((g) => g.id === RING_RIDGE_ID || LANDFORM_IDS.has(g.id))
+      .reduce((n, g) => n + g.instances.length, 0);
+    expect(count(route)).toBe(count(plain) - invented + route.reliefSummary!.placed);
+    expect(ridgeCount(route)).toBeLessThanOrEqual(route.reliefSummary!.placed);
     const onRidge = (route.sceneryGlbs ?? [])
       .flatMap((g) => g.instances)
       .filter((i) => Math.abs(i.position[2] + 800) < 100);
     expect(onRidge.length).toBeGreaterThan(0);
+  });
+
+  it('drops the invented ring ridges and landforms where real terrain exists (Dan, 11-24)', () => {
+    const plain = toEngineRoute(makeRoute(), null, 'medium')!;
+    const plainIds = new Set((plain.sceneryGlbs ?? []).map((g) => g.id));
+    expect(plainIds.has(RING_RIDGE_ID)).toBe(true);
+    const route = toEngineRoute(makeRoute(), null, 'medium', withElevation('network'))!;
+    const reliefIds = new Set((route.sceneryGlbs ?? []).map((g) => g.id));
+    // Every landform left in the scene is one the terrain put there.
+    const planned = new Map<string, number>();
+    for (const g of route.sceneryGlbs ?? []) if (g.id === RING_RIDGE_ID || LANDFORM_IDS.has(g.id)) planned.set(g.id, g.instances.length);
+    expect([...planned.values()].reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(route.reliefSummary!.placed);
+    expect(reliefIds.size).toBeGreaterThan(0);
   });
 
   it('is unchanged without elevation data (FR8)', () => {
@@ -435,6 +459,9 @@ describe('the map built form in the engine route (#765)', () => {
     expect(ids).toContain('f47-skyline-strip');
     expect(ids).toContain('d-gb-02-church-square-tower');
     expect(route.builtSummary).toEqual({ near: 1, mid: 0, skylineInstances: 3, landmarks: 1, source: 'network' });
+    // The ring's invented skylines give way to the real one (Dan, 11-24).
+    const skylines = (route.sceneryGlbs ?? []).find((g) => g.id === RING_SKYLINE_ID)?.instances.length ?? 0;
+    expect(skylines).toBe(3);
   });
 
   it('is unchanged without built-form data (FR9)', () => {
