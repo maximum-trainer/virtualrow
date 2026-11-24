@@ -296,6 +296,11 @@ export interface SceneryRoute {
    * pass shades its ground cover from it. Omitted → the fallback look.
    */
   profileForProgress?: (progress: number, side: 'left' | 'right') => SceneryProfile;
+  /**
+   * #745 FR1 — the route's land relief (scene units above the flat bank) at a
+   * progress, from its elevation profile. Omitted → flat.
+   */
+  reliefForProgress?: (progress: number) => number;
 }
 
 export const isSceneryRoute = (route: unknown): route is SceneryRoute =>
@@ -647,6 +652,8 @@ export const createRideScene = async (
   );
   const waterEdgesForProgress = isSceneryRoute(opts.route) ? opts.route.waterEdgesForProgress : undefined;
   const routeLandSide = isSceneryRoute(opts.route) ? opts.route.landSide : undefined;
+  // #745 FR1 — the route's land relief; the bank strips climb to it.
+  const routeRelief = isSceneryRoute(opts.route) ? opts.route.reliefForProgress : undefined;
   // #742 VP-22 FR2 — the water and bank strips close the gap between legs
   // that run beside each other. Fleet lanes and course furniture keep the
   // measured shores (`waterEdgesForProgress`).
@@ -1097,6 +1104,7 @@ export const createRideScene = async (
     bankEdgesForProgress: stripEdgesForProgress,
     bankFootprint,
     bankLandSide: routeLandSide,
+    bankReliefForProgress: routeRelief,
     // #591-fu P1c: tier-gated flora + GLB-scenery shadow casters. Each
     // input stays null below medium so the depth stage adds nothing on
     // basic/low; at medium+ the stage picks up every solid-flora pool
@@ -1142,6 +1150,7 @@ export const createRideScene = async (
     footprint: bankFootprint,
     grass: { profile: bankGrassProfile, strength: bankGrassStrength },
     landSide: routeLandSide,
+    reliefForProgress: routeRelief,
     ...(isSceneryRoute(opts.route) && opts.route.profileForProgress
       ? { profileForProgress: opts.route.profileForProgress }
       : {}),

@@ -112,6 +112,8 @@ export interface ShadowStageOptions {
   bankFootprint?: WaterFootprint | null;
   /** #755 FR4 — the same one-sided land the lit bank pass draws. */
   bankLandSide?: 'left' | 'right';
+  /** #745 FR1 — the route's land relief for the bank caster. */
+  bankReliefForProgress?: (progress: number) => number;
   /**
    * #591-fu P1c GLB-kit depth cast. When provided and the tier allows,
    * the shadow stage iterates each active registered mesh with
@@ -136,6 +138,7 @@ export const createShadowStage = async (
       edgesForProgress: opts.bankEdgesForProgress,
       footprint: opts.bankFootprint,
       landSide: opts.bankLandSide,
+      reliefForProgress: opts.bankReliefForProgress,
     }),
     createSceneryDepthPipeline(device),
     createBuildingsDepthPipeline(device),

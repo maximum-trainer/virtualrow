@@ -14,6 +14,7 @@ import type { RouteCurve } from '../math/curve';
 import { vec3Normalize, vec3, type Vec3 } from '../math/vec3';
 import { WATER_SURFACE_Y, buildWaterStrip, type WaterEdges } from './waterStrip';
 import { routeWaterFootprint, type WaterFootprint } from './waterFootprint';
+import { bankReliefAt } from './bankRelief';
 import { BANK_BIOME_WEIGHTS, BIOME_BLEND_METRES, writeBiomeWeights } from './bankBiome';
 import type { SceneryProfile } from '../../services/routeEnrichmentService';
 
@@ -84,6 +85,12 @@ export interface BuildBankStripsOptions {
    * ±`BIOME_BLEND_METRES` of bank.
    */
   profileForProgress?: (progress: number, side: 'left' | 'right') => SceneryProfile;
+  /**
+   * #745 FR1 — the route's land relief (scene units above the flat bank) at a
+   * progress. The bank climbs to it over its first metres ({@link bankReliefAt}).
+   * Omitted → flat.
+   */
+  reliefForProgress?: (progress: number) => number;
 }
 
 const UP: Vec3 = vec3(0, 1, 0);
@@ -178,6 +185,7 @@ export const buildBankStrips = (
       const { left, right } = edgesForProgress(t);
       const shore = sign < 0 ? left : right;
       if (profileAt) writeBiomeWeights(profileAt, t, blendWindow, row);
+      const relief = options.reliefForProgress ? options.reliefForProgress(t) : 0;
       for (let c = 0; c < columns; c += 1) {
         const out = shore + bankWidth * BANK_COLUMNS[c];
         const x = sample.x + sample.perpX * sign * out;
@@ -188,7 +196,8 @@ export const buildBankStrips = (
         if (sunk) sunkVertices += 1;
         const v = vertOffset + i * columns + c;
         positions[v * 3] = x;
-        positions[v * 3 + 1] = WATER_SURFACE_Y + (sunk ? -BANK_SUNK_METRES : BANK_LIFT_METRES);
+        positions[v * 3 + 1] = WATER_SURFACE_Y
+          + (sunk ? -BANK_SUNK_METRES : BANK_LIFT_METRES + bankReliefAt(relief, bankWidth * BANK_COLUMNS[c]));
         positions[v * 3 + 2] = z;
         // (sign, shoreDistMetres): bank.wgsl mixes grass vs earth /
         // wet-shore vs lush-mid off the distance from the waterline.

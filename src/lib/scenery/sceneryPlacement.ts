@@ -14,6 +14,7 @@
  * rotation for a fixed route + seed.
  */
 
+import { bankReliefRamp } from '../renderer/plan/bankRelief';
 import type { RouteCurve } from '../renderer/math/curve';
 import { vec3 } from '../renderer/math/vec3';
 import type { ResolvedScenery, SceneryModelId } from '../../components/rower3d/sceneryAssets';
@@ -283,7 +284,9 @@ export const computePlacements = (input: PlacementInput): Placement[] => {
     const offset = sign * (range.inner + seededRandom(seed + 1) * (range.outer - range.inner));
     const x = px + perpX * offset;
     const z = pz + perpZ * offset;
-    const y = cat === 'surface' ? 0.15 : py;
+    // #745 FR1: the bank climbs from the waterline to the relief height, so
+    // a piece near the water stands lower than one up the bank.
+    const y = cat === 'surface' ? 0.15 : py * bankReliefRamp(Math.abs(offset) - halfWidth);
     const faceWater = sign < 0 ? Math.PI / 2 : -Math.PI / 2;
     const rotationY = CATEGORY_FACE[cat]
       ? baseRot + faceWater + (seededRandom(seed + 2) - 0.5) * 0.4

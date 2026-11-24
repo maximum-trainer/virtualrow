@@ -34,7 +34,8 @@ struct Grass {
   // xyzw; woodland in groundWood), taken at the boat each frame.
   groundBiome: vec4<f32>,
   groundWood: f32,
-  _pad3: f32,
+  // #745 FR1 — the land's relief at the boat; the ground plane sits at it.
+  groundLift: f32,
   _pad4: f32,
   _pad5: f32,
 };
@@ -109,7 +110,7 @@ const BIOME_BLEND_START_M: f32 = 10.0;
 @vertex
 fn vs_ground(@location(0) position: vec3<f32>) -> VSOut {
   var out: VSOut;
-  let world = vec3<f32>(position.x + frame.camPos.x, position.y, position.z + frame.camPos.z);
+  let world = vec3<f32>(position.x + frame.camPos.x, position.y + grass.groundLift, position.z + frame.camPos.z);
   out.pos = frame.viewProj * vec4<f32>(world, 1.0);
   out.worldXZ = world.xz;
   out.side = vec2<f32>(0.0, GROUND_SHORE_DIST_M);
@@ -337,7 +338,10 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   // a horizontal surface facing up at the sky. The sun contribution is
   // half-lambert squared, modulated by the cascade shadow factor so a
   // fully-shadowed bank fragment carries just the hemisphere ambient.
-  let n = vec3<f32>(0.0, 1.0, 0.0);
+  // #745 FR1: the bank climbs with the route's relief, so take the normal
+  // from the surface itself (flat ground gives straight up).
+  let faceN = normalize(cross(dpdy(in.worldPos), dpdx(in.worldPos)));
+  let n = select(vec3<f32>(0.0, 1.0, 0.0), faceN * sign(faceN.y), abs(faceN.y) > 0.2);
   let sun = normalize(frame.sunDir);
   let halfLambert = clamp(dot(n, sun) * 0.5 + 0.5, 0.0, 1.0);
   let sky = clamp(n.y * 0.5 + 0.5, 0.0, 1.0);

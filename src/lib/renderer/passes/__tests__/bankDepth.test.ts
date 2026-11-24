@@ -77,3 +77,16 @@ describe('createBankDepthPipeline', () => {
     p.dispose();
   });
 });
+
+describe('bankDepth on a climbing bank (#745 FR1)', () => {
+  it('casts from the bank where it is drawn: the relief lifts the caster too', async () => {
+    const d = makeDevice();
+    const curve = new RouteCurve([vec3(0, 0, 0), vec3(0, 0, -200)], false);
+    await createBankDepthPipeline(d, { curve, footprint: null, reliefForProgress: () => 3 });
+    const write = d.queue.writeBuffer as unknown as ReturnType<typeof vi.fn>;
+    const positions = write.mock.calls[0][2] as Float32Array;
+    let top = -Infinity;
+    for (let i = 1; i < positions.length; i += 3) top = Math.max(top, positions[i]);
+    expect(top).toBeGreaterThan(2.9);
+  });
+});

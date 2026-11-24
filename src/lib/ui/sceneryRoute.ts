@@ -86,7 +86,7 @@ import {
 } from '../../components/rower3d/sceneryAssets';
 import { resolveRegion } from '../../components/rower3d/sceneryRegion';
 import type { SceneryProfile } from '../services/routeEnrichmentService';
-import { buildTerrainProfile } from '../services/routeEnrichmentService';
+import { buildTerrainProfile, getTerrainReliefForProgress } from '../services/routeEnrichmentService';
 import {
   waterDetectionSummaryOf,
   type WaterDetectionSummary,
@@ -170,6 +170,8 @@ export interface EngineRoute {
   dominantProfile?: SceneryProfile;
   /** #725 FR5 — each bank's scenery profile along the route, for the bank's ground cover. */
   profileForProgress?: (progress: number, side: 'left' | 'right') => SceneryProfile;
+  /** #745 FR1 — land relief (scene units) along the route, from the enrichment's elevations. */
+  reliefForProgress?: (progress: number) => number;
   /**
    * Lake / open-water polygons projected into scene XZ (#493 Phase 3b). Each
    * polygon's outer ring and any islands are already in metres relative to
@@ -451,6 +453,8 @@ export const toEngineRoute = (
   }
 
   const crossings = enrichment?.crossings;
+  // #745 FR1 — the land rises and falls with the route's elevations.
+  const routeTerrain = buildTerrainProfile(layoutEnrichment?.elevations);
   return {
     pools,
     ...(buildings.length > 0 ? { buildings } : {}),
@@ -468,6 +472,9 @@ export const toEngineRoute = (
     dominantProfile,
     profileForProgress: (progress: number, side: 'left' | 'right'): SceneryProfile =>
       getSegmentSceneryProfile(layoutEnrichment, progress, routeTrack, side),
+    ...(routeTerrain.relief.length > 0
+      ? { reliefForProgress: (progress: number): number => getTerrainReliefForProgress(routeTerrain, progress) }
+      : {}),
   };
 };
 
