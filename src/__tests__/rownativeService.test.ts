@@ -301,6 +301,32 @@ describe('RownativeService', () => {
 
   // #743: the waterway provider is on by default, so a gates-only river course
   // is rowed along the river.
+  // #753 FR1 — a stake race's turn point travels with the imported route.
+  it('stores the stake of an out-and-back course on the route', async () => {
+    const gate = (name: string, order: number, lat: number, lon: number) => ({
+      name,
+      order,
+      points: [
+        { lat: lat - 0.0001, lon: lon - 0.0002 },
+        { lat: lat + 0.0001, lon: lon + 0.0002 },
+      ],
+    });
+    const file = {
+      id: '233', name: 'HOTS Stake Race', country: 'United States', distance_m: 3000,
+      polygons: [gate('Start', 0, 42.0, -71.0), gate('Stake', 1, 42.0135, -71.0), gate('Finish', 2, 42.0, -70.9996)],
+    };
+    const isolated = new RouteService();
+    const service = new RownativeService(
+      vi.fn(async () => jsonResponse(file)) as unknown as typeof fetch,
+      (data) => isolated.importRouteFromRownative(data),
+      undefined,
+      null,
+    );
+    const route = await service.importCourseById('233');
+    expect(route.stakeTurns).toHaveLength(1);
+    expect(route.stakeTurns![0].lat).toBeCloseTo(42.0135, 4);
+  });
+
   describe('gates-only river courses', () => {
     const gatePolygon = (order: number, lat: number, lon: number) => ({
       order,

@@ -26,6 +26,9 @@ import {
 /** The exact model-id set course furniture draws from. */
 export type SceneryModelId =
   | 'a01-buoy-lane-sphere'
+  // #753 FR1 — a turn buoy at each stake (placed by the engine from the
+  // route's stake turns, not by `courseFurniture`).
+  | 'a02-buoy-turn-cylinder'
   | 'a03-pontoon-floating-dock'
   | 'a06-finish-tower'
   | 'a07-distance-marker-post'

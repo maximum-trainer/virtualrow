@@ -587,6 +587,7 @@ export class RownativeService {
       geometryWarnings: shownWarnings(geometry.warnings),
       externalDistanceMeters: detail.distance_m ?? fallback.distanceMeters,
       status: detail.status ?? fallback.status,
+      stakeTurns: geometry.stakeTurns,
     });
 
     const provider = this.providerFor(name);

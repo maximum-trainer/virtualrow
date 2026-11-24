@@ -317,6 +317,27 @@ describe('attach', () => {
       }
     });
 
+    // #753 FR1 — a stake's turn buoy is engine course furniture like the lane buoys.
+    it('places a turn buoy at a stake and loads it with the start', async () => {
+      const original = globalThis.fetch;
+      globalThis.fetch = await serve();
+      try {
+        const withStake = (await attach(makeMockCanvas(), {
+          testMode: true,
+          route: { ...route, turnBuoys: [{ x: 15, z: -400 }] },
+        })) as unknown as WithTest & { _telemetry: { scenery: Scenery } };
+        expect(withStake._telemetry.scenery.nearStartIds).toContain('a02-buoy-turn-cylinder');
+        withStake.dispose();
+        const without = (await attach(makeMockCanvas(), { testMode: true, route })) as unknown as WithTest & {
+          _telemetry: { scenery: Scenery };
+        };
+        expect(without._telemetry.scenery.nearStartIds).not.toContain('a02-buoy-turn-cylinder');
+        without.dispose();
+      } finally {
+        globalThis.fetch = original;
+      }
+    });
+
     it('reports each load phase once, the first frame last', async () => {
       const original = globalThis.fetch;
       globalThis.fetch = await serve();

@@ -71,6 +71,11 @@ describe('measureSceneryClearance', () => {
     expect(onWaterByDesign('b01-boathouse-new-england')).toBe(false);
   });
 
+  // #753 FR2 — a stake's turn buoy sits inside the lane by design.
+  it('lets a turn buoy stand inside the keep-clear corridor', () => {
+    expect(onWaterByDesign('a02-buoy-turn-cylinder')).toBe(true);
+  });
+
   it('holds the placement corridor less the bend tolerance', () => {
     expect(sceneryClearanceThreshold()).toBe(keepClearHalfWidth() - 1);
   });

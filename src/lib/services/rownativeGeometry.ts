@@ -39,7 +39,7 @@
 
 import type { Coordinate, GeometrySource } from '../types/index';
 import { polylineLengthMeters } from '../utils/coordinateUtils';
-import { roundCourseCorners } from '../utils/courseCorners';
+import { roundCourseCorners, stakeTurnCentres } from '../utils/courseCorners';
 import {
   maxVertexExtentMeters,
   projectPointOntoPolyline,
@@ -144,6 +144,8 @@ export interface ResolvedGeometry {
   gates: Coordinate[];
   /** Human-readable notes about candidates that were tried and rejected. */
   warnings: string[];
+  /** #753 FR1: gate centres where the course turns back (a stake or turn buoy). */
+  stakeTurns: Coordinate[];
 }
 
 /** No source could produce a usable path, and the gate chain is degenerate. */
@@ -494,6 +496,15 @@ export async function resolveCourseGeometry(
   course: RownativeCourseGeometryInput,
   options: ResolveCourseGeometryOptions = {},
 ): Promise<ResolvedGeometry> {
+  const resolved = await resolveLine(course, options);
+  // #753 FR1: whatever line won, the stakes are where the gates turn back.
+  return { ...resolved, stakeTurns: stakeTurnCentres(orderedGateCenters(classifyPolygons(course).gates)) };
+}
+
+async function resolveLine(
+  course: RownativeCourseGeometryInput,
+  options: ResolveCourseGeometryOptions,
+): Promise<Omit<ResolvedGeometry, 'stakeTurns'>> {
   const { gates, candidates } = classifyPolygons(course);
   const gateCenters = gates.map((gate) => gate.center);
   const warnings: string[] = [];

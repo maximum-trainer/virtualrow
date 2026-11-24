@@ -624,3 +624,18 @@ describe('RouteService KML projection (KV-2)', () => {
     expect(result.route.distance).toBeGreaterThan(0);
   });
 });
+
+describe('rownative stake turns (#753 FR1)', () => {
+  it('keeps the stakes an import names, and none when it names none', () => {
+    const routes = new RouteService();
+    const line = [{ lat: 52, lng: 0 }, { lat: 52.01, lng: 0 }, { lat: 52, lng: 0.0005 }];
+    const staked = routes.importRouteFromRownative({
+      id: '233', name: 'HOTS Stake Race', country: 'US', coordinates: line, geometrySource: 'gate-chain', stakeTurns: [line[1]],
+    });
+    expect(staked.stakeTurns).toEqual([line[1]]);
+    const plain = routes.importRouteFromRownative({
+      id: '5', name: 'Quinsig', country: 'US', coordinates: line.slice(0, 2), geometrySource: 'gate-chain',
+    });
+    expect(plain.stakeTurns).toBeUndefined();
+  });
+});

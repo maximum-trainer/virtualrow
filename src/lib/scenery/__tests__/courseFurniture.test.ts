@@ -147,3 +147,11 @@ describe('#690 routeExtras — hand-authored per-route placements', () => {
     expect(unknown).toEqual(generic);
   });
 });
+
+// #753 FR1 — turn buoys come from the route's stakes (placed by the engine),
+// never from the generic courseFurniture cadence.
+describe('courseFurniture and turn buoys (#753)', () => {
+  it('emits no turn buoy of its own', () => {
+    expect(courseFurniture(3000).some((f) => f.id === 'a02-buoy-turn-cylinder')).toBe(false);
+  });
+});

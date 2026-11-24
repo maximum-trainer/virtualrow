@@ -86,6 +86,32 @@ const arc = (centre: Vec, from: Vec, sweep: number): Vec[] => {
   return out;
 };
 
+/**
+ * #753 VP-30 FR1 — the gate centres where a course turns back on itself: an
+ * interior gate whose chain turns by more than {@link STAKE_TURN_THRESHOLD_DEG}.
+ * These are the stakes (or turn buoys) the line is rounded about, and the
+ * engine marks each with a turn buoy.
+ */
+export function stakeTurnCentres(chain: readonly Coordinate[]): Coordinate[] {
+  if (chain.length < 3) return [];
+  const origin = chain[0];
+  const lngScale = METERS_PER_DEGREE_LAT * Math.max(0.01, Math.cos(origin.lat * RAD));
+  const toLocal = (c: Coordinate): Vec => ({
+    x: (c.lng - origin.lng) * lngScale,
+    y: (c.lat - origin.lat) * METERS_PER_DEGREE_LAT,
+  });
+  const out: Coordinate[] = [];
+  for (let i = 1; i < chain.length - 1; i += 1) {
+    const a = toLocal(chain[i - 1]);
+    const b = toLocal(chain[i]);
+    const c = toLocal(chain[i + 1]);
+    if (len(sub(b, a)) <= 0 || len(sub(c, b)) <= 0) continue;
+    const turn = Math.acos(Math.max(-1, Math.min(1, dot(unit(sub(b, a)), unit(sub(c, b))))));
+    if (turn > STAKE_TURN_THRESHOLD_DEG * RAD) out.push({ lat: chain[i].lat, lng: chain[i].lng });
+  }
+  return out;
+}
+
 export interface RoundCourseCornersOptions {
   /**
    * Per vertex of `chain`: how far inside that corner the fillet may pass.

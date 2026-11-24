@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { WaterRoute } from '../lib/types/index';
-import { toEngineRoute, toEngineRouteCached } from '../lib/ui/sceneryRoute';
+import { toEngineRoute, toEngineRouteCached, turnBuoysInScene } from '../lib/ui/sceneryRoute';
 
 /**
  * #570 AC2 — the shell route → engine SceneryRoute adapter. The engine only
@@ -252,5 +252,26 @@ describe('toEngineRoute land relief (#745 FR1)', () => {
     expect(route?.reliefForProgress?.(0)).toBe(0);
     expect(route?.reliefForProgress?.(1)).toBeCloseTo(2);
     expect(toEngineRoute(base)?.reliefForProgress).toBeUndefined();
+  });
+});
+
+describe('turn buoys (#753 FR1)', () => {
+  it('carries each stake turn into scene XZ against the route origin', () => {
+    const route = toEngineRoute(
+      makeRoute({
+        coordinates: [{ lat: 0, lng: 0 }, { lat: 0.01, lng: 0 }, { lat: 0, lng: 0.0003 }],
+        stakeTurns: [{ lat: 0.01, lng: 0 }],
+      }),
+    );
+    expect(route?.turnBuoys).toHaveLength(1);
+    const [buoy] = route!.turnBuoys!;
+    // ~1.11 km north is -z in scene space; no east offset.
+    expect(buoy.x).toBeCloseTo(0, 3);
+    expect(buoy.z).toBeLessThan(-1000);
+    expect(turnBuoysInScene([{ lat: 0.01, lng: 0 }], { lat: 0, lng: 0 })).toEqual([buoy]);
+  });
+
+  it('leaves turnBuoys off a route with no stakes', () => {
+    expect(toEngineRoute(makeRoute())?.turnBuoys).toBeUndefined();
   });
 });
