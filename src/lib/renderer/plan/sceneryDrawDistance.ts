@@ -41,8 +41,13 @@ export const NO_SHADOW_RADIUS_METRES = 1;
 
 /** Shadow-casting distance of small ground detail, metres. */
 export const DETAIL_SHADOW_METRES = 40;
-/** Shadow-casting distance of kit trees, metres. */
-export const TREE_SHADOW_METRES = 120;
+/**
+ * Shadow-casting distance of kit trees, metres. Each of the cascades redraws
+ * every tree inside it; 120 m took Willowbrook at high past its 750k triangle
+ * budget when loads landed late (#725 FR7), and past 90 m a tree's shadow is
+ * a few pixels under it.
+ */
+export const TREE_SHADOW_METRES = 90;
 
 /**
  * Metres from the camera beyond which `id` casts no shadow; 0 for no limit.

@@ -41,8 +41,10 @@ describe('scenery draw distance (#725 FR7)', () => {
     expect(sceneryCastsShadowFor('a12-regatta-flagpole')).toBe(true);
   });
 
-  it('slender course furniture casts its shadow only near the camera; trees to 120 m (#725 FR7)', () => {
-    expect(TREE_SHADOW_METRES).toBe(120);
+  it('slender course furniture casts its shadow only near the camera; trees to 90 m (#725 FR7)', () => {
+    // 90 m keeps Willowbrook at high under the 750k triangle budget with
+    // room for load timing (flatSceneryCost peaked at 761k with 120 m).
+    expect(TREE_SHADOW_METRES).toBe(90);
     expect(sceneryShadowDistanceFor('a12-regatta-flagpole')).toBe(DETAIL_SHADOW_METRES);
     expect(sceneryShadowDistanceFor('a01-buoy-lane-sphere')).toBe(DETAIL_SHADOW_METRES);
     expect(sceneryShadowDistanceFor('c01-bridge-arch-stone')).toBe(0);
