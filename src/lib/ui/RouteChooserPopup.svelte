@@ -5,7 +5,7 @@
 -->
 <script lang="ts">
   import type { ChooserMember } from '../utils/routeChooserMembers';
-  import { formatRouteDistanceKm } from '../utils/geometryProvenance';
+  import { formatRouteDistanceKm, formatSnapshotDistance } from '../utils/geometryProvenance';
 
   interface Props {
     members: readonly ChooserMember[];
@@ -37,8 +37,10 @@
 
   const itemKey = (m: ChooserMember) => (m.kind === 'route' ? `r:${m.route.id}` : `rn:${m.preview.id}`);
   const memberName = (m: ChooserMember) => (m.kind === 'route' ? m.route.name : (m.preview.name ?? m.preview.id));
-  const memberKm = (m: ChooserMember) =>
-    m.kind === 'route' ? m.route.distance : (m.preview.distanceMeters ?? 0) / 1000;
+  const memberDistance = (m: ChooserMember) =>
+    m.kind === 'route'
+      ? formatRouteDistanceKm(m.route.distance)
+      : formatSnapshotDistance(m.preview.distanceMeters);
 
   const items = () => Array.from(popupEl?.querySelectorAll<HTMLButtonElement>('[data-testid="route-chooser-item"]') ?? []);
 
@@ -97,7 +99,7 @@
             {memberName(member)}
           </span>
           <span class="route-chooser__meta">
-            <span>{formatRouteDistanceKm(memberKm(member))}</span>
+            {#if memberDistance(member)}<span>{memberDistance(member)}</span>{/if}
             {#if member.kind === 'route'}
               <span class="badge badge-{member.route.difficulty}">{member.route.difficulty}</span>
             {:else}
