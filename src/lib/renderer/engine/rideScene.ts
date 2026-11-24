@@ -2490,6 +2490,7 @@ export const createRideScene = async (
     // #737 FR2 — this frame's counts, by group; cumulative ones in total*.
     assembleRenderStats(telemetry.renderStats, {
       passes: draws,
+      otherPasses,
       sceneryDispatch: telemetry.scenery.dispatchCount,
       sceneryMesh: sceneryMeshPass.stats,
       sprites: { draws: telemetry.scenery.spriteDraws, pools: telemetry.scenery.pools },
@@ -2502,7 +2503,6 @@ export const createRideScene = async (
       stats: telemetry.renderStats,
       pacing: telemetry.framePacing,
       tier: opts.tier,
-      otherPasses,
       now: Date.now(),
     });
     recordRenderStats(panelStats);
