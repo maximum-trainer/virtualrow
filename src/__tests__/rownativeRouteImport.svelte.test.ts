@@ -53,6 +53,32 @@ describe('RownativeRouteImport.svelte', () => {
     ).toBeTruthy();
   });
 
+  it('marks courses that row a traced path, and filters to them (#747 FR4)', async () => {
+    const overrides = stubServices();
+    const courses = [
+      { id: '1', name: 'Gates Only', country: 'UK', distanceMeters: 2000, hasPath: false },
+      { id: '277', name: 'Heerenveen', country: 'Netherlands', distanceMeters: 8889, hasPath: true },
+    ];
+    const search = vi.fn(async (_q: string, _limit?: number, opts?: { tracedOnly?: boolean }) =>
+      opts?.tracedOnly ? courses.filter((c) => c.hasPath) : courses,
+    );
+    const rownative = overrides.rownativeService as unknown as Record<string, unknown>;
+    rownative.searchCourses = search;
+    rownative.getCourseIndex = vi.fn(async () => courses);
+    const { container } = render(RownativeImportHarness, { overrides, onRouteImported: vi.fn() });
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    await waitFor(() => expect(container.querySelectorAll('.rownative-result')).toHaveLength(2));
+    const chips = container.querySelectorAll('.badge-traced-path');
+    expect(chips).toHaveLength(1);
+    expect(chips[0].closest('.rownative-result')?.textContent).toContain('Heerenveen');
+    expect(chips[0].textContent).toContain('traced path');
+
+    await fireEvent.click(screen.getByLabelText('Only courses with a traced path'));
+    await waitFor(() => expect(container.querySelectorAll('.rownative-result')).toHaveLength(1));
+    expect(search).toHaveBeenLastCalledWith('', 30, { tracedOnly: true });
+  });
+
   it('imports a pasted course id and calls onRouteImported', async () => {
     const overrides = stubServices();
     const onRouteImported = vi.fn();

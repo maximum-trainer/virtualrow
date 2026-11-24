@@ -61,6 +61,27 @@ describe('RownativeService', () => {
     expect(results[0].distanceMeters).toBe(2000);
   });
 
+  it('reads has_path from the index and can search only traced courses (#747 FR4)', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => [
+        { id: '1', name: 'Kanaal A', country: 'Netherlands', distance_m: 2000 },
+        { id: '277', name: 'Kanaal B', country: 'Netherlands', distance_m: 8889, has_path: true },
+        { id: '3', name: 'Kanaal C', country: 'Netherlands', distance_m: 1000, has_path: 'yes' },
+      ],
+    } as Response);
+
+    const service = new RownativeService(fetchMock as unknown as typeof fetch);
+    const all = await service.searchCourses('kanaal');
+    expect(all.map((c) => [c.id, c.hasPath])).toEqual([
+      ['1', false],
+      ['277', true],
+      ['3', false],
+    ]);
+    const traced = await service.searchCourses('kanaal', 30, { tracedOnly: true });
+    expect(traced.map((c) => c.id)).toEqual(['277']);
+  });
+
   it('imports a course and creates a rownative WaterRoute', async () => {
     const isolatedRouteService = new RouteService();
     const initialCount = isolatedRouteService.getAllRoutes().length;
