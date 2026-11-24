@@ -29,6 +29,8 @@ export interface RouteMapDrawInput {
   progressPercent?: number;
   /** The in-ride minimap: small, no scale bar, no tick numbers. */
   highlightMode?: boolean;
+  /** #752 FR2: legs whose straight line crosses land, drawn dashed. */
+  landLegs?: readonly { from: MetrePoint; to: MetrePoint }[];
 }
 
 export const ROUTE_MAP_COLOURS = {
@@ -44,6 +46,7 @@ export const ROUTE_MAP_COLOURS = {
   tickEdge: '#1f2937',
   label: '#ffffff',
   labelHalo: 'rgba(17, 24, 39, 0.85)',
+  landCrossing: '#f59e0b',
 } as const;
 
 /** Nominal river width drawn under the route, in metres. */
@@ -202,6 +205,16 @@ export const drawRouteMap = (ctx: CanvasRenderingContext2D, input: RouteMapDrawI
   } else {
     tracePath(ctx, px);
     strokeLine(ctx, ROUTE_MAP_COLOURS.route, 3);
+  }
+
+  // #752 FR2: legs over land, dashed over the route line.
+  if (input.landLegs?.length) {
+    ctx.setLineDash([6, 5]);
+    for (const leg of input.landLegs) {
+      tracePath(ctx, [toCanvas(leg.from.x, leg.from.y), toCanvas(leg.to.x, leg.to.y)]);
+      strokeLine(ctx, ROUTE_MAP_COLOURS.landCrossing, 3);
+    }
+    ctx.setLineDash([]);
   }
 
   // Distance ticks.

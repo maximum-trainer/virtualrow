@@ -195,6 +195,11 @@ export interface WaterwayPathOptions {
 
 export interface WaterwayPathProvider {
   findPath(gates: Coordinate[], options?: WaterwayPathOptions): Promise<Coordinate[] | null>;
+  /**
+   * #752 FR1: the water already fetched around these gates (the Overpass
+   * answer, unparsed), or null when none has been. Never queries.
+   */
+  waterAround?(gates: Coordinate[]): readonly unknown[] | null;
 }
 
 export interface ResolveCourseGeometryOptions {

@@ -327,6 +327,12 @@ export class OsmWaterwayPathProvider implements WaterwayPathProvider {
     };
   }
 
+  /** #752 FR1: the water already fetched around these gates, if any. */
+  waterAround(gates: Coordinate[]): readonly unknown[] | null {
+    if (gates.length === 0) return null;
+    return this.waterCache.covering(OsmWaterwayPathProvider.boundingBox(gates, SHARED_WATER_MARGIN_M));
+  }
+
   /**
    * #752 FR3: the water around the gates, from the shared cache when an
    * earlier query already covered them, else from one query that is then kept

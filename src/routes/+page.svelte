@@ -37,6 +37,7 @@
   import FTMSDevice from '$lib/ui/FTMSDevice.svelte';
   import HeartRateMonitor from '$lib/ui/HeartRateMonitor.svelte';
   import RouteMap from '$lib/ui/RouteMap.svelte';
+  import LandCrossingNotice from '$lib/ui/LandCrossingNotice.svelte';
   import GhostPicker from '$lib/ui/GhostPicker.svelte';
   import ConditionsPicker from '$lib/ui/ConditionsPicker.svelte';
   import SoundPicker from '$lib/ui/SoundPicker.svelte';
@@ -218,6 +219,8 @@
               {geometryWarningNote(route)}
             </p>
           {/if}
+          <!-- #752 FR2: where a gates-only line crosses land, and the fix. -->
+          <LandCrossingNotice {route} onRouteImported={(traced) => routes.routeImported(traced)} />
 
           {#if routes.routeTracing[route.id]}
             <p class="route-enrichment-status" role="status" data-testid="route-tracing">Tracing the river…</p>
