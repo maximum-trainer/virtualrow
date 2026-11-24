@@ -69,6 +69,7 @@ export const cachedWaterwayProvider = (
   courseId: string,
   cache: WaterwayPathCache,
 ): WaterwayPathProvider => ({
+  waterAround: (gates) => inner.waterAround?.(gates) ?? null,
   async findPath(gates: Coordinate[], options?: WaterwayPathOptions) {
     const hit = cache.get(courseId);
     if (hit) return hit;

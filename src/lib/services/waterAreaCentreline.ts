@@ -98,7 +98,7 @@ export const parseWaterAreas = (elements: readonly unknown[]): WaterRing[] => {
   return rings;
 };
 
-interface Vec {
+export interface Vec {
   x: number;
   y: number;
 }
@@ -118,7 +118,8 @@ export const localFrame = (origin: Coordinate) => {
   };
 };
 
-const insideRing = (p: Vec, ring: readonly Vec[]): boolean => {
+/** Even-odd test of `p` against a ring in the same local frame. */
+export const insideRing = (p: Vec, ring: readonly Vec[]): boolean => {
   let inside = false;
   for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
     const a = ring[i];

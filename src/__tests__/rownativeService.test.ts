@@ -392,6 +392,46 @@ describe('RownativeService', () => {
       // Straight line is 2.0 km; round the bend is nearer 2.2 km.
       expect(refined.distance).toBeGreaterThan(2.1);
       expect(refined.externalDistanceMeters).toBe(2000);
+      // #752 FR4: a course on a real line is never warned about land.
+      expect(refined.landCrossings).toBeUndefined();
+    });
+
+    it('flags a gate-chain leg that crosses land, from the water the lookup fetched (#752 FR1)', async () => {
+      // Two lakes, one round each gate, with 1 km of land between them and no
+      // waterway to walk: the lookup declines and the straight line stays.
+      const lake = (south: number, north: number) => ({
+        type: 'way',
+        tags: { natural: 'water' },
+        geometry: [
+          { lat: south, lon: -0.003 },
+          { lat: south, lon: 0.003 },
+          { lat: north, lon: 0.003 },
+          { lat: north, lon: -0.003 },
+          { lat: south, lon: -0.003 },
+        ],
+      });
+      const isolated = new RouteService();
+      const service = new RownativeService(
+        fetchFor({ elements: [lake(51.998, 52.0045), lake(52.0135, 52.02)] }) as unknown as typeof fetch,
+        (data) => isolated.importRouteFromRownative(data),
+        undefined,
+        undefined,
+        {
+          replaceGeometry: (id, update) => isolated.replaceRownativeGeometry(id, update),
+          findRoute: (id) => isolated.getRouteById(id),
+          pathCache: new WaterwayPathCache(() => null),
+        },
+      );
+      const [found] = await service.searchCourses('bend');
+      const imported = await service.importCourse(found);
+      await service.geometrySettled(imported.id);
+
+      const route = isolated.getRouteById(imported.id)!;
+      expect(route.geometrySource).toBe('gate-chain');
+      expect(route.landCrossings).toHaveLength(1);
+      expect(route.landCrossings![0]).toMatchObject({ fromGate: 'Start', toGate: 'Finish' });
+      expect(route.landCrossings![0].metres).toBeGreaterThan(950);
+      expect(route.landCrossings![0].metres).toBeLessThan(1050);
     });
 
     it('still imports on the gate chain when the map service is down', async () => {

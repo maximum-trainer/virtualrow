@@ -2,7 +2,8 @@ import type { WaterBodyType } from './routeEnrichmentService';
 import { waterBodyFromName } from '../utils/waterBodyFromName';
 import { OsmWaterwayPathProvider } from './osmWaterwayPathProvider';
 import { overpassWaterCache } from './overpassWaterCache';
-import type { WaterRoute } from '../types/index';
+import { findLandCrossings } from './landCrossings';
+import type { Coordinate, LandCrossing, WaterRoute } from '../types/index';
 import { routeService, type RownativeRouteImportData } from './routeService';
 import {
   resolveCourseGeometry,
@@ -95,7 +96,8 @@ export type RownativeGeometryEvent =
   | { kind: 'replaced'; route: WaterRoute }
   | { kind: 'settled'; routeId: string };
 
-type GeometryUpdate = Pick<RownativeRouteImportData, 'coordinates' | 'geometrySource' | 'geometryWarnings'>;
+type GeometryUpdate = Pick<RownativeRouteImportData, 'coordinates' | 'geometrySource' | 'geometryWarnings'>
+  & Pick<WaterRoute, 'landCrossings'>;
 
 export interface RownativeServiceOptions {
   /** Swap a route's line in place (#750 FR2). Defaults to the route catalogue. */
@@ -116,6 +118,24 @@ export interface RownativeCourseSummary {
   country: string;
   distanceMeters: number;
   status?: string;
+}
+
+/**
+ * #752 FR1 — the legs of a gate chain that cross land, judged against the
+ * water the lookup already fetched for the course. Undefined when there is
+ * none to judge by.
+ */
+function landCrossingsFor(
+  course: RownativeCourseFile,
+  chain: Coordinate[],
+  provider: WaterwayPathProvider,
+): LandCrossing[] | undefined {
+  const water = provider.waterAround?.(chain);
+  if (!water) return undefined;
+  const named = classifyPolygons(course).gates;
+  const nameOf = (center: Coordinate, index: number): string =>
+    named.find((gate) => gate.center.lat === center.lat && gate.center.lng === center.lng)?.name ?? `Gate ${index + 1}`;
+  return findLandCrossings(chain.map((center, i) => ({ name: nameOf(center, i), center })), water) ?? undefined;
 }
 
 export class RownativeService {
@@ -255,11 +275,16 @@ export class RownativeService {
           attachedTrack: this.tracks.getCoordinates(courseId),
           osmProvider: cachedWaterwayProvider(provider, courseId, this.pathCache),
         });
-        if (geometry.source !== 'osm-derived' || geometry.coordinates.length < 2) return;
+        if (geometry.coordinates.length < 2) return;
+        // #752 FR1: the lookup declined, so the straight lines stand. Say
+        // where they cross land, from the water it fetched.
+        const landCrossings = geometry.source === 'gate-chain' ? landCrossingsFor(course, geometry.gates, provider) : undefined;
+        if (geometry.source !== 'osm-derived' && !landCrossings?.length) return;
         const update: GeometryUpdate = {
           coordinates: geometry.coordinates,
           geometrySource: geometry.source,
           geometryWarnings: shownWarnings(geometry.warnings),
+          ...(landCrossings?.length ? { landCrossings } : {}),
         };
         if (this.hold(routeId)) this.held.set(routeId, update);
         else this.applyGeometry(routeId, update);

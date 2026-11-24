@@ -64,6 +64,15 @@ export interface RouteEnrichmentMetadata {
 }
 
 // Water route definition
+/** #752 FR1: a leg between two gates that runs over land for `metres`. */
+export interface LandCrossing {
+  fromGate: string;
+  toGate: string;
+  metres: number;
+  from: Coordinate;
+  to: Coordinate;
+}
+
 export interface WaterRoute {
   id: string;
   name: string;
@@ -96,6 +105,12 @@ export interface WaterRoute {
    * ignored: ...". Shown on the route card.
    */
   geometryWarnings?: string[];
+  /**
+   * #752 FR1: legs of a gates-only course whose straight line crosses land,
+   * found against the water fetched for the course. Shown on the route card,
+   * and drawn dashed on the map.
+   */
+  landCrossings?: LandCrossing[];
   /**
    * #753 FR1: the gate centres where the course turns back (stake races).
    * The engine marks each with a turn buoy.

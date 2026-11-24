@@ -501,7 +501,8 @@ export class RouteService {
    */
   replaceRownativeGeometry(
     routeId: string,
-    update: Pick<RownativeRouteImportData, 'coordinates' | 'geometrySource' | 'geometryWarnings'>,
+    update: Pick<RownativeRouteImportData, 'coordinates' | 'geometrySource' | 'geometryWarnings'>
+      & Pick<WaterRoute, 'landCrossings'>,
   ): WaterRoute | undefined {
     const route = this.routes.find((r) => r.id === routeId);
     if (!route || route.source !== 'rownative' || update.coordinates.length < 2) return undefined;
@@ -524,6 +525,9 @@ export class RouteService {
     route.geometrySource = update.geometrySource;
     if (update.geometryWarnings?.length) route.geometryWarnings = update.geometryWarnings;
     else delete route.geometryWarnings;
+    // #752 FR1/FR4: only a gate chain can cross land; any other line clears it.
+    if (update.landCrossings?.length) route.landCrossings = update.landCrossings;
+    else delete route.landCrossings;
     return route;
   }
 

@@ -44,6 +44,7 @@
       return {
         points: [] as { x: number; y: number }[],
         bounds: { minX: 0, maxX: 0, minY: 0, maxY: 0, width: 0, height: 0 },
+        landLegs: [] as { from: { x: number; y: number }; to: { x: number; y: number } }[],
       };
     }
 
@@ -70,13 +71,20 @@
     const width = maxX - minX;
     const height = maxY - minY;
 
-    return { points: meterPoints, bounds: { minX, maxX, minY, maxY, width, height } };
+    // #752 FR2: legs over land, in the same metre frame as the route.
+    const toMetres = (c: { lat: number; lng: number }) => latLngToMeters(c.lat, c.lng, originLat, originLng);
+    const landLegs = (route.landCrossings ?? []).map((crossing) => ({
+      from: toMetres(crossing.from),
+      to: toMetres(crossing.to),
+    }));
+
+    return { points: meterPoints, bounds: { minX, maxX, minY, maxY, width, height }, landLegs };
   });
 
   // Draw the route on canvas.
   $effect(() => {
     const el = canvas;
-    const { points, bounds } = projection;
+    const { points, bounds, landLegs } = projection;
     // Track these so the draw re-runs when they change.
     void canvasSize;
     const progress = progressPercent;
@@ -103,6 +111,7 @@
       height: rect.height,
       progressPercent: progress,
       highlightMode: highlight,
+      landLegs,
     });
   });
 
