@@ -23,6 +23,7 @@ import type { WorkoutService } from '../services/workoutService';
 import type { AuthService } from '../services/authService';
 import type { RownativeService } from '../services/rownativeService';
 import type { RouteEnrichmentService } from '../services/routeEnrichmentService';
+import type { LandscapeService } from '../services/landscapeService';
 import type { DefaultRoutePreferenceStore } from '../services/defaultRoutePreferenceStore';
 import type { IntervalsIcuActivityService } from '../services/intervalsIcuActivityService';
 import type { IntervalsIcuWorkoutService } from '../services/intervalsIcuWorkoutService';
@@ -170,6 +171,13 @@ export type RouteEnrichmentPort = Pick<
   RouteEnrichmentService,
   'enrichRoute' | 'readCached' | 'clearCache' | 'clearAllCache'
 >;
+
+/**
+ * #762 VP-34 — the landscape around a route out to the far plane (terrain,
+ * land cover, built form). `load` never rejects; each layer says whether it
+ * came from the network, the cache, or is unavailable.
+ */
+export type LandscapePort = Pick<LandscapeService, 'load'>;
 
 /**
  * Port for the per-athlete default-route preference (issue #219, R6).
