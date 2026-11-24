@@ -307,6 +307,11 @@ describe('the map landscape in the engine route (#764)', () => {
     expect(route.landCoverSummary).toMatchObject({ woodlandPolygons: 1, treelineInstances: 2 });
     const strips = route.sceneryGlbs!.filter((g) => g.id === 'f45-treeline-strip').flatMap((g) => g.instances);
     expect(strips.filter((s) => Math.abs(s.position[2] + 303) < 1)).toHaveLength(2);
+    // FR5 — kit trees inside the wood, within 400 m of the course.
+    const woodTrees = route.sceneryGlbs!
+      .flatMap((g) => g.instances)
+      .filter((i) => i.position[2] < -300 && i.position[2] > -400 && i.position[0] > -50 && i.position[0] < 150 && i.rotationY !== 0);
+    expect(woodTrees.length).toBeGreaterThan(0);
   });
 
   it('is unchanged without land-cover data (FR9)', () => {

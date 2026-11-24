@@ -119,7 +119,12 @@ export interface LandCoverFeature {
   /** A polygon's ring is closed (first point repeated last). */
   shape: 'polygon' | 'line';
   points: ScenePoint[];
+  /** OSM `leaf_type` on a wood (#764 FR5): which kit trees stand in it. */
+  leafType?: LeafType;
 }
+
+export type LeafType = 'broadleaved' | 'needleleaved' | 'mixed';
+const LEAF_TYPES = new Set<string>(['broadleaved', 'needleleaved', 'mixed']);
 
 export interface BuiltFootprint {
   kind: string;
@@ -267,15 +272,18 @@ const isClosedRing = (ring: Coordinate[]) =>
 /** FR4 — typed polygons and lines in scene XZ, simplified to 20 m. */
 export const landCoverFromElements = (elements: OverpassElement[], origin: Coordinate): LandCoverFeature[] => {
   const out: LandCoverFeature[] = [];
+  let leafType: LeafType | undefined;
   const push = (kind: LandCoverKind, shape: 'polygon' | 'line', coordinates: Coordinate[]) => {
     const simplified = simplifyCoordinates(coordinates, LAND_COVER_TOLERANCE_M);
     if (shape === 'polygon' && simplified.length < 4) return;
     if (shape === 'line' && simplified.length < 2) return;
-    out.push({ kind, shape, points: toScene(simplified, origin) });
+    out.push({ kind, shape, points: toScene(simplified, origin), ...(leafType ? { leafType } : {}) });
   };
   for (const element of elements) {
     const kind = landCoverKindOf(element.tags);
     if (!kind) continue;
+    const leaf = element.tags?.leaf_type;
+    leafType = leaf && LEAF_TYPES.has(leaf) ? (leaf as LeafType) : undefined;
     if (element.type === 'way') {
       const coordinates = toCoordinates(element.geometry);
       if (LINE_COVER.has(kind)) push(kind, 'line', coordinates);

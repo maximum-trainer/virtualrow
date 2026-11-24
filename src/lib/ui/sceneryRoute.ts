@@ -50,6 +50,7 @@ import type { Landscape } from '../services/landscapeService';
 import type { LandCoverMask } from '../scenery/landCoverMask';
 import { coastLandSide, landscapeScenery, type LandCoverSummary } from '../scenery/landscapeScenery';
 import { planHorizonRelief, type ReliefPlan } from '../scenery/horizonRelief';
+import { WOODLAND_TREE_BUDGET, planWoodlandTrees } from '../scenery/woodlandTreePlan';
 import { SKYLINE_MODEL_ID, planBuiltForm, type BuiltFormPlan } from '../scenery/builtFormPlan';
 import { tierCapsFor } from '../renderer/engine/tierCaps';
 import type { OsmBuilding } from '../services/routeEnrichmentService';
@@ -89,6 +90,7 @@ import {
   resolveSceneryModels,
   type ResolvedScenery,
   type SceneryModelId,
+  TREE_SPECIES_MODELS,
 } from '../../components/rower3d/sceneryAssets';
 import { resolveRegion } from '../../components/rower3d/sceneryRegion';
 import type { SceneryProfile } from '../services/routeEnrichmentService';
@@ -526,6 +528,19 @@ export const toEngineRoute = (
     else sceneryGlbsResult = [...sceneryGlbsResult, { id: id as SceneryModelId, instances: [instance] }];
   };
   for (const p of relief?.placements ?? []) addKit(p.id, { position: [p.x, 0, p.z], rotationY: p.yaw, scale: p.scale });
+  // #764 FR5 — kit trees inside the real woods near the course, at the
+  // route profile's density, in the wood's leaf type or the route's species.
+  if (fromLandscape && landscape?.landCover.data && !routeTrack) {
+    const profileTrees = SCENERY_PROFILES[dominantProfile]?.trees;
+    const woodTrees = planWoodlandTrees({
+      features: landscape.landCover.data,
+      course: curvePoints.map(([x, , z]) => [x, z] as [number, number]),
+      density: profileTrees?.density ?? 0,
+      regionTrees: (profileTrees?.species ?? []).flatMap((sp) => TREE_SPECIES_MODELS[sp] ?? []),
+      max: WOODLAND_TREE_BUDGET[tier],
+    });
+    for (const t of woodTrees) addKit(t.id, { position: [t.x, 0, t.z], rotationY: t.yaw, scale: t.scale });
+  }
   // #765 — the map's buildings by distance band, town skylines and landmarks
   // (none of it without built-form data, FR9).
   const caps = tierCapsFor(tier);
