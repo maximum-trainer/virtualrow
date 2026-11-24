@@ -145,8 +145,32 @@ export const stationSpacingFor = (mode: PerformanceMode): number =>
  */
 export const CATEGORY_EVERY_METRES = {
   landform: 1200,
-  backdrop: 1800,
 } as const;
+
+/**
+ * #725 VP-07 FR4 — the far-backdrop ring. A low ridge (or, in a built-up
+ * band, a skyline strip in front of it) every few hundred metres along both
+ * banks, a few hundred metres out, so the horizon is never bare sky on
+ * flat grass. Both models cost a few hundred to two thousand triangles;
+ * the 35k-triangle treeline strip stays an occasional backdrop.
+ */
+export const RING_RIDGE_ID: SceneryModelId = 'f46-hill-ridge-far';
+export const RING_SKYLINE_ID: SceneryModelId = 'f47-skyline-strip';
+export const RING_IDS: ReadonlySet<string> = new Set([RING_RIDGE_ID, RING_SKYLINE_ID]);
+/** Metres along the bank between ridges (each about 260 m long, so they overlap). */
+export const RING_RIDGE_EVERY_METRES = 120;
+/** Metres along the bank between skyline strips (each about 94 m long). */
+export const RING_SKYLINE_EVERY_METRES = 90;
+/** Nearest a ring piece stands to the route centreline, metres, and how deep the ring is. */
+export const RING_NEAR_METRES = 300;
+export const RING_DEPTH_METRES = 80;
+/** A ring piece clears the water by half its depth (ridge 60 m deep, skyline 8 m). */
+const RING_BANK_CLEAR_METRES = 30;
+/** The second, farther row of ridges: metres out, and metres apart. */
+export const RING_FAR_ROW_METRES = 650;
+export const RING_FAR_ROW_EVERY_METRES = 300;
+/** How far past the start and the finish the ring carries on, metres. */
+export const RING_PAST_END_METRES = 1200;
 
 /**
  * #725 FR1 — per-side instance ceiling, scaled with the route's length so
@@ -280,21 +304,20 @@ export const computePlacements = (input: PlacementInput): Placement[] => {
     const stepMetres = lengthMetres / stepCount;
     const every = (metres: number): number => Math.max(1, Math.round(metres / Math.max(1, stepMetres)));
     const landformEvery = every(CATEGORY_EVERY_METRES.landform);
-    const backdropEvery = every(CATEGORY_EVERY_METRES.backdrop);
     // #725 FR2 — the profile's recipe sets how much of each category a
     // stretch of bank gets; a running count per side carries the fraction
     // from one station to the next, so the rate holds at any spacing.
     const density = STATION_SPACING_METRES.medium / spacing;
     const owed = new Map<string, number>();
-    const due = (sign: number, cat: Category, per100m: number): number => {
-      const key = `${sign}${cat}`;
+    const due = (sign: number, what: string, per100m: number): number => {
+      const key = `${sign}${what}`;
       const total = (owed.get(key) ?? 0) + (per100m * density * stepMetres) / 100;
       const n = Math.floor(total);
       owed.set(key, total - n);
       return n;
     };
-    const dueEvery = (sign: number, cat: Category, everyMetres: number): number =>
-      Number.isFinite(everyMetres) ? due(sign, cat, 100 / everyMetres / density) : 0;
+    const dueEvery = (sign: number, what: string, everyMetres: number): number =>
+      Number.isFinite(everyMetres) ? due(sign, what, 100 / everyMetres / density) : 0;
     ceiling = instanceCeilingFor(lengthMetres, spacing);
     const sample = { position: vec3(), tangent: vec3(0, 0, -1), angle: 0 };
     let seed = 100;
@@ -334,7 +357,54 @@ export const computePlacements = (input: PlacementInput): Placement[] => {
         putN('furniture', dueEvery(sign, 'furniture', recipe.furnitureEveryMetres), put);
         putN('buildings', dueEvery(sign, 'buildings', recipe.buildingsEveryMetres), put);
         if (i % landformEvery === 0 && sign < 0) { seed += 5; put('landform', sign, t, sample.position[0], sample.position[2], px, pz, y, baseRot, seed, resolved); }
-        if (i % backdropEvery === 0 && sign > 0) { seed += 5; put('backdrop', sign, t, sample.position[0], sample.position[2], px, pz, y, baseRot, seed, resolved); }
+        // #725 FR4 — the far ring, on both banks.
+        if (sign === wantSign) {
+          const halfWidth = waterHalfWidthAt(enrichment, t, sideOfOffset(sign));
+          const ring = (id: SceneryModelId, n: number, near: number) => {
+            for (let k = 0; k < n; k++) {
+              seed += 5;
+              const along = (seededRandom(seed + 4) - 0.5) * stepMetres;
+              const offset = sign * (Math.max(near, halfWidth + RING_BANK_CLEAR_METRES) + seededRandom(seed + 1) * RING_DEPTH_METRES);
+              const faceWater = sign < 0 ? Math.PI / 2 : -Math.PI / 2;
+              out.push({
+                id,
+                position: [sample.position[0] + tx * along + px * offset, y, sample.position[2] + tz * along + pz * offset],
+                rotationY: baseRot + faceWater + (seededRandom(seed + 2) - 0.5) * 0.3,
+                scale: ASSET_SCALE * (0.9 + seededRandom(seed + 3) * 0.4),
+                progress: t,
+                footing: 'bank',
+              });
+            }
+          };
+          ring(RING_RIDGE_ID, dueEvery(sign, 'ring', RING_RIDGE_EVERY_METRES), RING_NEAR_METRES + RING_DEPTH_METRES * 0.5);
+          // A second row behind, past a meander belt that thins the first.
+          ring(RING_RIDGE_ID, dueEvery(sign, 'ring-far', RING_FAR_ROW_EVERY_METRES), RING_FAR_ROW_METRES);
+          if (recipe.buildingsEveryMetres <= 600) ring(RING_SKYLINE_ID, dueEvery(sign, 'ring-skyline', RING_SKYLINE_EVERY_METRES), RING_NEAR_METRES - 40);
+        }
+      }
+    }
+    // #725 FR4 — the river runs on past the start and the finish, and so
+    // does the ring: ridges along the line of each end for a kilometre.
+    for (const [t, dir] of [[0, -1], [0.999, 1]] as const) {
+      curve.sample(t, sample);
+      const tx = sample.tangent[0];
+      const tz = sample.tangent[2];
+      const len = Math.hypot(tx, tz) || 1;
+      const px = -tz / len;
+      const pz = tx / len;
+      const baseRot = Math.atan2(tx, tz);
+      const halfWidth = waterHalfWidthAt(enrichment, t, side);
+      for (let m = RING_RIDGE_EVERY_METRES / 2; m <= RING_PAST_END_METRES; m += RING_RIDGE_EVERY_METRES) {
+        seed += 5;
+        const offset = wantSign * (Math.max(RING_NEAR_METRES + RING_DEPTH_METRES * 0.5, halfWidth + RING_BANK_CLEAR_METRES) + seededRandom(seed + 1) * RING_DEPTH_METRES);
+        out.push({
+          id: RING_RIDGE_ID,
+          position: [sample.position[0] + (dir * tx * m) / len + px * offset, 0, sample.position[2] + (dir * tz * m) / len + pz * offset],
+          rotationY: baseRot + (wantSign < 0 ? Math.PI / 2 : -Math.PI / 2) + (seededRandom(seed + 2) - 0.5) * 0.3,
+          scale: ASSET_SCALE * (0.9 + seededRandom(seed + 3) * 0.4),
+          progress: t,
+          footing: 'bank',
+        });
       }
     }
   } else if (fallback) {

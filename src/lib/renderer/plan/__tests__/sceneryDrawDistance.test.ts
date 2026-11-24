@@ -2,6 +2,7 @@
 // drawn only near the camera, and fades out before its draw distance.
 import { describe, expect, it } from 'vitest';
 import {
+  BACKDROP_DRAW_METRES,
   DETAIL_DRAW_METRES,
   DETAIL_SHADOW_METRES,
   sceneryCastsShadowFor,
@@ -22,8 +23,8 @@ describe('scenery draw distance (#725 FR7)', () => {
     expect(sceneryDrawDistanceFor('f21-boulder-cluster')).toBe(DETAIL_DRAW_METRES);
     expect(sceneryDrawDistanceFor('e04-english-oak')).toBe(TREE_DRAW_METRES);
     expect(sceneryDrawDistanceFor('e09-alder-scrub')).toBe(DETAIL_DRAW_METRES);
-    expect(sceneryDrawDistanceFor('f45-treeline-strip')).toBe(0);
-    expect(sceneryDrawDistanceFor('f46-hill-ridge-far')).toBe(0);
+    expect(sceneryDrawDistanceFor('f45-treeline-strip')).toBe(BACKDROP_DRAW_METRES);
+    expect(sceneryDrawDistanceFor('f46-hill-ridge-far')).toBe(BACKDROP_DRAW_METRES);
     // Course furniture and structures are never dropped for distance.
     expect(sceneryDrawDistanceFor('a01-buoy-lane-sphere')).toBe(0);
     expect(sceneryDrawDistanceFor('c01-bridge-arch-stone')).toBe(0);

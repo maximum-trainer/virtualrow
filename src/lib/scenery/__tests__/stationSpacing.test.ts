@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import {
   computePlacements,
   instanceCeilingFor,
+  RING_IDS,
   STATION_SPACING_METRES,
   stationSpacingFor,
   type PerformanceMode,
@@ -38,7 +39,8 @@ const countFor = (km: number, mode: PerformanceMode): number => {
     n += computePlacements({
       curve, enrichment, resolvedByProfile, budget: 0.7, side,
       stationSpacingMetres: stationSpacingFor(mode),
-    }).length;
+      // The far ring (#725 FR4) carries on past both ends: a fixed share per route, not per km.
+    }).filter((p) => !RING_IDS.has(p.id)).length;
   }
   return n;
 };
