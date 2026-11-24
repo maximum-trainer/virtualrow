@@ -21,6 +21,7 @@
 import type { Services } from '../ports';
 import type { WaterRoute } from '../types/index';
 import type { RouteEnrichmentData } from '../services/routeEnrichmentService';
+import type { Landscape } from '../services/landscapeService';
 import type { RownativeGeometryEvent } from '../services/rownativeService';
 import { OUTLINE_ONLY_TAG } from '../services/routeService';
 import { TrackParseError, detectTrackFormat } from '../utils/trackParsers';
@@ -105,6 +106,7 @@ export class RoutesStore {
   #enrichment: Services['routeEnrichmentService'];
   #defaultPref: Services['defaultRoutePreferenceStore'];
   #rownative: Services['rownativeService'] | undefined;
+  #landscape: Services['landscapeService'];
 
   /** #750 FR4 — a row is in progress on the selected route. */
   #rowing = false;
@@ -126,6 +128,12 @@ export class RoutesStore {
   routeDetailOpen = $state<WaterRoute | null>(null);
   routeEnrichments = $state<Record<string, RouteEnrichmentData>>({});
   routeEnrichmentLoading = $state<Record<string, boolean>>({});
+  /**
+   * #762 — each route's landscape out to 2 km, once loaded. Raw state: the
+   * grids and outlines are large and are replaced whole, never edited.
+   */
+  routeLandscapes = $state.raw<Record<string, Landscape>>({});
+  #landscapeRequested = new Set<string>();
   /** #741 FR5 — which part of a loading route's map data is being read. */
   routeEnrichmentPhase = $state<Record<string, 'water' | 'scenery'>>({});
   /** #750 FR3 — routes whose waterway is being traced in the background. */
@@ -151,6 +159,7 @@ export class RoutesStore {
     this.#enrichment = services.routeEnrichmentService;
     this.#defaultPref = services.defaultRoutePreferenceStore;
     this.#rownative = services.rownativeService;
+    this.#landscape = services.landscapeService;
     this.#rownative?.setGeometryHold?.((routeId) => this.#rowing && this.selectedRoute?.id === routeId);
     this.#rownative?.onGeometryEvent?.((event) => this.#onGeometryEvent(event));
   }
@@ -266,6 +275,21 @@ export class RoutesStore {
     if (signedIn && this.selectedRoute) this.#enrich(this.selectedRoute);
   }
 
+  /**
+   * #762 — load the route's landscape once per visit, in the background. The
+   * same rule as the enrichment: a signed-in athlete's non-demo route only.
+   */
+  #loadLandscape(route: WaterRoute): void {
+    if (!this.#landscape || !this.#needsMapData(route)) return;
+    const coordinates = route.coordinates ?? [];
+    const key = `${route.id}:${coordinates.length}`;
+    if (coordinates.length < 2 || this.#landscapeRequested.has(key)) return;
+    this.#landscapeRequested.add(key);
+    void this.#landscape.load(coordinates).then((landscape) => {
+      this.routeLandscapes = { ...this.routeLandscapes, [route.id]: landscape };
+    });
+  }
+
   /** Whether `route` is dressed from OSM: signed in, and not the demo route. */
   #needsMapData(route: WaterRoute): boolean {
     return this.#signedIn && route.id !== DEMO_ROUTE_ID;
@@ -330,6 +354,7 @@ export class RoutesStore {
 
   #enrich(route: WaterRoute): void {
     if (!this.#needsMapData(route)) return;
+    this.#loadLandscape(route);
     const cached = this.#enrichment.readCached(route.id);
     if (cached.data) {
       this.routeEnrichments = { ...this.routeEnrichments, [route.id]: cached.data };

@@ -36,6 +36,7 @@
   import { CameraViewStore } from '$lib/ui/cameraView.svelte';
   import Canvas3DHost, { type CanvasBackend } from '$lib/ui/Canvas3DHost.svelte';
   import RouteLoadingBar from '$lib/ui/RouteLoadingBar.svelte';
+  import LandscapeAttribution from '$lib/ui/LandscapeAttribution.svelte';
   import WorkoutBlockPanel from '$lib/ui/WorkoutBlockPanel.svelte';
   import { DEMO_WORKOUT_ID } from '$lib/data/demoWorkout';
   import RouteMap from '$lib/ui/RouteMap.svelte';
@@ -251,6 +252,9 @@
           <div class="activity-route-summary">
             <h2>{routes.selectedRoute?.name}</h2>
             <p>{routes.selectedRoute?.location}</p>
+            <LandscapeAttribution
+              landscape={routes.selectedRoute ? routes.routeLandscapes[routes.selectedRoute.id] : null}
+            />
             {#if session.isDemoMode}
               <p class="activity-demo-badge" role="status">
                 Demo row — simulated data, not a recorded workout
