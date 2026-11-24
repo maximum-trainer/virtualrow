@@ -637,7 +637,7 @@ declare global {
      * The billboard foliage (#333): how many trees the route was planted with,
      * how many meshes draw them, and how many trees the last cull kept.
      */
-    __ROWER3D_FOLIAGE?: { trees: number; meshes: number; drawn: number };
+    __ROWER3D_FOLIAGE?: { trees: number; meshes: number; drawn: number; draws?: number };
     __ROWER3D_RENDER_STATS?: {
       drawing: string;
       drawCalls: number;

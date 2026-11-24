@@ -93,6 +93,35 @@ describe('sceneryPass', () => {
     for (const p of pools) p.dispose();
   });
 
+  it('skips a pool whose bounds are off screen or out of range (#870)', async () => {
+    const device = makeMockDevice();
+    const frameUniforms = makeUniformBuffer(device);
+    const at = (cx: number, cz: number, chunkIndex: number): InstancePool =>
+      createInstancePool(device, {
+        kind: 'foliage',
+        speciesIndex: 0,
+        chunkIndex,
+        positions: new Float32Array([cx, 0, cz]),
+        bounds: { cx, cy: 0, cz, radius: 10 },
+      });
+    // In view, in view but past the draw distance, and outside the frustum.
+    const pools = [at(0, 0, 0), at(0, -(DEFAULT_MAX_DISTANCE + 500), 1), at(5000, 0, 2)];
+    const ctx = makeFrameCtx(device);
+    // A wide orthographic box: everything within 1 km is inside the frustum.
+    const viewProj = mat4Identity(mat4());
+    viewProj[0] = 1 / 1000;
+    viewProj[5] = 1 / 1000;
+    viewProj[10] = 1 / 1000;
+    ctx.frame.viewProj = viewProj;
+    const pass = await createSceneryPass({ device, format: 'bgra8unorm', frameUniforms, sproutUniforms: frameUniforms, pools });
+    pass.encode(ctx);
+    expect(device.__log.computeDispatches).toBe(1);
+    expect(device.__log.indirectDraws).toBe(1);
+    expect(pass.telemetry.foliageDraws).toBe(1);
+    pass.dispose();
+    for (const p of pools) p.dispose();
+  });
+
   it('owns the midday lighting buffer only when none is supplied (#725 FR6)', async () => {
     const destroyedAfter = async (withLighting: boolean): Promise<number> => {
       const device = makeMockDevice();

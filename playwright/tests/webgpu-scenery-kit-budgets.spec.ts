@@ -7,8 +7,8 @@
  * telemetry:
  *   - geometry: `__ROWER3D_RENDER_STATS.residentMeshBytes`, the GPU bytes
  *     every registered kit mesh holds (#727 FR5, #870 D1);
- *   - the forest: one indirect draw per foliage pool, so its colour-pass
- *     cost is `__ROWER3D_FOLIAGE.meshes` (#870 D2: 6 at medium and up, 3 at
+ *   - the forest: one indirect draw per foliage pool in view and in range,
+ *     counted as `__ROWER3D_FOLIAGE.draws` (#870 D2: 6 at medium and up, 3 at
  *     basic and low);
  *   - fetches and bytes: the `.glb` requests the row makes, on the wire.
  *
@@ -161,17 +161,17 @@ for (const tier of ['basic', 'medium'] as const) {
       )
       .toBeGreaterThanOrEqual(0);
 
-    const foliage = await page.evaluate(() => window.__ROWER3D_FOLIAGE!);
+    const foliage = await page.evaluate(() => ({ draws: 0, ...window.__ROWER3D_FOLIAGE! }));
     const budget = FOREST_DRAW_BUDGET[tier];
     testInfo.annotations.push({
       type: 'forest-draws',
-      description: `${tier}: ${foliage.trees} trees in ${foliage.meshes} draws, ${foliage.drawn} in sight`,
+      description: `${tier}: ${foliage.trees} trees in ${foliage.meshes} pools, ${foliage.draws} drawn this frame, ${foliage.drawn} trees in sight`,
     });
 
     expect(foliage.trees, 'the demo route was not planted as a forest').toBeGreaterThanOrEqual(400);
     expect(foliage.drawn, 'no tree was in sight of the hero frame').toBeGreaterThan(0);
-    expect(foliage.meshes, `the forest cost ${foliage.meshes} draw calls`).toBeGreaterThan(0);
-    expect(foliage.meshes, `the forest cost ${foliage.meshes} draw calls`).toBeLessThanOrEqual(budget);
+    expect(foliage.draws, `the forest cost ${foliage.draws} draw calls`).toBeGreaterThan(0);
+    expect(foliage.draws, `the forest cost ${foliage.draws} draw calls`).toBeLessThanOrEqual(budget);
   });
 }
 
