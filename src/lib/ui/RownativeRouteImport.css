@@ -189,3 +189,19 @@
 .rownative-attach-error {
   margin: 0 0.6rem 0.5rem;
 }
+
+/* #747 FR4 — a course whose file carries a traced path rows its real shape. */
+.badge-traced-path {
+  background: rgba(52, 211, 153, 0.15);
+  color: #6ee7b7;
+}
+
+.rownative-traced-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary, #9fb0c7);
+  cursor: pointer;
+}

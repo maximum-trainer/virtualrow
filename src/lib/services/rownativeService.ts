@@ -72,6 +72,8 @@ interface RownativeCourseIndexEntry {
   country?: string;
   distance_m?: number;
   status?: string;
+  /** Upstream marks courses whose file carries a traced `path` (#747 FR4). */
+  has_path?: unknown;
 }
 
 interface RownativeCourseFile extends RownativeCourseGeometryInput {
@@ -115,6 +117,14 @@ export interface RownativeCourseSummary {
   country: string;
   distanceMeters: number;
   status?: string;
+  /** #747 FR4 — the course file carries a traced path, so it rows its real shape. */
+  hasPath: boolean;
+}
+
+/** #747 FR4 — narrow a catalogue search. */
+export interface RownativeSearchOptions {
+  /** Only courses whose file carries a traced path. */
+  tracedOnly?: boolean;
 }
 
 export class RownativeService {
@@ -299,6 +309,7 @@ export class RownativeService {
             country: course.country ?? 'Unknown',
             distanceMeters: course.distance_m ?? 0,
             status: course.status,
+            hasPath: course.has_path === true,
           }));
         return this.courseIndexCache;
       })
@@ -348,16 +359,16 @@ export class RownativeService {
     return promise;
   }
 
-  async searchCourses(query: string, limit = 30): Promise<RownativeCourseSummary[]> {
+  async searchCourses(
+    query: string,
+    limit = 30,
+    options: RownativeSearchOptions = {},
+  ): Promise<RownativeCourseSummary[]> {
     const allCourses = await this.getCourseIndex();
     const normalized = query.trim().toLowerCase();
-
-    if (!normalized) {
-      return allCourses.slice(0, limit);
-    }
-
     return allCourses
-      .filter((course) => course.name.toLowerCase().includes(normalized))
+      .filter((course) => !options.tracedOnly || course.hasPath)
+      .filter((course) => !normalized || course.name.toLowerCase().includes(normalized))
       .slice(0, limit);
   }
 

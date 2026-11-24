@@ -53,6 +53,8 @@
   let results = $state<RownativeCourseSummary[] | null>(null);
   let totalCourses = $state(0);
   let isSearching = $state(false);
+  /** #747 FR4 — list only the courses that row a traced path. */
+  let tracedOnly = $state(false);
   let importingId = $state<string | null>(null);
 
   // A rownative course file describes gates, not a path, so 34 of them render
@@ -176,7 +178,7 @@
     error = null;
     try {
       const [found, all] = await Promise.all([
-        rownativeService.searchCourses(term, MAX_RESULTS),
+        rownativeService.searchCourses(term, MAX_RESULTS, tracedOnly ? { tracedOnly: true } : undefined),
         rownativeService.getCourseIndex(),
       ]);
       results = found;
@@ -272,6 +274,16 @@
         {isSearching ? 'Searching…' : 'Search'}
       </button>
     </div>
+    <label class="rownative-traced-filter">
+      <input
+        type="checkbox"
+        bind:checked={tracedOnly}
+        onchange={() => {
+          if (results) void runSearch(query);
+        }}
+      />
+      Only courses with a traced path
+    </label>
   </div>
 
   {#if results}
@@ -300,6 +312,12 @@
                   <span class="badge badge-status badge-status--{course.status}">
                     {course.status}
                   </span>
+                {/if}
+                {#if course.hasPath}
+                  <span
+                    class="badge badge-traced-path"
+                    title="This course comes with a traced path, so it rows its real shape rather than straight lines between gates."
+                  >traced path</span>
                 {/if}
               </span>
               {#if importingId === course.id}
