@@ -212,3 +212,51 @@ describe('OsmWaterwayPathProvider', () => {
     });
   });
 });
+
+// #751 FR1/FR2/FR5: water mapped only as an area.
+describe('OsmWaterwayPathProvider on water mapped only as an area', () => {
+  const area = (...points: [number, number][]) => ({
+    ...way(...points, points[0]),
+    tags: { natural: 'water', water: 'river' },
+  });
+  /** A river 120 m wide, 2 km long, running east, with no waterway way. */
+  const RIVER_AREA = area([-100, -60], [2100, -60], [2100, 60], [-100, 60]);
+
+  it('derives a centreline whose every vertex is inside the polygon, in one request', async () => {
+    const { provider, fetchMock } = overpass([RIVER_AREA]);
+    const path = await provider.findPath([at(0, 20), at(1000, -20), at(2000, 10)]);
+
+    expect(path).not.toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const query = decodeURIComponent(String(init.body));
+    expect(query).toContain('"waterway"~');
+    expect(query).toContain('"natural"="water"');
+    expect(query).toContain('"waterway"="riverbank"');
+    for (const p of path!) {
+      const y = (p.lat - ORIGIN.lat) * M_PER_DEG_LAT;
+      expect(Math.abs(y)).toBeLessThanOrEqual(60);
+    }
+    // Interior vertices hold the middle of the river.
+    const middle = path!.slice(1, -1).filter((p) => Math.abs((p.lat - ORIGIN.lat) * M_PER_DEG_LAT) < 1);
+    expect(middle.length).toBeGreaterThan(path!.length / 2);
+  });
+
+  it('walks the waterway, not the area, when both are mapped', async () => {
+    const { provider } = overpass([SPARSE_RIVER, area([-60, -100], [60, -100], [60, 2400], [-60, 2400])]);
+    const path = await provider.findPath([at(10, 1000), at(1300, 2290)]);
+    // The bank outline is never walked as if it were a line on the water.
+    expect(path).not.toBeNull();
+    expect(polylineLengthMeters(path!)).toBeLessThan(2500);
+  });
+
+  it('falls through when a gate is outside every water area', async () => {
+    const { provider } = overpass([RIVER_AREA]);
+    expect(await provider.findPath([at(0, 0), at(1000, 400)])).toBeNull();
+  });
+
+  it('falls through when there are no water areas either', async () => {
+    const { provider } = overpass([]);
+    expect(await provider.findPath([at(0, 0), at(1000, 0)])).toBeNull();
+  });
+});
