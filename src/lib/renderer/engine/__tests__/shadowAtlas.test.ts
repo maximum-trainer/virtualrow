@@ -10,8 +10,8 @@ import { KNOWN_TIERS, shadowConfigFor } from '../shadowConfig';
 
 describe('shadowConfigFor', () => {
   it('returns the medium default for unknown tiers', () => {
-    expect(shadowConfigFor('mystery')).toEqual({ cascades: 3, atlasSize: 1024 });
-    expect(shadowConfigFor(undefined)).toEqual({ cascades: 3, atlasSize: 1024 });
+    expect(shadowConfigFor('mystery')).toEqual({ cascades: 3, atlasSize: 1024, farCascadeCadence: true });
+    expect(shadowConfigFor(undefined)).toEqual({ cascades: 3, atlasSize: 1024, farCascadeCadence: true });
   });
 
   it('maps every known tier to a cascades count in [2, 4]', () => {

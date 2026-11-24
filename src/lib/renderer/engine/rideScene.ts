@@ -2446,7 +2446,7 @@ export const createRideScene = async (
       if (i < atlas.cascades) {
         // #727 FR2 — a far cascade not due this frame keeps its tile, so the
         // lit passes keep reading it with the matrix it was drawn with.
-        const due = !cascadeDrawn[i] || cascadeDue(i, atlas.cascades, telemetry.frameStats.frame, opts.tier);
+        const due = !cascadeDrawn[i] || cascadeDue(i, atlas.cascades, telemetry.frameStats.frame, shadowCfg.farCascadeCadence);
         dst.refresh = due;
         cascadeDrawn[i] = true;
         if (due) {
