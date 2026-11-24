@@ -64,6 +64,7 @@ import {
   trackWaterForProfile,
 } from '../../components/rower3d/sceneryTrack';
 import { SCENERY_PROFILES } from '../../components/rower3d/sceneryConfig';
+import { getSegmentSceneryProfile } from '../../components/rower3d/segmentScenery';
 import type { BuildingSpec } from '../renderer/plan/buildings';
 import {
   budgetFor,
@@ -167,6 +168,8 @@ export interface EngineRoute {
    * route for now; the per-segment React approach is a follow-up.
    */
   dominantProfile?: SceneryProfile;
+  /** #725 FR5 — each bank's scenery profile along the route, for the bank's ground cover. */
+  profileForProgress?: (progress: number, side: 'left' | 'right') => SceneryProfile;
   /**
    * Lake / open-water polygons projected into scene XZ (#493 Phase 3b). Each
    * polygon's outer ring and any islands are already in metres relative to
@@ -463,6 +466,8 @@ export const toEngineRoute = (
     waterEdgesForProgress,
     ...(landSide ? { landSide } : {}),
     dominantProfile,
+    profileForProgress: (progress: number, side: 'left' | 'right'): SceneryProfile =>
+      getSegmentSceneryProfile(layoutEnrichment, progress, routeTrack, side),
   };
 };
 

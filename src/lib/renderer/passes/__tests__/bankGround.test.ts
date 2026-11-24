@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import { createBankPass, meanLinearGrass } from '../bank';
+import { createBankPass, GROUND_BIOME_OFFSET, meanLinearGrass } from '../bank';
+import { BANK_BIOME_SLOTS, BANK_BIOME_WEIGHTS } from '../../plan/bankBiome';
 import { HORIZON_BLEND, HORIZON_HAZE_WGSL } from '../../engine/shaderSnippets';
 import { GROUND_HAZE_END_M, GROUND_HAZE_START_M } from '../../plan/groundPlane';
 
@@ -117,6 +118,42 @@ describe('bank pass draws the land out to the horizon (#725, #755)', () => {
   });
 });
 
+describe('ground cover by biome (#725 FR5)', () => {
+  it('feeds the strips their biome weights and the shader the biome tints', async () => {
+    const { device, pipelines, modules } = makeDevice();
+    const pass = await createBankPass(opts(device));
+    expect(modules[0]).toContain('const BIOME_TINT_MARSH:');
+    const bank = pipelines.find((p) => p.label === 'bank') as unknown as {
+      vertex: { buffers: { arrayStride: number; attributes: { shaderLocation: number; format: string }[] }[] };
+    };
+    expect(bank.vertex.buffers[2].arrayStride).toBe(BANK_BIOME_WEIGHTS * 4);
+    expect(bank.vertex.buffers[2].attributes.map((a) => a.format)).toEqual(['float32x4', 'float32']);
+    const { ctx } = makeCtx();
+    pass.encode(ctx);
+    for (const name of ['marsh', 'scrub', 'green', 'woodland', 'meadow', 'fields']) {
+      expect(read('bank.wgsl')).toContain(`fn ${name}Ground(`);
+    }
+  });
+
+  it('turns the ground plane over to the band the boat is in, writing only on a change', async () => {
+    const { device } = makeDevice();
+    const pass = await createBankPass({
+      ...opts(device),
+      profileForProgress: (t: number) => (t < 0.5 ? 'farmland' : 'wetland'),
+    });
+    const write = device.queue.writeBuffer as unknown as ReturnType<typeof vi.fn>;
+    const groundWrites = () => write.mock.calls.filter((c) => c[1] === GROUND_BIOME_OFFSET);
+    const last = () => groundWrites().at(-1)![2] as Float32Array;
+    expect(last()[BANK_BIOME_SLOTS.indexOf('fields')]).toBeCloseTo(1);
+    const before = groundWrites().length;
+    pass.setBoatProgress(0.1);
+    expect(groundWrites().length).toBe(before);
+    pass.setBoatProgress(0.9);
+    expect(last()[BANK_BIOME_SLOTS.indexOf('marsh')]).toBeCloseTo(1);
+    expect(last()[BANK_BIOME_SLOTS.indexOf('fields')]).toBe(0);
+  });
+});
+
 describe('horizon haze range', () => {
   it('is generated from the plan constants, not typed twice', () => {
     expect(HORIZON_HAZE_WGSL).toContain(`const HAZE_START_M: f32 = ${GROUND_HAZE_START_M.toFixed(1)};`);
@@ -124,9 +161,9 @@ describe('horizon haze range', () => {
     expect(read('bank.wgsl')).not.toContain('const HAZE_START_M');
   });
 
-  it('fields begin inside the bank strip and are complete at its outer edge', () => {
+  it('the biome ground begins inside the bank strip and is complete at its outer edge', () => {
     const src = read('bank.wgsl');
     expect(src).toContain('const GROUND_SHORE_DIST_M: f32 = 60.0;');
-    expect(src).toMatch(/smoothstep\(\s*FIELD_BLEND_START_M\s*,\s*GROUND_SHORE_DIST_M/);
+    expect(src).toMatch(/smoothstep\(\s*BIOME_BLEND_START_M\s*,\s*GROUND_SHORE_DIST_M/);
   });
 });

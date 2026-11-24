@@ -228,3 +228,16 @@ describe('toEngineRouteCached (#729 FR3)', () => {
     expect(toEngineRouteCached(null, null, 'medium')).toBeNull();
   });
 });
+
+describe('toEngineRoute bank profiles (#725 FR5)', () => {
+  it('hands the bank pass each bank\'s authored profile along Willowbrook', () => {
+    const route = toEngineRoute(makeRoute({ id: '1' }));
+    expect(route?.profileForProgress?.(0.1, 'left')).toBe('forest');
+    expect(route?.profileForProgress?.(0.3, 'right')).toBe('farmland');
+    expect(route?.profileForProgress?.(0.9, 'left')).toBe('wetland');
+  });
+
+  it('falls back with no track and no enrichment', () => {
+    expect(toEngineRoute(makeRoute())?.profileForProgress?.(0.5, 'left')).toBe('fallback');
+  });
+});
