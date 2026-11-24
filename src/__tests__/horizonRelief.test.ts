@@ -12,6 +12,10 @@ import {
 } from '../lib/scenery/horizonRelief';
 import { buildLandCoverMask } from '../lib/scenery/landCoverMask';
 import type { ElevationGrid, ScenePoint } from '../lib/services/landscapeService';
+import type { Coordinate } from '../lib/types/index';
+import { routeCurvePoints } from '../lib/utils/routeWorldCurve';
+import lochNess from './fixtures/landscape/180.json';
+import heerenveen from './fixtures/landscape/277.json';
 
 /** A synthetic grid over x, z in [-3000, 3000], 50 m spacing, height from `f`. */
 const grid = (f: (x: number, z: number) => number, spacing = 50): ElevationGrid => {
@@ -101,12 +105,12 @@ describe('planHorizonRelief (#763)', () => {
     expect(plan.summary.placed).toBe(plan.placements.length);
   });
 
-  it('keeps flat land flat (FR3, AC: a canal stays flat)', () => {
+  it('keeps flat land flat (FR3)', () => {
     const plan = planHorizonRelief({ grid: grid((x, z) => 1.5 * Math.sin(x / 300) * Math.cos(z / 400) + 1.5), course: COURSE, tier: 'medium' })!;
     expect(plan.placements).toEqual([]);
   });
 
-  it('puts hills on both sides of a valley (AC: a loch has its hills)', () => {
+  it('puts hills on both sides of a valley', () => {
     const valley = grid((x) => Math.min(600, Math.max(0, (Math.abs(x) - 300) * 0.4)));
     const plan = planHorizonRelief({ grid: valley, course: COURSE, tier: 'medium' })!;
     expect(plan.placements.some((p) => p.x > 300)).toBe(true);
@@ -190,5 +194,58 @@ describe('landformSurfaceAt (#765 FR5)', () => {
     expect(landformSurfaceAt([hill], 1000 + 130, 0)).toBeCloseTo(45, 5);
     expect(landformSurfaceAt([hill], 1000, 61)).toBe(0);
     expect(landformSurfaceAt([], 1000, 0)).toBe(0);
+  });
+});
+
+/**
+ * #763 ACs on real terrain: Copernicus GLO-90 heights through Open-Meteo,
+ * recorded 2026-11-24 with scripts/record-landscape-fixtures.ts.
+ */
+describe('planHorizonRelief on recorded real terrain (#763 ACs)', () => {
+  type Recorded = { route: Coordinate[]; elevation: Omit<ElevationGrid, 'heights'> & { heights: (number | null)[] } };
+  const load = (fixture: unknown) => {
+    const { route, elevation } = fixture as Recorded;
+    const grid: ElevationGrid = { ...elevation, heights: Float32Array.from(elevation.heights, (h) => h ?? NaN) };
+    const course = routeCurvePoints(route).map(([x, , z]) => [x, z] as ScenePoint);
+    return { grid, course };
+  };
+  /** Which side of the start-finish line a point is on. */
+  const sideOf = (course: ScenePoint[], x: number, z: number) => {
+    const [ax, az] = course[0];
+    const [bx, bz] = course[course.length - 1];
+    return Math.sign((bx - ax) * (z - az) - (bz - az) * (x - ax));
+  };
+
+  it('Loch Ness (rownative 180) has its hills on both shores', () => {
+    const { grid, course } = load(lochNess);
+    const plan = planHorizonRelief({ grid, course, tier: 'medium' })!;
+    expect(plan.summary.maxElevationDeg).toBeGreaterThan(15);
+    expect(plan.placements.length).toBeGreaterThan(40);
+    expect(plan.placements.length).toBeLessThanOrEqual(plan.summary.placed);
+    const left = plan.placements.filter((p) => sideOf(course, p.x, p.z) > 0).length;
+    const right = plan.placements.filter((p) => sideOf(course, p.x, p.z) < 0).length;
+    expect(left).toBeGreaterThan(20);
+    expect(right).toBeGreaterThan(20);
+    // Half-way down the loch the hills stand above both shores.
+    const [mx, mz] = course[Math.floor(course.length / 2)];
+    const profile = horizonProfile(grid, mx, mz);
+    const peak = (from: number, to: number) => Math.max(...profile.filter((s) => s.bearingDeg >= from && s.bearingDeg <= to).map((s) => s.angleDeg));
+    expect(peak(90, 160)).toBeGreaterThan(5);
+    expect(peak(250, 340)).toBeGreaterThan(5);
+  });
+
+  it('the Heerenveen canal (rownative 277) stays flat but for a few low knolls', () => {
+    const { grid, course } = load(heerenveen);
+    const plan = planHorizonRelief({ grid, course, tier: 'medium' })!;
+    // The highest ground in view is a ~20 m patch near the start (GLO-90 is a
+    // surface model, so a wood or buildings read as ground).
+    expect(plan.summary.maxElevationDeg).toBeLessThan(4);
+    expect(plan.placements.length).toBeLessThanOrEqual(10);
+    for (const p of plan.placements) {
+      expect(p.id).toBe('f10-ridge-rolling-meadow');
+      expect(RELIEF_MODELS[p.id].top * p.scale).toBeLessThan(25);
+    }
+    const [mx, mz] = course[Math.floor(course.length / 2)];
+    for (const s of horizonProfile(grid, mx, mz)) expect(s.angleDeg).toBeLessThan(0.5);
   });
 });
