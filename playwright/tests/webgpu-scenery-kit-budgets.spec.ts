@@ -8,8 +8,8 @@
  *   - geometry: `__ROWER3D_RENDER_STATS.residentMeshBytes`, the GPU bytes
  *     every registered kit mesh holds (#727 FR5, #870 D1);
  *   - the forest: one indirect draw per foliage pool in view and in range,
- *     counted as `__ROWER3D_FOLIAGE.draws` (#870 D2: 6 at medium and up, 3 at
- *     basic and low);
+ *     counted as `__ROWER3D_FOLIAGE.draws` (capped at what the laptop GPU
+ *     measured, as Dan chose on 2026-11-24);
  *   - fetches and bytes: the `.glb` requests the row makes, on the wire.
  *
  * Like the other ride specs it needs a hardware WebGPU adapter. Where the
@@ -32,8 +32,13 @@ test.use({ launchOptions: GPU_RIDE_LAUNCH_OPTIONS });
 
 /** The #224 ceiling the kit has to fit inside, not a budget of its own. */
 const GEOMETRY_BUDGET_BYTES = 80 * 1024 * 1024;
-/** #333 / #870 D2: draw calls the whole forest may cost in the colour pass. */
-const FOREST_DRAW_BUDGET: Record<'basic' | 'medium', number> = { basic: 3, medium: 6 };
+/**
+ * #333 / #870: draw calls the forest may cost in the colour pass at the hero
+ * frame. Only pools in view and in range are drawn; the laptop GPU measured 7
+ * of the demo route's 102 at both tiers (2026-11-24), and one more is
+ * headroom for a pool on the frustum edge.
+ */
+const FOREST_DRAW_BUDGET: Record<'basic' | 'medium', number> = { basic: 8, medium: 8 };
 /** #287: GLB fetches in flight at once before a static host answers 503. */
 const MAX_GLB_IN_FLIGHT = 20;
 /** #332: what a short row may download in scenery models. */
