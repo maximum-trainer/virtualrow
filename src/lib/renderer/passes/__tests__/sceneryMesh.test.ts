@@ -1,6 +1,6 @@
 /// <reference types="@webgpu/types" />
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import { createSceneryMeshPass, SCENERY_INSTANCE_BYTES, type SceneryMeshInput } from '../sceneryMesh';
+import { createSceneryMeshPass, SCENERY_INSTANCE_BYTES, SCENERY_LOD1_METRES, type SceneryMeshInput } from '../sceneryMesh';
 import sceneryMeshDepthWgsl from '../sceneryMeshDepth.wgsl?raw';
 import sceneryMeshWgsl from '../sceneryMesh.wgsl?raw';
 import { mat4, mat4Identity } from '../../math/mat4';
@@ -711,6 +711,61 @@ describe('culling by cell (#727)', () => {
     // It can come back.
     p.register({ ...makeInput({ id: 'tree' }), cullCellMetres: 120 });
     expect(p.meshCount).toBe(2);
+  });
+
+  // #727 FR4 — a model's LOD1 draws the cells beyond 120 m.
+  const withLod = () => ({
+    ...makeInput({ id: 'tree', maxInstances: 8, indices: new Uint16Array([0, 1, 2, 0, 2, 1]) }),
+    cullCellMetres: 120,
+    lod1: {
+      positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]),
+      normals: new Float32Array([0, 1, 0, 0, 1, 0, 0, 1, 0]),
+      indices: new Uint16Array([0, 1, 2]),
+    },
+  });
+
+  it('draws instances beyond the LOD distance with the LOD1 geometry (FR4)', async () => {
+    expect(SCENERY_LOD1_METRES).toBe(120);
+    const { device } = makeDevice();
+    const p = await createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+    p.register(withLod());
+    p.setInstances('tree', [at(0, -50), at(0, -600)]);
+    p.setView(lookingNorth(), [0, 0, 0]);
+    const { drawIndexed, setIndexBuffer } = encodeAll(p);
+    // (indexCount, instanceCount): LOD0's 6 indices near, LOD1's 3 far.
+    expect(drawIndexed.mock.calls.map((c) => [c[0], c[1]]).sort()).toEqual([[3, 1], [6, 1]]);
+    const indexBuffers = setIndexBuffer.mock.calls.map((c) => c[0]);
+    expect(new Set(indexBuffers).size).toBe(2);
+    expect(p.stats.triangles).toBe(2 + 1);
+  });
+
+  it('draws LOD0 everywhere until it knows where the eye is (FR4)', async () => {
+    const { device } = makeDevice();
+    const p = await createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+    p.register(withLod());
+    p.setInstances('tree', [at(0, -50), at(0, -600)]);
+    p.setView(lookingNorth());
+    expect(encodeAll(p).drawIndexed.mock.calls.map((c) => c[0])).toEqual([6]);
+  });
+
+  it('casts the far cells\' shadows from LOD1 too, and frees LOD1 on unregister (FR4)', async () => {
+    const { device } = makeDevice();
+    const p = await createSceneryMeshPass({ device, format: 'bgra8unorm', frameUniforms: makeBuffer() });
+    p.register(withLod());
+    p.setInstances('tree', [at(0, -50), at(0, -600)]);
+    p.setView(lookingNorth(), [0, 0, 0]);
+    const seen: [number, number][] = [];
+    p.forEachShadowCasterIn(lookingNorth(), (m, runs, n) => {
+      for (let r = 0; r < n; r += 1) seen.push([m.indexCount, runs[r * 2 + 1]]);
+    });
+    expect(seen.sort()).toEqual([[3, 1], [6, 1]]);
+    const created = (device.createBuffer as unknown as { mock: { results: { value: GPUBuffer }[] } }).mock.results.map(
+      (r) => r.value,
+    );
+    expect(p.unregister('tree')).toBe(true);
+    const destroyed = created.filter((b) => (b.destroy as unknown as { mock: { calls: unknown[] } }).mock.calls.length > 0);
+    // LOD0 and LOD1 each hold positions, normals, colours and indices.
+    expect(destroyed.length).toBeGreaterThanOrEqual(8);
   });
 
   it('will not unregister a mesh in an instance group', async () => {

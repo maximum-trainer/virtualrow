@@ -111,6 +111,33 @@ export interface SceneryMeshInput {
   drawDistanceMetres?: number;
   /** #725 FR7 — metres from the camera beyond which it casts no shadow; 0 or absent for no limit. */
   shadowDistanceMetres?: number;
+  /**
+   * #727 FR4 — the model's LOD1, drawn (and cast) for the cells further
+   * than {@link SCENERY_LOD1_METRES} from the eye. Same instances, lighter
+   * geometry. Only used with `cullCellMetres`, once `setView` has an eye.
+   */
+  lod1?: {
+    positions: Float32Array;
+    normals: Float32Array;
+    indices: Uint16Array | Uint32Array;
+    colors?: Float32Array;
+  };
+}
+
+/** #727 FR4 — horizontal metres from the eye beyond which a cell draws LOD1. */
+export const SCENERY_LOD1_METRES = 120;
+
+/** One level of detail's vertex and index buffers. */
+interface MeshGeometry {
+  positionBuffer: GPUBuffer;
+  normalBuffer: GPUBuffer;
+  colorBuffer: GPUBuffer;
+  colorByteLength: number;
+  indexBuffer: GPUBuffer;
+  indexFormat: 'uint16' | 'uint32';
+  indexCount: number;
+  /** GPU bytes held. */
+  bytes: number;
 }
 
 /** #727 — per-mesh culling state: the cell layout and a scratch run list. */
@@ -124,6 +151,8 @@ interface MeshCull {
   radius: number;
   layout: CellLayout | null;
   runs: Uint32Array;
+  /** #727 FR4 — scratch runs for the LOD1 side of a split. */
+  farRuns: Uint32Array;
 }
 
 /** #736 — one GPU buffer shared by several meshes, uploaded in one write. */
@@ -167,6 +196,8 @@ interface RegisteredMesh {
   castsShadow: boolean;
   /** #727 — null for a mesh drawn whole every frame. */
   cull: MeshCull | null;
+  /** #727 FR4 — the LOD1 geometry, or null. */
+  lod1: MeshGeometry | null;
   /** #727 FR5 — GPU bytes this mesh holds (not counting a shared group buffer). */
   bytes: number;
 }
@@ -420,27 +451,34 @@ export const createSceneryMeshPass = async ({
     }
   };
 
-  const register = (input: SceneryMeshInput): void => {
-    if (registry.has(input.id)) return;
+  /** Vertex and index buffers for one level of detail. */
+  const createGeometry = (
+    label: string,
+    positions: Float32Array,
+    normals: Float32Array,
+    indices: Uint16Array | Uint32Array,
+    baseColor: [number, number, number, number],
+    suppliedColors: Float32Array | undefined,
+  ): MeshGeometry => {
     const positionBuffer = device.createBuffer({
-      label: `sceneryMesh:${input.id}-pos`,
-      size: input.positions.byteLength,
+      label: `${label}-pos`,
+      size: positions.byteLength,
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
     });
-    device.queue.writeBuffer(positionBuffer, 0, input.positions as BufferSource);
+    device.queue.writeBuffer(positionBuffer, 0, positions as BufferSource);
     const normalBuffer = device.createBuffer({
-      label: `sceneryMesh:${input.id}-nrm`,
-      size: input.normals.byteLength,
+      label: `${label}-nrm`,
+      size: normals.byteLength,
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
     });
-    device.queue.writeBuffer(normalBuffer, 0, input.normals as BufferSource);
-    const vertexCount = input.positions.length / 3;
+    device.queue.writeBuffer(normalBuffer, 0, normals as BufferSource);
+    const vertexCount = positions.length / 3;
     // Per-vertex colour: use the supplied buffer when it matches the vertex
     // count, otherwise fill every vertex with the single `baseColor`.
-    let colors = input.colors;
+    let colors = suppliedColors;
     if (!colors || colors.length !== vertexCount * 4) {
       colors = new Float32Array(vertexCount * 4);
-      const [r, g, b, a] = input.baseColor;
+      const [r, g, b, a] = baseColor;
       for (let v = 0; v < vertexCount; v += 1) {
         colors[v * 4] = r;
         colors[v * 4 + 1] = g;
@@ -449,7 +487,7 @@ export const createSceneryMeshPass = async ({
       }
     }
     const colorBuffer = device.createBuffer({
-      label: `sceneryMesh:${input.id}-col`,
+      label: `${label}-col`,
       size: Math.max(16, colors.byteLength),
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
     });
@@ -460,19 +498,52 @@ export const createSceneryMeshPass = async ({
     // short, so pad it with one unused index; `indexCount` keeps the real
     // count so the pad is never drawn (#672).
     const indexData =
-      input.indices.byteLength % 4 === 0
-        ? input.indices
+      indices.byteLength % 4 === 0
+        ? indices
         : (() => {
-            const padded = new Uint16Array(input.indices.length + 1);
-            padded.set(input.indices);
+            const padded = new Uint16Array(indices.length + 1);
+            padded.set(indices);
             return padded;
           })();
     const indexBuffer = device.createBuffer({
-      label: `sceneryMesh:${input.id}-idx`,
+      label: `${label}-idx`,
       size: indexData.byteLength,
       usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
     });
     device.queue.writeBuffer(indexBuffer, 0, indexData as BufferSource);
+    return {
+      positionBuffer,
+      normalBuffer,
+      colorBuffer,
+      colorByteLength: colors.byteLength,
+      indexBuffer,
+      indexFormat: indices instanceof Uint32Array ? 'uint32' : 'uint16',
+      indexCount: indices.length,
+      bytes: positions.byteLength + normals.byteLength + colors.byteLength + indexData.byteLength,
+    };
+  };
+
+  const register = (input: SceneryMeshInput): void => {
+    if (registry.has(input.id)) return;
+    const lod0 = createGeometry(
+      `sceneryMesh:${input.id}`,
+      input.positions,
+      input.normals,
+      input.indices,
+      input.baseColor,
+      input.colors,
+    );
+    const { positionBuffer, normalBuffer, colorBuffer, indexBuffer } = lod0;
+    const lod1 = input.lod1 && input.cullCellMetres
+      ? createGeometry(
+          `sceneryMesh:${input.id}-lod1`,
+          input.lod1.positions,
+          input.lod1.normals,
+          input.lod1.indices,
+          input.baseColor,
+          input.lod1.colors,
+        )
+      : null;
     const group = input.instanceGroup ? groups.get(input.instanceGroup.name) ?? null : null;
     const slotIndex = input.instanceGroup?.index ?? 0;
     if (input.instanceGroup && (!group || slotIndex < 0 || slotIndex >= group.slots)) {
@@ -513,10 +584,10 @@ export const createSceneryMeshPass = async ({
       positionBuffer,
       normalBuffer,
       colorBuffer,
-      colorByteLength: colors.byteLength,
+      colorByteLength: lod0.colorByteLength,
       indexBuffer,
-      indexFormat: input.indices instanceof Uint32Array ? 'uint32' : 'uint16',
-      indexCount: input.indices.length,
+      indexFormat: lod0.indexFormat,
+      indexCount: lod0.indexCount,
       instanceBuffer,
       instanceOffset,
       instanceSize,
@@ -534,15 +605,10 @@ export const createSceneryMeshPass = async ({
       castsShadow: input.castsShadow ?? true,
       cull:
         input.cullCellMetres && !group
-          ? { cellMetres: input.cullCellMetres, drawDistance: Math.max(0, input.drawDistanceMetres ?? 0), shadowDistance: Math.max(0, input.shadowDistanceMetres ?? 0), radius: meshRadius(input.positions), layout: null, runs: new Uint32Array(0) }
+          ? { cellMetres: input.cullCellMetres, drawDistance: Math.max(0, input.drawDistanceMetres ?? 0), shadowDistance: Math.max(0, input.shadowDistanceMetres ?? 0), radius: meshRadius(input.positions), layout: null, runs: new Uint32Array(0), farRuns: new Uint32Array(0) }
           : null,
-      bytes:
-        input.positions.byteLength +
-        input.normals.byteLength +
-        colors.byteLength +
-        indexData.byteLength +
-        (group ? 0 : instanceSize) +
-        SCENERY_REVEAL_UNIFORM_BYTES,
+      lod1,
+      bytes: lod0.bytes + (lod1?.bytes ?? 0) + (group ? 0 : instanceSize) + SCENERY_REVEAL_UNIFORM_BYTES,
     });
     residentBytes += registry.get(input.id)!.bytes;
   };
@@ -575,6 +641,7 @@ export const createSceneryMeshPass = async ({
       }
       mesh.cull.layout = buildCellLayout(positions, radii, mesh.cull.cellMetres);
       mesh.cull.runs = new Uint32Array(mesh.cull.layout.cells.length * 2);
+      mesh.cull.farRuns = new Uint32Array(mesh.cull.layout.cells.length * 2);
       order = mesh.cull.layout.order;
     }
     for (let i = 0; i < count; i += 1) {
@@ -621,15 +688,22 @@ export const createSceneryMeshPass = async ({
   let viewSet = false;
   const cascadePlanes = new Float32Array(24);
   // #725 FR7 — the eye, for meshes with a draw distance.
-  const nearLimit = { x: 0, z: 0, maxDistance: 0 };
+  const nearLimit: { x: number; z: number; maxDistance: number; minDistance?: number } = { x: 0, z: 0, maxDistance: 0 };
   let eyeSet = false;
   const wholeRun = new Uint32Array(2);
   const runResult: { runs: Uint32Array; count: number } = { runs: wholeRun, count: 0 };
-  /** Runs of `mesh` to draw inside `planes`; the whole list when it is not culled. */
+  /** #727 FR4 — whether this frame splits `mesh` into LOD0 near and LOD1 far. */
+  const splitsLod = (mesh: RegisteredMesh): boolean => !!mesh.lod1 && !!mesh.cull?.layout && eyeSet;
+  /**
+   * Runs of `mesh` to draw inside `planes`; the whole list when it is not
+   * culled. `side` picks the near (LOD0) or far (LOD1) cells of a mesh with
+   * an LOD1; 'all' ignores the split.
+   */
   const runsIn = (
     mesh: RegisteredMesh,
     planes: Float32Array | null,
     forShadow = false,
+    side: 'all' | 'near' | 'far' = 'all',
   ): { runs: Uint32Array; count: number } => {
     if (!mesh.cull?.layout || !planes) {
       wholeRun[0] = 0;
@@ -638,19 +712,34 @@ export const createSceneryMeshPass = async ({
       runResult.count = 1;
       return runResult;
     }
-    runResult.runs = mesh.cull.runs;
-    nearLimit.maxDistance = eyeSet ? (forShadow ? mesh.cull.shadowDistance : mesh.cull.drawDistance) : 0;
-    runResult.count = visibleRuns(mesh.cull.layout, planes, mesh.cull.runs, nearLimit);
+    const limit = eyeSet ? (forShadow ? mesh.cull.shadowDistance : mesh.cull.drawDistance) : 0;
+    runResult.runs = side === 'far' ? mesh.cull.farRuns : mesh.cull.runs;
+    if (side === 'near') {
+      nearLimit.maxDistance = limit > 0 ? Math.min(limit, SCENERY_LOD1_METRES) : SCENERY_LOD1_METRES;
+      nearLimit.minDistance = undefined;
+    } else if (side === 'far') {
+      if (limit > 0 && limit <= SCENERY_LOD1_METRES) {
+        runResult.count = 0;
+        return runResult;
+      }
+      nearLimit.maxDistance = limit;
+      nearLimit.minDistance = SCENERY_LOD1_METRES;
+    } else {
+      nearLimit.maxDistance = limit;
+      nearLimit.minDistance = undefined;
+    }
+    runResult.count = visibleRuns(mesh.cull.layout, planes, runResult.runs, nearLimit);
+    nearLimit.minDistance = undefined;
     return runResult;
   };
   // One reused snapshot object, so the per-cascade walk allocates nothing.
   const shadowSnapshot = {} as { -readonly [K in keyof SceneryMeshSnapshot]: SceneryMeshSnapshot[K] };
-  const snapshotOf = (mesh: RegisteredMesh): SceneryMeshSnapshot => {
+  const snapshotOf = (mesh: RegisteredMesh, lod: MeshGeometry | null = null): SceneryMeshSnapshot => {
     shadowSnapshot.id = mesh.id;
-    shadowSnapshot.positionBuffer = mesh.positionBuffer;
-    shadowSnapshot.indexBuffer = mesh.indexBuffer;
-    shadowSnapshot.indexFormat = mesh.indexFormat;
-    shadowSnapshot.indexCount = mesh.indexCount;
+    shadowSnapshot.positionBuffer = lod ? lod.positionBuffer : mesh.positionBuffer;
+    shadowSnapshot.indexBuffer = lod ? lod.indexBuffer : mesh.indexBuffer;
+    shadowSnapshot.indexFormat = lod ? lod.indexFormat : mesh.indexFormat;
+    shadowSnapshot.indexCount = lod ? lod.indexCount : mesh.indexCount;
     shadowSnapshot.instanceBuffer = mesh.instanceBuffer;
     shadowSnapshot.instanceOffset = mesh.instanceOffset;
     shadowSnapshot.instanceSize = mesh.instanceSize;
@@ -665,8 +754,19 @@ export const createSceneryMeshPass = async ({
     mesh.indexBuffer.destroy();
     if (!mesh.group) mesh.instanceBuffer.destroy();
     mesh.revealBuffer.destroy();
+    if (mesh.lod1) {
+      mesh.lod1.positionBuffer.destroy();
+      mesh.lod1.normalBuffer.destroy();
+      mesh.lod1.colorBuffer.destroy();
+      mesh.lod1.indexBuffer.destroy();
+    }
   };
-  const draw = (pass: GPURenderPassEncoder, mesh: RegisteredMesh, count: number, first = 0): void => {
+  const draw = (
+    pass: GPURenderPassEncoder,
+    mesh: Pick<RegisteredMesh, 'indexCount'>,
+    count: number,
+    first = 0,
+  ): void => {
     pass.drawIndexed(mesh.indexCount, count, 0, 0, first);
     stats.draws += 1;
     stats.instances += count;
@@ -725,6 +825,14 @@ export const createSceneryMeshPass = async ({
       frustumPlanes(viewProj, cascadePlanes);
       for (const mesh of registry.values()) {
         if (mesh.instanceCount === 0 || !mesh.castsShadow) continue;
+        if (splitsLod(mesh)) {
+          // #727 FR4 — the far cells cast from LOD1.
+          const near = runsIn(mesh, cascadePlanes, true, 'near');
+          if (near.count > 0) cb(snapshotOf(mesh), near.runs, near.count);
+          const far = runsIn(mesh, cascadePlanes, true, 'far');
+          if (far.count > 0) cb(snapshotOf(mesh, mesh.lod1), far.runs, far.count);
+          continue;
+        }
         const { runs, count } = runsIn(mesh, cascadePlanes, true);
         if (count === 0) continue;
         cb(snapshotOf(mesh), runs, count);
@@ -806,7 +914,7 @@ export const createSceneryMeshPass = async ({
       pass.setBindGroup(0, frameBind);
       if (shadowBind) pass.setBindGroup(SCENERY_SHADOW_GROUP, shadowBind);
       let translucentMeshes = 0;
-      const bindMesh = (mesh: RegisteredMesh, bindGroup: GPUBindGroup): void => {
+      const bindMesh = (mesh: Omit<MeshGeometry, 'bytes' | 'colorByteLength' | 'indexCount'>, bindGroup: GPUBindGroup): void => {
         pass.setBindGroup(1, bindGroup);
         pass.setVertexBuffer(0, mesh.positionBuffer);
         pass.setVertexBuffer(1, mesh.normalBuffer);
@@ -818,6 +926,20 @@ export const createSceneryMeshPass = async ({
         if (mesh.translucentCount > 0) translucentMeshes += 1;
         if (mesh.translucentCount === mesh.instanceCount) continue;
         if (mesh.translucentCount === 0) {
+          if (viewSet && splitsLod(mesh)) {
+            // #727 FR4 — LOD0 for the near cells, LOD1 for the far ones.
+            const near = runsIn(mesh, viewPlanes, false, 'near');
+            if (near.count > 0) {
+              bindMesh(mesh, mesh.bindGroup);
+              for (let r = 0; r < near.count; r += 1) draw(pass, mesh, near.runs[r * 2 + 1], near.runs[r * 2]);
+            }
+            const far = runsIn(mesh, viewPlanes, false, 'far');
+            if (far.count > 0) {
+              bindMesh(mesh.lod1!, mesh.bindGroup);
+              for (let r = 0; r < far.count; r += 1) draw(pass, mesh.lod1!, far.runs[r * 2 + 1], far.runs[r * 2]);
+            }
+            continue;
+          }
           // #727 FR1 — only the cells in view.
           const { runs, count } = runsIn(mesh, viewSet ? viewPlanes : null);
           if (count === 0) continue;

@@ -34,6 +34,13 @@ beforeEach(() => {
 });
 
 describe('loading the manifest', () => {
+  it('resolves null when fetch throws before returning a promise', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => {
+      throw new TypeError('fetch is not available here');
+    });
+    await expect(loadSceneryManifest()).resolves.toBeNull();
+  });
+
   it('reads it once, however many callers ask', async () => {
     const fetchSpy = vi
       .spyOn(globalThis, 'fetch')

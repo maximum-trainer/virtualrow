@@ -135,6 +135,11 @@
         "radius": 2.6,
         "centreX": 0,
         "centreZ": 0
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-a/a08-umpire-launch.lod1.glb",
+        "bytes": 49476,
+        "triangles": 945
       }
     },
     "a09-gazebo-hexagonal": {
@@ -203,6 +208,11 @@
         "radius": 0.4799,
         "centreX": 0.4201,
         "centreZ": -0.0001
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-a/a12-regatta-flagpole.lod1.glb",
+        "bytes": 15116,
+        "triangles": 1857
       }
     },
     "b01-boathouse-new-england": {
@@ -271,6 +281,11 @@
         "radius": 9,
         "centreX": 0,
         "centreZ": 0
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-b/b04-boat-rack-outdoor.lod1.glb",
+        "bytes": 37312,
+        "triangles": 3576
       }
     },
     "b05-quay-wall-stone": {
@@ -288,6 +303,11 @@
         "radius": 4,
         "centreX": 0,
         "centreZ": -0.0051
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-b/b05-quay-wall-stone.lod1.glb",
+        "bytes": 31396,
+        "triangles": 3148
       }
     },
     "b06-wharf-warehouse": {
@@ -339,6 +359,11 @@
         "radius": 21.225,
         "centreX": 0.9749,
         "centreZ": 1.025
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-b/b08-marina-pontoon-cluster.lod1.glb",
+        "bytes": 50196,
+        "triangles": 3025
       }
     },
     "c01-bridge-arch-masonry": {
@@ -440,6 +465,11 @@
         "start": -35.25,
         "length": 70.5,
         "openings": []
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-c/c03-bridge-truss-steel.lod1.glb",
+        "bytes": 85564,
+        "triangles": 2972
       }
     },
     "c04-bridge-rail-girder": {
@@ -527,6 +557,11 @@
             "underside": 5.85
           }
         ]
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-c/c06-bridge-foot-suspension.lod1.glb",
+        "bytes": 59908,
+        "triangles": 1758
       }
     },
     "c07-bridge-dutch-lift": {
@@ -556,6 +591,11 @@
             "underside": 3.8
           }
         ]
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-c/c07-bridge-dutch-lift.lod1.glb",
+        "bytes": 38704,
+        "triangles": 603
       }
     },
     "c08-bridge-cantilever": {
@@ -585,6 +625,11 @@
             "underside": 9.4
           }
         ]
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-c/c08-bridge-cantilever.lod1.glb",
+        "bytes": 28768,
+        "triangles": 874
       }
     },
     "d-ce-01-baroque-church-onion": {
@@ -602,6 +647,11 @@
         "radius": 14,
         "centreX": 0,
         "centreZ": 0
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-d/d-ce-01-baroque-church-onion.lod1.glb",
+        "bytes": 26344,
+        "triangles": 547
       }
     },
     "d-ce-02-panelak-block": {
@@ -687,6 +737,11 @@
         "radius": 11.8,
         "centreX": -5.8,
         "centreZ": 0
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-d/d-gb-02-church-square-tower.lod1.glb",
+        "bytes": 31996,
+        "triangles": 641
       }
     },
     "d-gb-03-riverside-pub": {
@@ -755,6 +810,11 @@
         "radius": 10,
         "centreX": 0,
         "centreZ": -0.0497
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-d/d-gb-06-regatta-marquee.lod1.glb",
+        "bytes": 20124,
+        "triangles": 512
       }
     },
     "d-gb-07-small-shop": {
@@ -840,6 +900,11 @@
         "radius": 8.6499,
         "centreX": 0.0499,
         "centreZ": 0
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-d/d-it-04-orchard-tree-row.lod1.glb",
+        "bytes": 44064,
+        "triangles": 3204
       }
     },
     "d-nl-01-gabled-canal-house": {
@@ -925,6 +990,11 @@
         "radius": 33.8517,
         "centreX": 10.6483,
         "centreZ": 0.1499
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-d/d-nl-05-wind-turbine.lod1.glb",
+        "bytes": 23528,
+        "triangles": 552
       }
     },
     "d-nl-06-reed-bank-edge": {
@@ -993,6 +1063,11 @@
         "radius": 22.5,
         "centreX": 0,
         "centreZ": -0.7496
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-d/d-us-03-collegiate-dome.lod1.glb",
+        "bytes": 33860,
+        "triangles": 750
       }
     },
     "d-us-04-collegiate-tower": {
@@ -1010,6 +1085,11 @@
         "radius": 6.3997,
         "centreX": 0.0006,
         "centreZ": 0
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-d/d-us-04-collegiate-tower.lod1.glb",
+        "bytes": 18828,
+        "triangles": 732
       }
     },
     "d-us-05-water-tower": {
@@ -1078,6 +1158,11 @@
         "radius": 6.4992,
         "centreX": -0.0008,
         "centreZ": 0
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-e/e01-london-plane.lod1.glb",
+        "bytes": 12628,
+        "triangles": 943
       }
     },
     "e02-weeping-willow": {
@@ -1095,6 +1180,11 @@
         "radius": 6.7994,
         "centreX": -0.0006,
         "centreZ": 0
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-e/e02-weeping-willow.lod1.glb",
+        "bytes": 9732,
+        "triangles": 600
       }
     },
     "e03-lombardy-poplar": {
@@ -1112,6 +1202,11 @@
         "radius": 2.3991,
         "centreX": -0.0101,
         "centreZ": 0
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-e/e03-lombardy-poplar.lod1.glb",
+        "bytes": 10500,
+        "triangles": 1042
       }
     },
     "e04-english-oak": {
@@ -1129,6 +1224,11 @@
         "radius": 7.5494,
         "centreX": 0.1494,
         "centreZ": 0.101
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-e/e04-english-oak.lod1.glb",
+        "bytes": 11852,
+        "triangles": 774
       }
     },
     "e05-red-maple": {
@@ -1146,6 +1246,11 @@
         "radius": 4.1995,
         "centreX": -0.0003,
         "centreZ": 0
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-e/e05-red-maple.lod1.glb",
+        "bytes": 8700,
+        "triangles": 633
       }
     },
     "e06-white-birch": {
@@ -1163,6 +1268,11 @@
         "radius": 2.8493,
         "centreX": -0.0505,
         "centreZ": -0.05
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-e/e06-white-birch.lod1.glb",
+        "bytes": 31180,
+        "triangles": 3959
       }
     },
     "e07-eastern-white-pine": {
@@ -1180,6 +1290,11 @@
         "radius": 5.1984,
         "centreX": 0.0032,
         "centreZ": 0
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-e/e07-eastern-white-pine.lod1.glb",
+        "bytes": 16944,
+        "triangles": 634
       }
     },
     "e08-scots-pine": {
@@ -1197,6 +1312,11 @@
         "radius": 4.9997,
         "centreX": -0.0003,
         "centreZ": 0
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-e/e08-scots-pine.lod1.glb",
+        "bytes": 10836,
+        "triangles": 849
       }
     },
     "e09-alder-scrub": {
@@ -1214,6 +1334,11 @@
         "radius": 2.7998,
         "centreX": 0.1998,
         "centreZ": 0
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-e/e09-alder-scrub.lod1.glb",
+        "bytes": 28600,
+        "triangles": 2547
       }
     },
     "e10-italian-cypress": {
@@ -1316,6 +1441,11 @@
         "radius": 4.4176,
         "centreX": 0.1229,
         "centreZ": 0
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-e/e15-palm.lod1.glb",
+        "bytes": 31548,
+        "triangles": 536
       }
     },
     "f01-bank-earth-cut": {
@@ -1384,6 +1514,11 @@
         "radius": 4,
         "centreX": 0,
         "centreZ": -0.3651
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-f/f04-bank-masonry-wall.lod1.glb",
+        "bytes": 31452,
+        "triangles": 575
       }
     },
     "f05-bank-sheet-piling": {
@@ -1435,6 +1570,11 @@
         "radius": 4.0191,
         "centreX": 0.0191,
         "centreZ": 0.45
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-f/f07-bank-boulder-shore.lod1.glb",
+        "bytes": 29372,
+        "triangles": 1912
       }
     },
     "f08-bank-pile-revetment": {
@@ -1503,6 +1643,11 @@
         "radius": 44.6807,
         "centreX": -0.8168,
         "centreZ": 0.4369
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-f/f11-hillside-wooded.lod1.glb",
+        "bytes": 22928,
+        "triangles": 1916
       }
     },
     "f12-bluff-steep": {
@@ -1588,6 +1733,11 @@
         "radius": 23.0913,
         "centreX": 1.0913,
         "centreZ": 0.3644
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-f/f16-island-wooded.lod1.glb",
+        "bytes": 20136,
+        "triangles": 1429
       }
     },
     "f17-mudflat-tidal": {
@@ -1639,6 +1789,11 @@
         "radius": 0.353,
         "centreX": 0.0363,
         "centreZ": 0.0188
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-f/f19-flower-meadow-patch.lod1.glb",
+        "bytes": 64840,
+        "triangles": 2512
       }
     },
     "f20-reed-stand": {
@@ -1673,6 +1828,11 @@
         "radius": 0.7,
         "centreX": 0,
         "centreZ": -0.0375
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-f/f21-boulder-cluster.lod1.glb",
+        "bytes": 85052,
+        "triangles": 2210
       }
     },
     "f22-shingle-scatter": {
@@ -1690,6 +1850,11 @@
         "radius": 1.0016,
         "centreX": 0.0296,
         "centreZ": 0.0363
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-f/f22-shingle-scatter.lod1.glb",
+        "bytes": 79104,
+        "triangles": 8769
       }
     },
     "f23-driftwood-log": {
@@ -1724,6 +1889,11 @@
         "radius": 1.4943,
         "centreX": -0.0413,
         "centreZ": 0.2
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-f/f24-deadfall-branch-pile.lod1.glb",
+        "bytes": 38680,
+        "triangles": 772
       }
     },
     "f25-bramble-scrub": {
@@ -1775,6 +1945,11 @@
         "radius": 1.6516,
         "centreX": -0.0142,
         "centreZ": -0.2095
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-f/f27-lily-pad-raft.lod1.glb",
+        "bytes": 100228,
+        "triangles": 2005
       }
     },
     "f28-floating-weed-mat": {
@@ -1792,6 +1967,11 @@
         "radius": 2.2268,
         "centreX": 0.0942,
         "centreZ": 0.0273
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-f/f28-floating-weed-mat.lod1.glb",
+        "bytes": 69716,
+        "triangles": 787
       }
     },
     "f29-weed-streamer": {
@@ -1843,6 +2023,11 @@
         "radius": 2.2,
         "centreX": 0.4,
         "centreZ": 0
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-f/f31-moored-dinghy.lod1.glb",
+        "bytes": 42100,
+        "triangles": 1079
       }
     },
     "f32-moored-cruiser": {
@@ -1860,6 +2045,11 @@
         "radius": 4,
         "centreX": 0,
         "centreZ": -0.1
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-f/f32-moored-cruiser.lod1.glb",
+        "bytes": 42588,
+        "triangles": 2414
       }
     },
     "f33-post-rail-fence": {
@@ -1962,6 +2152,11 @@
         "radius": 0.495,
         "centreX": 0,
         "centreZ": -0.355
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-f/f38-lamp-post.lod1.glb",
+        "bytes": 15988,
+        "triangles": 622
       }
     },
     "f39-litter-bin": {
@@ -1996,6 +2191,11 @@
         "radius": 7.0799,
         "centreX": 0,
         "centreZ": 0
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-f/f40-pylon-lattice.lod1.glb",
+        "bytes": 95396,
+        "triangles": 1998
       }
     },
     "f41-telegraph-pole": {
@@ -2013,6 +2213,11 @@
         "radius": 1.2,
         "centreX": 0,
         "centreZ": 0
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-f/f41-telegraph-pole.lod1.glb",
+        "bytes": 18180,
+        "triangles": 535
       }
     },
     "f42-culvert-outfall": {
@@ -2081,6 +2286,11 @@
         "radius": 50.4989,
         "centreX": -0.5011,
         "centreZ": 0
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-f/f45-treeline-strip.lod1.glb",
+        "bytes": 72244,
+        "triangles": 11042
       }
     },
     "f46-hill-ridge-far": {
@@ -2098,6 +2308,11 @@
         "radius": 129.9988,
         "centreX": 9.9988,
         "centreZ": 0
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-f/f46-hill-ridge-far.lod1.glb",
+        "bytes": 6392,
+        "triangles": 604
       }
     },
     "f47-skyline-strip": {
@@ -2176,6 +2391,11 @@
             "underside": 10.5
           }
         ]
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-g/g02-bridge-double-decker.lod1.glb",
+        "bytes": 28444,
+        "triangles": 939
       }
     },
     "g03-bridge-pipeline": {
@@ -2240,6 +2460,11 @@
             "underside": 4.1
           }
         ]
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-g/g03-bridge-pipeline.lod1.glb",
+        "bytes": 47048,
+        "triangles": 1630
       }
     },
     "g04-bridge-tram": {
@@ -2379,6 +2604,11 @@
         "radius": 2.6246,
         "centreX": 0,
         "centreZ": -0.4754
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-g/g08-windmotor-steel.lod1.glb",
+        "bytes": 139976,
+        "triangles": 1617
       }
     },
     "g09-power-station-stack": {
@@ -2413,6 +2643,11 @@
         "radius": 5.0984,
         "centreX": 0.0032,
         "centreZ": 0
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-g/g10-observation-tower.lod1.glb",
+        "bytes": 17328,
+        "triangles": 513
       }
     },
     "g11-water-tower-masonry": {
@@ -2447,6 +2682,11 @@
         "radius": 15.4,
         "centreX": 0,
         "centreZ": -0.0015
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-g/g12-islet-sandy-scrub.lod1.glb",
+        "bytes": 22596,
+        "triangles": 2102
       }
     },
     "l-barnes-railway-bridge": {
@@ -2476,6 +2716,11 @@
             "underside": 3.3
           }
         ]
+      },
+      "lod1": {
+        "path": "assets/scenery/tier-l/l-barnes-railway-bridge.lod1.glb",
+        "bytes": 37024,
+        "triangles": 1108
       }
     },
     "l-fremont-bridge": {
