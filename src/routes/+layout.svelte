@@ -132,6 +132,10 @@
   $effect(() => {
     ride.setActive(session.sessionActive);
   });
+  // #750 FR4: a river line found mid-row waits for the row to end.
+  $effect(() => {
+    routes.setRowInProgress(session.sessionActive);
+  });
   $effect(() => {
     ride.setDemoListening(session.isDemoMode);
   });

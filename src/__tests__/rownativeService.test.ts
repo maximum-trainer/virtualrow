@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { RownativeCourseNotFoundError, RownativeService } from '../lib/services/rownativeService';
 import { RouteService } from '../lib/services/routeService';
+import { WaterwayPathCache } from '../lib/services/waterwayPathCache';
 import { polylineLengthMeters } from '../lib/utils/coordinateUtils';
 
 /** Response double exposing both json() and text(), as the service uses each. */
@@ -340,19 +341,30 @@ describe('RownativeService', () => {
         return jsonResponse(courseFile);
       });
 
-    it('follows the mapped waterway and says so', async () => {
+    it('follows the mapped waterway and says so, once the background lookup lands (#750)', async () => {
       const isolated = new RouteService();
       const service = new RownativeService(
         fetchFor(river) as unknown as typeof fetch,
         (data) => isolated.importRouteFromRownative(data),
+        undefined,
+        undefined,
+        {
+          replaceGeometry: (id, update) => isolated.replaceRownativeGeometry(id, update),
+          findRoute: (id) => isolated.getRouteById(id),
+          pathCache: new WaterwayPathCache(() => null),
+        },
       );
       const [found] = await service.searchCourses('bend');
       const imported = await service.importCourse(found);
+      // #750 FR1: the import returns on the gate chain, without the lookup.
+      expect(imported.geometrySource).toBe('gate-chain');
 
-      expect(imported.geometrySource).toBe('osm-derived');
+      await service.geometrySettled(imported.id);
+      const refined = isolated.getRouteById(imported.id)!;
+      expect(refined.geometrySource).toBe('osm-derived');
       // Straight line is 2.0 km; round the bend is nearer 2.2 km.
-      expect(imported.distance).toBeGreaterThan(2.1);
-      expect(imported.externalDistanceMeters).toBe(2000);
+      expect(refined.distance).toBeGreaterThan(2.1);
+      expect(refined.externalDistanceMeters).toBe(2000);
     });
 
     it('still imports on the gate chain when the map service is down', async () => {

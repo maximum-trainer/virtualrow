@@ -303,7 +303,7 @@
                 {/if}
               </span>
               {#if importingId === course.id}
-                <span class="rownative-result-busy" role="status">Importing… tracing the waterway, up to 40 s</span>
+                <span class="rownative-result-busy" role="status">Importing…</span>
               {/if}
             </button>
 

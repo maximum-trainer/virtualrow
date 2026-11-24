@@ -19,7 +19,7 @@
   } from '$lib/utils/geometryProvenance';
   import { getAuth } from '$lib/ui/authContext';
   import { getRoutesStore } from '$lib/ui/routesContext';
-  import { extractRouteStatus, routeGeometrySource } from '$lib/ui/routesStore.svelte';
+  import { canRefreshGeometry, extractRouteStatus, routeGeometrySource } from '$lib/ui/routesStore.svelte';
   import { getServices } from '$lib/ui/servicesContext';
   import RouteOverviewMap from '$lib/ui/RouteOverviewMap.svelte';
   import RouteDetailOverlay from '$lib/ui/RouteDetailOverlay.svelte';
@@ -275,6 +275,38 @@
               {/if}
               {#if routes.routeEnrichmentLoading[route.id]}
                 <p class="route-item-status">Loading route data…</p>
+              {/if}
+              {#if routes.routeTracing[route.id]}
+                <!-- #750 FR3: the import returned on the gate chain; the river follows. -->
+                <p class="route-item-status" role="status" data-testid="route-tracing">Tracing the river…</p>
+              {:else if canRefreshGeometry(route)}
+                <div class="route-item-refresh" data-testid="route-refresh-geometry">
+                  {#if routes.showsRefreshOffer(route)}
+                    <span class="route-item-status">This course can now follow the river.</span>
+                  {/if}
+                  <button
+                    type="button"
+                    class="btn-refresh-geometry"
+                    onclick={(e) => {
+                      e.stopPropagation();
+                      void routes.refreshGeometry(route);
+                    }}
+                  >
+                    Refresh geometry
+                  </button>
+                  {#if routes.showsRefreshOffer(route)}
+                    <button
+                      type="button"
+                      class="btn-refresh-geometry btn-refresh-geometry--dismiss"
+                      onclick={(e) => {
+                        e.stopPropagation();
+                        routes.dismissRefreshOffer(route);
+                      }}
+                    >
+                      Not now
+                    </button>
+                  {/if}
+                </div>
               {/if}
               {#if auth.isAuthenticated}
                 <button
