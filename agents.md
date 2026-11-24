@@ -67,9 +67,18 @@ BLE characteristic notification
 
 Since the #542 cutover the live app is a hand-written WebGPU engine on SvelteKit; the React/three.js scene described below is retained as historical reference but no longer ships. The engine composes passes in `src/lib/renderer/engine/rideScene.ts` and reads route data from `src/lib/ui/sceneryRoute.ts`.
 
-#### Scenery is GLB-kit only (#623, Phase 1)
+#### Prefer real-world 3D models in source control over procedural geometry (#623, #627)
 
-Every scene object with an authored counterpart in `public/assets/scenery/tier-*/*.glb` or `public/assets/boat/*.glb` is drawn from that GLB via `sceneryMeshPass`. No module under `src/lib/renderer/plan` or `src/lib/renderer/passes` synthesises triangles at runtime for a model that has, or could have, a kit entry — add one through `scripts/build_scenery.py` (#449) instead. The retained exceptions are **geographic strips** (`bankStrip`, `waterStrip`, `skyDome`, `waterPolygon`/`islandLand`/`ringBankStrip`), the **OSM building extrusion** in `plan/buildings.ts` (deliberate stylisation, #623 D3-a), and the **SSR/test-only boat fallback** in `boatMesh.ts` — never user-facing: a load failure publishes `renderer-unavailable` on `__VIRTUALROW_WEBGPU_HEALTH` instead.
+The default for any new scene object is an **authored 3D model committed to the repository** — a GLB under `public/assets/scenery/tier-*/*.glb` or `public/assets/boat/*.glb`, built from a reproducible CadQuery recipe under `scripts/` (see `scripts/build_scenery.py`, #449) or an llm-cad export, and drawn by `sceneryMeshPass`. Reach for a real model before writing WGSL or TypeScript that assembles triangles at runtime: a committed GLB is versioned, shadowed, LOD-managed, meshopt-compressed and visually reviewable in isolation, while procedural geometry is none of those things and has repeatedly been the source of visual regressions.
+
+Concretely:
+
+- Every scene object with an authored counterpart in `public/assets/scenery/tier-*/*.glb` or `public/assets/boat/*.glb` **must** be drawn from that GLB via `sceneryMeshPass`. No module under `src/lib/renderer/plan` or `src/lib/renderer/passes` may synthesise triangles at runtime for a model that has, or could have, a kit entry — add the model through `scripts/build_scenery.py` (#449) instead.
+- When a feature needs a new scenery object (tree, building fixture, buoy, dock, boathouse, sign, bridge detail, crew kit, …), the first step is a kit recipe, not a shader or a mesh builder. If the model does not yet exist, author it with CadQuery or llm-cad, commit the GLB, and reference it from a plan module — do not stub it in with runtime cylinders, boxes or extrusions "for now". A procedural placeholder tends to outlive the ticket.
+- The retained exceptions, and only these, remain procedural: **geographic strips** (`bankStrip`, `waterStrip`, `skyDome`, `waterPolygon`/`islandLand`/`ringBankStrip`) whose shape comes from the route itself; the **OSM building extrusion** in `plan/buildings.ts` (deliberate stylisation of real footprints, #623 D3-a); and the **SSR/test-only boat fallback** in `boatMesh.ts`, which is never user-facing — a real load failure publishes `renderer-unavailable` on `__VIRTUALROW_WEBGPU_HEALTH` instead of a procedural stand-in.
+- The same rule governs the crew: the HD rower body (`scripts/crew_body.py`, #672/#673) is authored and exported to GLB; new crew parts (hair, kit, hats) go through that pipeline rather than runtime geometry.
+
+If a PR introduces runtime-synthesised triangles for anything that is not on the exceptions list above, the review will ask for a committed model instead. Mirror this rule where it already appears in `CLAUDE.md` ("ENGINE SCENE-OBJECT RULE") so both documents stay in step.
 
 #### Historical: React scene (pre-#542)
 
