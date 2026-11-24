@@ -69,6 +69,9 @@
   const conditions = sharedConditionsStore();
 
   const testMode = typeof window !== 'undefined' && !!window.__PLAYWRIGHT_TESTING;
+  // #753 FR5: a spec can switch the late-route rebuild back on in test mode.
+  const rebuildOnRouteChange =
+    !testMode || (typeof window !== 'undefined' && !!window.__ROWER3D_REBUILD_ON_ROUTE_CHANGE);
 
   // #726 VP-08 FR1 — the engine reports each load phase as it settles (the
   // boat, the crew, the flora atlas, the scenery near the start, the first
@@ -227,7 +230,7 @@
             {appearancePatch}
             conditions={conditions.conditions}
             viewportInsets={hudInsets}
-            rebuildOnRouteChange={!testMode}
+            {rebuildOnRouteChange}
             onBackend={(b) => (canvasBackend = b)}
             onLoadPhase={(phase, status) => (loadReports = new Map(loadReports).set(phase, status))}
             loadingOverlayShown={() => stageEl?.querySelector('.route-loading-bar') != null}

@@ -374,6 +374,14 @@ declare global {
   interface Window {
     __PLAYWRIGHT_TESTING?: boolean;
     /**
+     * #753 FR5 — let a test-mode row rebuild the scene when late route data
+     * lands, as a real row does. Off in test mode otherwise, so a spec still
+     * creates exactly one device.
+     */
+    __ROWER3D_REBUILD_ON_ROUTE_CHANGE?: boolean;
+    /** #753 FR5 — how many times the host has rebuilt the scene for a new route. */
+    __ROWER3D_REBUILDS?: number;
+    /**
      * Let a Playwright spec see a row finish (#336). The harness otherwise
      * skips the auto-finish, so a spec that is not about it keeps its row.
      */

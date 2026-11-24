@@ -154,6 +154,18 @@ describe('Canvas3DHost', () => {
       ).toBe('live');
     });
 
+    it('counts each rebuild on window.__ROWER3D_REBUILDS (#753 FR5)', async () => {
+      delete window.__ROWER3D_REBUILDS;
+      const attach = vi.fn<RideAttach>(() => ({ dispose: vi.fn() }));
+      const { rerender } = render(Canvas3DHost, { attach, route: { id: 'a' }, rebuildOnRouteChange: true });
+      await flush();
+      expect(window.__ROWER3D_REBUILDS).toBeUndefined();
+      await rerender({ attach, route: { id: 'b' }, rebuildOnRouteChange: true });
+      await flush();
+      expect(window.__ROWER3D_REBUILDS).toBe(1);
+      delete window.__ROWER3D_REBUILDS;
+    });
+
     it('does nothing when the same route object is passed again', async () => {
       const dispose = vi.fn();
       const attach = vi.fn<RideAttach>(() => ({ dispose }));
