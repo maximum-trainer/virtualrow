@@ -219,6 +219,10 @@
             </p>
           {/if}
 
+          {#if routes.routeTracing[route.id]}
+            <p class="route-enrichment-status" role="status" data-testid="route-tracing">Tracing the river…</p>
+          {/if}
+
           {#if routes.selectedRouteEnrichmentLoading}
             <p class="route-enrichment-status" role="status">
               {enrichmentStatusCopy(routes.routeEnrichmentPhase[route.id])}

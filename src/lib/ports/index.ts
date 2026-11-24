@@ -151,6 +151,12 @@ export type RownativePort = Pick<
   | 'attachTrack'
   | 'detachTrack'
   | 'attachedTrack'
+  | 'onGeometryEvent'
+  | 'isTracing'
+  | 'geometrySettled'
+  | 'setGeometryHold'
+  | 'releaseHeldGeometry'
+  | 'refreshGeometry'
 >;
 
 /**

@@ -21,11 +21,13 @@
 import type { Services } from '../ports';
 import type { WaterRoute } from '../types/index';
 import type { RouteEnrichmentData } from '../services/routeEnrichmentService';
+import type { RownativeGeometryEvent } from '../services/rownativeService';
 import { OUTLINE_ONLY_TAG } from '../services/routeService';
 import { TrackParseError, detectTrackFormat } from '../utils/trackParsers';
 import { defaultServices } from './services';
 import { trackAttachmentStore } from '../services/trackAttachmentStore';
 import { normalizeGeometrySource } from '../utils/geometryProvenance';
+import { waterBodyFromName } from '../utils/waterBodyFromName';
 
 /** The bundled demo route, selected when nothing else resolves (App.tsx). */
 const DEMO_ROUTE_ID = '1';
@@ -41,6 +43,35 @@ export function routeGeometrySource(
   if (route.geometrySource) return normalizeGeometrySource(route, hasAttachedTrack);
   return route.tags?.includes(OUTLINE_ONLY_TAG) ? 'gate-chain' : undefined;
 }
+
+/**
+ * #750 FR5 — whether a route can be offered "Refresh geometry": a rownative
+ * course still on its gate chain, on water with a centreline to follow (not a
+ * lake, reservoir or the sea, which the lookup skips).
+ */
+export function canRefreshGeometry(route: WaterRoute): boolean {
+  return (
+    route.source === 'rownative' &&
+    !!route.externalId &&
+    routeGeometrySource(route) === 'gate-chain' &&
+    !(['lake', 'reservoir', 'open_water'] as const).includes(
+      waterBodyFromName(route.name) as 'lake' | 'reservoir' | 'open_water',
+    )
+  );
+}
+
+/** Where the courses already offered a refresh are remembered (#750 FR5). */
+const REFRESH_OFFERED_KEY = 'virtualrow:geometry-refresh-offered';
+
+const readOffered = (): Set<string> => {
+  try {
+    const raw = typeof window === 'undefined' ? null : window.localStorage.getItem(REFRESH_OFFERED_KEY);
+    const list = raw ? (JSON.parse(raw) as unknown) : [];
+    return new Set(Array.isArray(list) ? list.filter((v): v is string => typeof v === 'string') : []);
+  } catch {
+    return new Set();
+  }
+};
 
 /** The rownative sync status encoded in a route's tags, if any (App.tsx). */
 export function extractRouteStatus(tags: string[] | undefined): string | undefined {
@@ -73,6 +104,10 @@ export class RoutesStore {
   #routeService: Services['routeService'];
   #enrichment: Services['routeEnrichmentService'];
   #defaultPref: Services['defaultRoutePreferenceStore'];
+  #rownative: Services['rownativeService'] | undefined;
+
+  /** #750 FR4 — a row is in progress on the selected route. */
+  #rowing = false;
 
   /** Whether an athlete is signed in: only they need a route's map data. */
   #signedIn = false;
@@ -93,6 +128,10 @@ export class RoutesStore {
   routeEnrichmentLoading = $state<Record<string, boolean>>({});
   /** #741 FR5 — which part of a loading route's map data is being read. */
   routeEnrichmentPhase = $state<Record<string, 'water' | 'scenery'>>({});
+  /** #750 FR3 — routes whose waterway is being traced in the background. */
+  routeTracing = $state<Record<string, boolean>>({});
+  /** #750 FR5 — courses already offered "Refresh geometry", so the offer shows once. */
+  refreshOffered = $state<Set<string>>(readOffered());
 
   // Import panel.
   isImportOpen = $state(false);
@@ -111,6 +150,60 @@ export class RoutesStore {
     this.#routeService = services.routeService;
     this.#enrichment = services.routeEnrichmentService;
     this.#defaultPref = services.defaultRoutePreferenceStore;
+    this.#rownative = services.rownativeService;
+    this.#rownative?.setGeometryHold?.((routeId) => this.#rowing && this.selectedRoute?.id === routeId);
+    this.#rownative?.onGeometryEvent?.((event) => this.#onGeometryEvent(event));
+  }
+
+  /**
+   * #750 FR4 — follow the row. While one is in progress a better line for the
+   * route being rowed waits, so the course never moves under the boat; it is
+   * applied when the row ends.
+   */
+  setRowInProgress(active: boolean): void {
+    if (active === this.#rowing) return;
+    this.#rowing = active;
+    if (!active) this.#rownative?.releaseHeldGeometry?.();
+  }
+
+  /** #750 FR5 — look for the waterway again for a gate-chain rownative route. */
+  refreshGeometry(route: WaterRoute): Promise<WaterRoute | null> {
+    this.dismissRefreshOffer(route);
+    return this.#rownative?.refreshGeometry?.(route.id).catch(() => null) ?? Promise.resolve(null);
+  }
+
+  /** #750 FR5 — whether this route's card still shows the one-time offer. */
+  showsRefreshOffer(route: WaterRoute): boolean {
+    return canRefreshGeometry(route) && !this.routeTracing[route.id] && !this.refreshOffered.has(route.externalId ?? route.id);
+  }
+
+  /** Stop offering the refresh on this course (taken up, or "Not now"). */
+  dismissRefreshOffer(route: WaterRoute): void {
+    const key = route.externalId ?? route.id;
+    if (this.refreshOffered.has(key)) return;
+    this.refreshOffered = new Set([...this.refreshOffered, key]);
+    try {
+      window.localStorage.setItem(REFRESH_OFFERED_KEY, JSON.stringify([...this.refreshOffered]));
+    } catch {
+      // The offer may come back after a reload; that is all.
+    }
+  }
+
+  #onGeometryEvent(event: RownativeGeometryEvent): void {
+    if (event.kind === 'tracing' || event.kind === 'settled') {
+      this.routeTracing = { ...this.routeTracing, [event.routeId]: event.kind === 'tracing' };
+      return;
+    }
+    // The route was changed in place: same id, same place in the list.
+    const route = event.route;
+    this.routes = this.#routeService.getAllRoutes();
+    // #750 FR7 — its water and banks were read along the old line.
+    this.#enrichment.clearCache?.(route.id);
+    const rest = { ...this.routeEnrichments };
+    delete rest[route.id];
+    this.routeEnrichments = rest;
+    if (this.selectedRoute?.id === route.id) this.#select(route);
+    if (this.routeDetailOpen?.id === route.id) this.routeDetailOpen = route;
   }
 
   /** Load the catalogue (App.tsx's mount effect: `routeService.getAllRoutes()`). */

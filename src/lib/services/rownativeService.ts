@@ -19,6 +19,7 @@ import {
 import { parseTrackFile } from '../utils/trackParsers';
 import { readBundledIndex, type RownativeBundledCourse } from './rownativeBundledIndex';
 import { assetUrl } from '../utils/assetUrl';
+import { cachedWaterwayProvider, waterwayPathCache, type WaterwayPathCache } from './waterwayPathCache';
 
 export type { RownativeBundledCourse } from './rownativeBundledIndex';
 
@@ -82,6 +83,32 @@ interface RownativeCourseFile extends RownativeCourseGeometryInput {
   polygons?: RownativeCoursePolygon[];
 }
 
+/**
+ * #750 VP-27 — what happens to an imported course's line after the import has
+ * returned: the waterway lookup starting (`tracing`), a better line replacing
+ * the gate chain in place (`replaced`), and the lookup ending either way
+ * (`settled`). Keyed by the route's own id.
+ */
+export type RownativeGeometryEvent =
+  | { kind: 'tracing'; routeId: string }
+  | { kind: 'replaced'; route: WaterRoute }
+  | { kind: 'settled'; routeId: string };
+
+type GeometryUpdate = Pick<RownativeRouteImportData, 'coordinates' | 'geometrySource' | 'geometryWarnings'>;
+
+export interface RownativeServiceOptions {
+  /** Swap a route's line in place (#750 FR2). Defaults to the route catalogue. */
+  replaceGeometry?: (routeId: string, update: GeometryUpdate) => WaterRoute | undefined;
+  /** Look a route up by its own id, for "Refresh geometry" (#750 FR5). */
+  findRoute?: (routeId: string) => WaterRoute | undefined;
+  /** Where found waterway paths are kept per course (#750 FR6). */
+  pathCache?: WaterwayPathCache;
+}
+
+/** #747 FR3: only the refusals of a real line are worth showing a rower. */
+const shownWarnings = (warnings: string[]): string[] =>
+  warnings.filter((w) => /^(Course path|Attached track) ignored/.test(w));
+
 export interface RownativeCourseSummary {
   id: string;
   name: string;
@@ -109,6 +136,15 @@ export class RownativeService {
    * as before. Pass `null` to switch it off.
    */
   private readonly osmProvider: WaterwayPathProvider | null;
+  private readonly replaceGeometry: (routeId: string, update: GeometryUpdate) => WaterRoute | undefined;
+  private readonly findRoute: (routeId: string) => WaterRoute | undefined;
+  private readonly pathCache: WaterwayPathCache;
+  /** #750: lookups running in the background, by route id. */
+  private readonly tracing = new Map<string, Promise<void>>();
+  /** #750 FR4: lines found while their route was being rowed, by route id. */
+  private readonly held = new Map<string, GeometryUpdate>();
+  private hold: (routeId: string) => boolean = () => false;
+  private readonly geometryListeners = new Set<(event: RownativeGeometryEvent) => void>();
 
   constructor(
     // Forwarded through an arrow rather than passing `fetch` directly: stored on
@@ -119,11 +155,122 @@ export class RownativeService {
     importRoute: (data: RownativeRouteImportData) => WaterRoute = (data) => routeService.importRouteFromRownative(data),
     tracks: TrackAttachmentStore = trackAttachmentStore,
     osmProvider: WaterwayPathProvider | null | undefined = undefined,
+    options: RownativeServiceOptions = {},
   ) {
     this.fetchImpl = fetchImpl;
     this.importRoute = importRoute;
     this.tracks = tracks;
     this.osmProvider = osmProvider === undefined ? new OsmWaterwayPathProvider(fetchImpl) : osmProvider;
+    this.replaceGeometry = options.replaceGeometry ?? ((id, update) => routeService.replaceRownativeGeometry(id, update));
+    this.findRoute = options.findRoute ?? ((id) => routeService.getRouteById(id));
+    this.pathCache = options.pathCache ?? waterwayPathCache;
+  }
+
+  /** Listen for background geometry changes (#750). Returns an unsubscribe. */
+  onGeometryEvent(listener: (event: RownativeGeometryEvent) => void): () => void {
+    this.geometryListeners.add(listener);
+    return () => this.geometryListeners.delete(listener);
+  }
+
+  /** Whether the waterway lookup for this route is still running (#750 FR3). */
+  isTracing(routeId: string): boolean {
+    return this.tracing.has(routeId);
+  }
+
+  /** Resolves when this route's background lookup, if any, has finished. */
+  geometrySettled(routeId: string): Promise<void> {
+    return this.tracing.get(routeId) ?? Promise.resolve();
+  }
+
+  /**
+   * #750 FR4 — routes whose line must not change yet (the one being rowed).
+   * A line found for such a route waits until {@link releaseHeldGeometry}.
+   */
+  setGeometryHold(hold: (routeId: string) => boolean): void {
+    this.hold = hold;
+  }
+
+  /** Apply every line that waited for a row to end (#750 FR4). */
+  releaseHeldGeometry(): void {
+    const waiting = [...this.held];
+    this.held.clear();
+    for (const [routeId, update] of waiting) this.applyGeometry(routeId, update);
+  }
+
+  /**
+   * #750 FR5 — look for the waterway again for a route imported on the gate
+   * chain (a course imported before #749, or one whose lookup failed). The
+   * route keeps its id. Resolves with the route once the lookup has finished,
+   * whatever it found, or null when it is not a rownative river course.
+   */
+  async refreshGeometry(routeId: string): Promise<WaterRoute | null> {
+    const route = this.findRoute(routeId);
+    if (!route || route.source !== 'rownative' || !route.externalId) return null;
+    const provider = this.providerFor(route.name);
+    if (!provider) return null;
+    if (!this.tracing.has(routeId)) {
+      const detail = await this.fetchCourseDetail(route.externalId);
+      this.traceInBackground(routeId, { ...detail, id: detail.id || route.externalId, name: route.name }, provider);
+    }
+    await this.geometrySettled(routeId);
+    return this.findRoute(routeId) ?? null;
+  }
+
+  /**
+   * Whether a course of this name gets a waterway lookup at all. A lake has
+   * no centreline to walk, and the lookup can take half a minute on a busy
+   * day; the course name is the only water signal the mirror gives us (#413).
+   */
+  private providerFor(name: string): WaterwayPathProvider | null {
+    return OPEN_WATER_TYPES.has(waterBodyFromName(name)) ? null : this.osmProvider;
+  }
+
+  private emit(event: RownativeGeometryEvent): void {
+    for (const listener of this.geometryListeners) {
+      try {
+        listener(event);
+      } catch {
+        // One listener's failure is not the import's.
+      }
+    }
+  }
+
+  private applyGeometry(routeId: string, update: GeometryUpdate): void {
+    const route = this.replaceGeometry(routeId, update);
+    if (route) this.emit({ kind: 'replaced', route });
+  }
+
+  /**
+   * #750 FR2 — the waterway lookup the import used to wait for, run after it.
+   * Only a line the resolver accepts as map-derived replaces the gate chain;
+   * a lookup that fails or finds nothing leaves the route as imported.
+   */
+  private traceInBackground(routeId: string, course: RownativeCourseFile, provider: WaterwayPathProvider): void {
+    if (this.tracing.has(routeId)) return;
+    const courseId = course.id;
+    const run = (async () => {
+      try {
+        const geometry = await resolveCourseGeometry(course, {
+          attachedTrack: this.tracks.getCoordinates(courseId),
+          osmProvider: cachedWaterwayProvider(provider, courseId, this.pathCache),
+        });
+        if (geometry.source !== 'osm-derived' || geometry.coordinates.length < 2) return;
+        const update: GeometryUpdate = {
+          coordinates: geometry.coordinates,
+          geometrySource: geometry.source,
+          geometryWarnings: shownWarnings(geometry.warnings),
+        };
+        if (this.hold(routeId)) this.held.set(routeId, update);
+        else this.applyGeometry(routeId, update);
+      } catch {
+        // The gate chain the import already gave the route stands.
+      } finally {
+        this.tracing.delete(routeId);
+        this.emit({ kind: 'settled', routeId });
+      }
+    })();
+    this.tracing.set(routeId, run);
+    this.emit({ kind: 'tracing', routeId });
   }
 
   private async fetchJson<T>(url: string): Promise<T> {
@@ -418,32 +565,33 @@ export class RownativeService {
     const courseId = detail.id || fallback.id;
     const name = detail.name || fallback.name || `Course ${fallback.id}`;
 
-    const geometry = await resolveCourseGeometry(
-      { ...detail, id: courseId, name },
-      {
-        attachedTrack: this.tracks.getCoordinates(courseId),
-        // A lake has no centreline to walk, and the lookup can take half a
-        // minute on a busy day; the course name is the only water signal the
-        // mirror gives us (#413), so use it to skip the wait.
-        osmProvider: OPEN_WATER_TYPES.has(waterBodyFromName(name)) ? null : this.osmProvider,
-      },
-    );
+    const course: RownativeCourseFile = { ...detail, id: courseId, name };
+    // #750 FR1: the import no longer waits for the waterway lookup, which can
+    // take half a minute; the course is in My routes on its gate chain (or
+    // its own line) at once, and the lookup refines it in the background.
+    const geometry = await resolveCourseGeometry(course, {
+      attachedTrack: this.tracks.getCoordinates(courseId),
+      osmProvider: null,
+    });
 
     if (geometry.coordinates.length < 2) {
       throw new Error(`Course ${name} (${fallback.id}) has insufficient coordinate data. At least 2 coordinate points are required.`);
     }
 
-    return this.importRoute({
+    const route = this.importRoute({
       id: courseId,
       name,
       country: detail.country || fallback.country || 'Unknown',
       coordinates: geometry.coordinates,
       geometrySource: geometry.source,
-      // #747 FR3: only the refusals of a real line are worth showing a rower.
-      geometryWarnings: geometry.warnings.filter((w) => /^(Course path|Attached track) ignored/.test(w)),
+      geometryWarnings: shownWarnings(geometry.warnings),
       externalDistanceMeters: detail.distance_m ?? fallback.distanceMeters,
       status: detail.status ?? fallback.status,
     });
+
+    const provider = this.providerFor(name);
+    if (provider && geometry.source === 'gate-chain') this.traceInBackground(route.id, course, provider);
+    return route;
   }
 }
 

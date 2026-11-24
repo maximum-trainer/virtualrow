@@ -104,6 +104,49 @@ const waterTagOrUndefined = (name: string): string | undefined => {
   return type === 'unknown' ? undefined : type;
 };
 
+/**
+ * The fields a rownative import derives from its line (#194 R-5, #413, #756):
+ * shared by the import and by an in-place geometry swap (#750) so the two can
+ * never disagree about a route's distance or tags.
+ */
+const rownativeGeometryFields = (
+  data: Pick<RownativeRouteImportData, 'id' | 'name' | 'coordinates' | 'geometrySource' | 'status'>,
+) => {
+  // Distance is a property of the geometry, measured once, here (issue #194
+  // R-5). rownative's distance_m is a straight-line gate chain by its own
+  // schema, so it cannot describe a course that bends; it is display only.
+  //
+  // Kept to metre precision rather than R-5's two decimal places: AC-6 and
+  // AC-7 require the stored distance to be within 1 m of both the polyline
+  // and the engine's own total, and rounding to 10 m cannot do that. Cards
+  // format it for display.
+  const distanceKm = Math.round(polylineLengthMeters(data.coordinates)) / 1000;
+  const difficulty: WaterRoute['difficulty'] = distanceKm < 4 ? 'easy' : distanceKm < 7 ? 'moderate' : 'hard';
+  const normalizedStatus = data.status?.trim().toLowerCase();
+  const sourceTag = normalizedStatus ? `status:${normalizedStatus}` : undefined;
+  const isGateChain = data.geometrySource === 'gate-chain';
+  return {
+    distanceKm,
+    difficulty,
+    estimatedTimeMin: Math.round((distanceKm / 3.5) * 60),
+    coordinates: resampleCoordinates(data.coordinates, IMPORT_RESAMPLE_MAX_GAP_M),
+    tags: [
+      'rownative',
+      'imported',
+      sourceTag,
+      `${GEOMETRY_SOURCE_TAG_PREFIX}${data.geometrySource}`,
+      isGateChain ? OUTLINE_ONLY_TAG : undefined,
+      // The name is the only water signal rownative gives us (#413).
+      // Written here so the tag path in `inferRouteWaterBodyType` picks it
+      // up as it does any curated tag. `unknown` earns no tag — the list
+      // does not grow an entry for a guess (AC4.2).
+      waterTagOrUndefined(data.name),
+      // #756 FR4: sea courses are marked so the scene can draw one shore.
+      waterBodyFromName(data.name) === 'open_water' ? 'coastal' : undefined,
+    ].filter((tag): tag is string => Boolean(tag)),
+  };
+};
+
 export class RouteService {
   private routes: WaterRoute[] = [];
 
@@ -426,50 +469,58 @@ export class RouteService {
   }
 
   importRouteFromRownative(data: RownativeRouteImportData): WaterRoute {
-    // Distance is a property of the geometry, measured once, here (issue #194
-    // R-5). rownative's distance_m is a straight-line gate chain by its own
-    // schema, so it cannot describe a course that bends; it is display only.
-    //
-    // Kept to metre precision rather than R-5's two decimal places: AC-6 and
-    // AC-7 require the stored distance to be within 1 m of both the polyline
-    // and the engine's own total, and rounding to 10 m cannot do that. Cards
-    // format it for display.
-    const distanceKm = Math.round(polylineLengthMeters(data.coordinates)) / 1000;
-    const difficulty = distanceKm < 4 ? 'easy' : distanceKm < 7 ? 'moderate' : 'hard';
-    const normalizedStatus = data.status?.trim().toLowerCase();
-    const sourceTag = normalizedStatus ? `status:${normalizedStatus}` : undefined;
-
-    const isGateChain = data.geometrySource === 'gate-chain';
-    const coordinates = resampleCoordinates(data.coordinates, IMPORT_RESAMPLE_MAX_GAP_M);
-
+    const derived = rownativeGeometryFields(data);
     return this.createRoute({
       name: data.name,
       description: `Imported from rownative.icu course ${data.id}.`,
       location: data.country,
-      difficulty,
-      coordinates,
-      distanceKm,
-      estimatedTimeMin: Math.round((distanceKm / 3.5) * 60),
-      tags: [
-        'rownative',
-        'imported',
-        sourceTag,
-        `${GEOMETRY_SOURCE_TAG_PREFIX}${data.geometrySource}`,
-        isGateChain ? OUTLINE_ONLY_TAG : undefined,
-        // The name is the only water signal rownative gives us (#413).
-        // Written here so the tag path in `inferRouteWaterBodyType` picks it
-        // up as it does any curated tag. `unknown` earns no tag — the list
-        // does not grow an entry for a guess (AC4.2).
-        waterTagOrUndefined(data.name),
-        // #756 FR4: sea courses are marked so the scene can draw one shore.
-        waterBodyFromName(data.name) === 'open_water' ? 'coastal' : undefined,
-      ].filter((tag): tag is string => Boolean(tag)),
+      difficulty: derived.difficulty,
+      coordinates: derived.coordinates,
+      distanceKm: derived.distanceKm,
+      estimatedTimeMin: derived.estimatedTimeMin,
+      tags: derived.tags,
       source: 'rownative',
       externalId: data.id,
       geometrySource: data.geometrySource,
       externalDistanceMeters: data.externalDistanceMeters,
       geometryWarnings: data.geometryWarnings,
     });
+  }
+
+  /**
+   * #750 VP-27 FR2 — give an imported rownative route a better line without
+   * making it a new route. The id, its place in My routes, and anything keyed
+   * by the id (the default-route star, best rows) stay; the coordinates,
+   * distance, time, difficulty, geometry tags and warnings follow the new line
+   * exactly as an import with it would have set them. Returns the route, or
+   * undefined when there is no such route.
+   */
+  replaceRownativeGeometry(
+    routeId: string,
+    update: Pick<RownativeRouteImportData, 'coordinates' | 'geometrySource' | 'geometryWarnings'>,
+  ): WaterRoute | undefined {
+    const route = this.routes.find((r) => r.id === routeId);
+    if (!route || route.source !== 'rownative' || update.coordinates.length < 2) return undefined;
+    const status = route.tags.find((t) => t.startsWith('status:'))?.slice('status:'.length);
+    const derived = rownativeGeometryFields({
+      id: route.externalId ?? route.id,
+      name: route.name,
+      coordinates: update.coordinates,
+      geometrySource: update.geometrySource,
+      status,
+    });
+    route.coordinates = derived.coordinates;
+    route.distance = derived.distanceKm;
+    route.estimatedTime = derived.estimatedTimeMin;
+    route.difficulty = derived.difficulty;
+    // Tags the import did not write (a curated or user tag) are kept.
+    const generated = (t: string) =>
+      t.startsWith(GEOMETRY_SOURCE_TAG_PREFIX) || t === OUTLINE_ONLY_TAG || derived.tags.includes(t);
+    route.tags = [...derived.tags, ...route.tags.filter((t) => !generated(t))];
+    route.geometrySource = update.geometrySource;
+    if (update.geometryWarnings?.length) route.geometryWarnings = update.geometryWarnings;
+    else delete route.geometryWarnings;
+    return route;
   }
 
   updateRoute(id: string, data: Partial<RouteFormData>): WaterRoute | undefined {
