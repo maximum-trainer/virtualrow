@@ -146,7 +146,7 @@ describe('the waterway provider seam', () => {
 describe('a stake race on a river (#751 FR3/FR4/FR5)', () => {
   it('resolves osm-derived, with the legs apart except at the stake', async () => {
     const { OsmWaterwayPathProvider } = await import('../lib/services/osmWaterwayPathProvider');
-    const river = { type: 'way', geometry: [at(0, -300), at(0, 2600)].map((c) => ({ lat: c.lat, lon: c.lng })) };
+    const river = { type: 'way', tags: { waterway: 'river' }, geometry: [at(0, -300), at(0, 2600)].map((c) => ({ lat: c.lat, lon: c.lng })) };
     const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ elements: [river] }) }));
     const osmProvider = new OsmWaterwayPathProvider(fetchMock as unknown as typeof fetch);
 

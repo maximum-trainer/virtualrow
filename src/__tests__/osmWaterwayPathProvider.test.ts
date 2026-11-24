@@ -20,6 +20,7 @@ const at = (x: number, y: number): Coordinate => ({
 });
 const way = (...points: [number, number][]) => ({
   type: 'way',
+  tags: { waterway: 'river' } as Record<string, string>,
   geometry: points.map(([x, y]) => {
     const c = at(x, y);
     return { lat: c.lat, lon: c.lng };
@@ -231,9 +232,10 @@ describe('OsmWaterwayPathProvider on water mapped only as an area', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     const query = decodeURIComponent(String(init.body));
-    expect(query).toContain('"waterway"~');
-    expect(query).toContain('"natural"="water"');
-    expect(query).toContain('"waterway"="riverbank"');
+    // #752 FR3: the shared water query, which holds waterway lines and water areas.
+    expect(query).toContain('way["waterway"]');
+    expect(query).toContain('way["natural"~"^(water|');
+    expect(query).toContain('relation["waterway"]');
     for (const p of path!) {
       const y = (p.lat - ORIGIN.lat) * M_PER_DEG_LAT;
       expect(Math.abs(y)).toBeLessThanOrEqual(60);

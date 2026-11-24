@@ -371,6 +371,7 @@ describe('RownativeService', () => {
       elements: [
         {
           type: 'way',
+          tags: { waterway: 'river' },
           geometry: Array.from({ length: 21 }, (_, i) => ({
             lat: 52.0 + (0.018 * i) / 20,
             lon: 0.006 * Math.sin((i / 20) * Math.PI),

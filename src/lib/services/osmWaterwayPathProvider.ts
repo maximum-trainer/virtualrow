@@ -59,11 +59,12 @@ import type { WaterwayPathOptions, WaterwayPathProvider } from './rownativeGeome
 import { stakeTurns } from '../utils/courseCorners';
 import { gateSide, offsetLeg, retracesLeg, returnLegOffsetMeters } from './returnLegOffset';
 import { deriveAreaCentreline, parseWaterAreas, straightOnWater } from './waterAreaCentreline';
+import { OverpassWaterCache, buildWaterQueryForBox, type WaterBox } from './overpassWaterCache';
 
 const OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
 
 /** Waterway classes a rowing course can plausibly follow. */
-const WATERWAY_FILTER = '^(river|canal|stream|tidal_channel|fairway)$';
+const WATERWAY_CLASSES = /^(river|canal|stream|tidal_channel|fairway)$/;
 /**
  * #751 FR3: the width assumed for a river whose gates give none, so a
  * return leg sits 0.3 x 40 = 12 m off the outbound one.
@@ -71,16 +72,17 @@ const WATERWAY_FILTER = '^(river|canal|stream|tidal_channel|fairway)$';
 const UNKNOWN_WATER_WIDTH_M = 40;
 /** #751 FR4: the line leaves the centreline this far before a stake, and rejoins this far after. */
 export const STAKE_RUN_IN_M = 20;
-/** #751 FR1: water mapped as an area (`water=river|canal|dock` are `natural=water`). */
-const WATER_AREA_SELECTORS = [
-  'way["natural"="water"]',
-  'relation["natural"="water"]',
-  'way["waterway"="riverbank"]',
-  'relation["waterway"="riverbank"]',
-];
-
 /** Margin added around the gate bounding box, in metres. */
 const BBOX_MARGIN_M = 1000;
+/**
+ * #752 FR3: water already fetched for a box reaching this far past the gates
+ * is used instead of asking again. It is the enrichment's own margin (#493
+ * FR20), so the water fetched to dress a course also serves a re-trace of it;
+ * no snap reaches further than {@link MAX_SNAP_DISTANCE_CEILING_M}.
+ */
+const SHARED_WATER_MARGIN_M = 650;
+/** The server-side time limit on the water query sent from here. */
+const QUERY_TIMEOUT_S = 25;
 
 /** A small gate further than this from any mapped waterway is not on it. */
 export const MAX_SNAP_DISTANCE_M = 150;
@@ -133,6 +135,8 @@ const RETRYABLE_STATUS = new Set([429, 502, 503, 504]);
 export interface OsmWaterwayPathProviderOptions {
   budgetMs?: number;
   retryDelayMs?: number;
+  /** #752 FR3: the water answers shared with route enrichment. */
+  waterCache?: OverpassWaterCache;
 }
 
 const METERS_PER_DEGREE_LAT = 111_320;
@@ -145,9 +149,16 @@ interface OverpassWay {
 
 /** #751: a water area (bank outline), not a line to walk. */
 const isWaterArea = (element: OverpassWay): boolean =>
-  element?.type === 'relation'
-  || element?.tags?.natural === 'water'
-  || element?.tags?.waterway === 'riverbank';
+  element?.tags?.natural === 'water' || element?.tags?.waterway === 'riverbank';
+
+/**
+ * #752 FR3: what this provider reads out of the shared water answer, which is
+ * exactly what its own query used to ask for: waterway lines of the classes
+ * above, and `natural=water` / `waterway=riverbank` areas.
+ */
+const isWalkableWater = (element: OverpassWay): boolean =>
+  isWaterArea(element)
+  || (element?.type !== 'relation' && WATERWAY_CLASSES.test(element?.tags?.waterway ?? ''));
 
 interface OverpassResponse {
   elements?: OverpassWay[];
@@ -285,6 +296,7 @@ export class OsmWaterwayPathProvider implements WaterwayPathProvider {
 
   private readonly budgetMs: number;
   private readonly retryDelayMs: number;
+  private readonly waterCache: OverpassWaterCache;
 
   constructor(
     fetchImpl: typeof fetch = (input, init) => globalThis.fetch(input, init),
@@ -293,6 +305,7 @@ export class OsmWaterwayPathProvider implements WaterwayPathProvider {
     this.fetchImpl = fetchImpl;
     this.budgetMs = options.budgetMs ?? LOOKUP_BUDGET_MS;
     this.retryDelayMs = options.retryDelayMs ?? RETRY_DELAY_MS;
+    this.waterCache = options.waterCache ?? new OverpassWaterCache();
   }
 
   /** Cache key mirrors the route-enrichment scheme: the query's bounding box. */
@@ -300,18 +313,32 @@ export class OsmWaterwayPathProvider implements WaterwayPathProvider {
     return `osm-waterway:${bbox}`;
   }
 
-  private static boundingBox(gates: Coordinate[]): string {
+  private static boundingBox(gates: Coordinate[], marginM: number): WaterBox {
     const lats = gates.map((gate) => gate.lat);
     const lngs = gates.map((gate) => gate.lng);
-    const latMargin = BBOX_MARGIN_M / METERS_PER_DEGREE_LAT;
+    const latMargin = marginM / METERS_PER_DEGREE_LAT;
     const meanLat = lats.reduce((sum, lat) => sum + lat, 0) / lats.length;
     const lngMargin = latMargin / Math.max(0.01, Math.cos((meanLat * Math.PI) / 180));
-    return [
-      Math.min(...lats) - latMargin,
-      Math.min(...lngs) - lngMargin,
-      Math.max(...lats) + latMargin,
-      Math.max(...lngs) + lngMargin,
-    ].map((value) => value.toFixed(5)).join(',');
+    return {
+      minLat: Math.min(...lats) - latMargin,
+      minLng: Math.min(...lngs) - lngMargin,
+      maxLat: Math.max(...lats) + latMargin,
+      maxLng: Math.max(...lngs) + lngMargin,
+    };
+  }
+
+  /**
+   * #752 FR3: the water around the gates, from the shared cache when an
+   * earlier query already covered them, else from one query that is then kept
+   * there. Null when the server never answered well.
+   */
+  private async waterElements(gates: Coordinate[]): Promise<OverpassWay[] | null> {
+    const cached = this.waterCache.covering(OsmWaterwayPathProvider.boundingBox(gates, SHARED_WATER_MARGIN_M));
+    if (cached) return cached as OverpassWay[];
+    const box = OsmWaterwayPathProvider.boundingBox(gates, BBOX_MARGIN_M);
+    const elements = await this.overpassElements(buildWaterQueryForBox(box, QUERY_TIMEOUT_S));
+    if (elements) this.waterCache.store(box, elements);
+    return elements as OverpassWay[] | null;
   }
 
   /**
@@ -323,11 +350,13 @@ export class OsmWaterwayPathProvider implements WaterwayPathProvider {
   async findPath(gates: Coordinate[], options: WaterwayPathOptions = {}): Promise<Coordinate[] | null> {
     if (gates.length < 2) return null;
 
-    const bbox = OsmWaterwayPathProvider.boundingBox(gates);
+    const bbox = Object.values(OsmWaterwayPathProvider.boundingBox(gates, BBOX_MARGIN_M))
+      .map((value) => value.toFixed(5))
+      .join(',');
     const key = OsmWaterwayPathProvider.cacheKey(bbox);
     if (this.cache.has(key)) return this.cache.get(key) ?? null;
 
-    const path = await this.derivePath(bbox, gates, options).catch(() => null);
+    const path = await this.derivePath(gates, options).catch(() => null);
     this.cache.set(key, path);
     return path;
   }
@@ -417,16 +446,10 @@ export class OsmWaterwayPathProvider implements WaterwayPathProvider {
     return full.length >= 2 && OsmWaterwayPathProvider.withinTotalDetour(gates, full) ? full : null;
   }
 
-  private async derivePath(
-    bbox: string,
-    gates: Coordinate[],
-    options: WaterwayPathOptions,
-  ): Promise<Coordinate[] | null> {
-    const selectors = [`way["waterway"~"${WATERWAY_FILTER}"]`, ...WATER_AREA_SELECTORS];
-    const elements = await this.overpassElements(
-      `[out:json][timeout:25];(${selectors.map((sel) => `${sel}(${bbox});`).join('')});out geom;`,
-    ) as OverpassWay[] | null;
-    if (!elements) return null;
+  private async derivePath(gates: Coordinate[], options: WaterwayPathOptions): Promise<Coordinate[] | null> {
+    const water = await this.waterElements(gates);
+    if (!water) return null;
+    const elements = water.filter(isWalkableWater);
     const areas = elements.filter(isWaterArea);
     const graph = buildGraph(elements.filter((element) => !isWaterArea(element)));
 
