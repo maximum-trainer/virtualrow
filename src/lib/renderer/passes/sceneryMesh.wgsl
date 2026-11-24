@@ -116,18 +116,11 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let fresnel = pow(1.0 - clamp(abs(dot(n, v)), 0.0, 1.0), 4.0);
     col = col + vec3<f32>(0.55, 1.0, 0.25) * fresnel * inst.fx.y;
   }
-  // Fog with the frame's exponential density, but capped at a modest
-  // atmospheric-haze ceiling. The baseline fog `[0.001, 0.0005]` reaches
-  // `f ≈ 0.84` at 60 m, and `fogCol` is a pale blue-grey `(0.72, 0.78, 0.82)`,
-  // so an unclamped mix bleaches mid-distance tier-E scenery (trees, foliage)
-  // toward near-pure fog — the trees read as transparent pale silhouettes
-  // instead of green/brown. Capping at 0.35 keeps the depth cue while letting
-  // the authored tint still show through. Other geometry (bank, water, boat)
-  // declares `fog` but doesn't apply it; the sprite flora pass is separate.
-  let density = frame.fog.x + frame.fog.y * in.worldDist;
-  let f = clamp(1.0 - exp(-density * in.worldDist), 0.0, 1.0);
-  let fogCol = vec3<f32>(0.72, 0.78, 0.82);
-    // The race ghost opts out (`fx.w` 0): haze over a dark hull would pull
-  // it towards the water's brightness (#728 FR2).
-  return vec4<f32>(mix(col, fogCol, min(f, 0.35) * inst.fx.w), in.color.a * inst.fx.x);
+  // #725 FR6 — the shared aerial fog (nothing within 150 m, then toward
+  // the sky's horizon colour). It replaces a pale fixed-colour haze that
+  // reached its 0.35 cap by ~60 m and bleached every kit tree. `fx.w` is the
+  // share an instance takes: the race ghost opts out (0), as a haze over its
+  // dark hull would pull it towards the water's brightness (#728 FR2).
+  let fogged = applyFog(col, in.worldPos - frame.camPos);
+  return vec4<f32>(mix(col, fogged, inst.fx.w), in.color.a * inst.fx.x);
 }

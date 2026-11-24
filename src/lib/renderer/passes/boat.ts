@@ -14,6 +14,8 @@ import { BOAT_FLOATS_PER_VERTEX, BOAT_BONE_COUNT } from '../plan/boatMesh';
 import boatWgsl from './boat.wgsl?raw';
 import { renderPipelineAsync } from '../engine/pipelineAsync';
 import { sceneMultisample } from '../engine/msaa';
+import { AERIAL_FOG_WGSL, lightingBindingWgsl, SKY_COLOUR_WGSL } from '../engine/shaderSnippets';
+import { defaultLightingUniformBuffer } from '../engine/uniforms';
 
 const BOAT_UNIFORM_BYTES = 16 * 4 + 4 * 4 + 4 * 4; // model + tint + flags
 const BOAT_SKIN_BYTES = BOAT_BONE_COUNT * 16 * 4;
@@ -61,6 +63,8 @@ export interface BoatPassOptions {
   device: GPUDevice;
   format: GPUTextureFormat;
   frameUniforms: GPUBuffer;
+  /** #725 FR6 — the conditions block, for the shared fog's horizon colour; midday when absent. */
+  lightingUniforms?: GPUBuffer;
   mesh: BoatMeshBuffers;
 }
 
@@ -140,7 +144,12 @@ const makeInstance = (
 
 export const createBoatPass = async (opts: BoatPassOptions): Promise<BoatPass> => {
   const { device, format, frameUniforms, mesh } = opts;
-  const module = device.createShaderModule({ label: 'boat', code: boatWgsl });
+  const lightingUniforms = opts.lightingUniforms ?? defaultLightingUniformBuffer(device);
+  // #725 FR6 — the shared aerial fog, in the sky's horizon colour.
+  const module = device.createShaderModule({
+    label: 'boat',
+    code: lightingBindingWgsl(1) + SKY_COLOUR_WGSL + AERIAL_FOG_WGSL + boatWgsl,
+  });
   const pipeline = await renderPipelineAsync(device, {
     multisample: sceneMultisample(device),
     label: 'boat',
@@ -180,7 +189,10 @@ export const createBoatPass = async (opts: BoatPassOptions): Promise<BoatPass> =
   const frameBindGroup = device.createBindGroup({
     label: 'boat-frame',
     layout: pipeline.getBindGroupLayout(0),
-    entries: [{ binding: 0, resource: { buffer: frameUniforms } }],
+    entries: [
+      { binding: 0, resource: { buffer: frameUniforms } },
+      { binding: 1, resource: { buffer: lightingUniforms } },
+    ],
   });
 
   const vertexBuffer = device.createBuffer({
@@ -262,6 +274,7 @@ export const createBoatPass = async (opts: BoatPassOptions): Promise<BoatPass> =
       for (const member of fleet) member.dispose();
       vertexBuffer.destroy();
       indexBuffer.destroy();
+      if (!opts.lightingUniforms) lightingUniforms.destroy();
     },
   };
 };

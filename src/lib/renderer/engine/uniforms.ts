@@ -30,7 +30,7 @@
 
 import type { Mat4 } from '../math/mat4';
 import type { FrameUniforms } from './frameGraph';
-import type { FrameLighting } from '../plan/conditionsLighting';
+import { DEFAULT_FRAME_LIGHTING, type FrameLighting } from '../plan/conditionsLighting';
 
 export const FRAME_UNIFORMS_FLOATS = 68;
 export const FRAME_UNIFORMS_BYTES = FRAME_UNIFORMS_FLOATS * 4;
@@ -224,6 +224,17 @@ export const createLightingUniformBuffer = (device: GPUDevice): GPUBuffer =>
     size: LIGHTING_UNIFORMS_BYTES,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
+
+/**
+ * #725 FR6 — a lighting block holding the default (midday) conditions, for a
+ * pass created without the engine's live one (smokes, unit tests). The
+ * shared fog reads its horizon colour from it.
+ */
+export const defaultLightingUniformBuffer = (device: GPUDevice): GPUBuffer => {
+  const buffer = createLightingUniformBuffer(device);
+  device.queue.writeBuffer(buffer, 0, packFrameLighting(DEFAULT_FRAME_LIGHTING) as BufferSource);
+  return buffer;
+};
 
 export const packFrameLighting = (
   l: FrameLighting,

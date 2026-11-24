@@ -64,6 +64,8 @@ export interface MockGPULog {
   createdTextures: { label: string; sampleCount: number }[];
   /** #731 — (label, multisample count) of every render pipeline created. */
   pipelineSampleCounts: { label: string; count: number }[];
+  /** Every shader module created: its label and WGSL. */
+  shaderModules: { label: string; code: string }[];
   /** #731 — render passes that resolve a colour attachment, by label. */
   resolvingPasses: string[];
 }
@@ -86,6 +88,7 @@ export const makeMockDevice = (): MockDevice => {
     indirectDraws: 0,
     createdTextures: [],
     pipelineSampleCounts: [],
+    shaderModules: [],
     resolvingPasses: [],
   };
 
@@ -178,7 +181,10 @@ export const makeMockDevice = (): MockDevice => {
     // anything else gated on `device.features.has(...)` takes its absent path.
     features: new Set() as unknown as GPUSupportedFeatures,
     createBuffer: (desc: GPUBufferDescriptor) => makeBuffer(desc),
-    createShaderModule: () => ({ label: '' }) as unknown as GPUShaderModule,
+    createShaderModule: (desc: GPUShaderModuleDescriptor) => {
+      log.shaderModules.push({ label: (desc?.label ?? '') as string, code: (desc?.code ?? '') as string });
+      return { label: desc?.label ?? '' } as unknown as GPUShaderModule;
+    },
     createBindGroupLayout: () => ({}) as unknown as GPUBindGroupLayout,
     createPipelineLayout: () => ({}) as unknown as GPUPipelineLayout,
     createRenderPipeline: (desc: GPURenderPipelineDescriptor) => {

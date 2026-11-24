@@ -287,5 +287,5 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   let ndotl = max(dot(n, normalize(frame.sunDir)), 0.0);
   let lit = sampleShadow(in.worldPos, in.viewZ);
   let diffuse = shaded * (0.28 + 0.72 * ndotl * lit);
-  return vec4<f32>(diffuse, 1.0);
+  return vec4<f32>(applyFog(diffuse, in.worldPos - frame.camPos), 1.0);
 }

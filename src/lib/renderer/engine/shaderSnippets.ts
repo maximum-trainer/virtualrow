@@ -162,6 +162,65 @@ fn skyColourToward(dir: vec3<f32>) -> vec3<f32> {
 `;
 
 /**
+ * #725 VP-07 FR6 — aerial perspective, one curve for every lit pass (bank,
+ * water, buildings, kit scenery, sprite scenery, boat). Nothing within
+ * {@link AERIAL_FOG_START_M} of the camera is touched, so near scenery keeps
+ * its colour (the old kit-scenery haze bleached trees, #622); past that the
+ * colour eases toward the sky's own horizon colour in that direction, up to
+ * {@link AERIAL_FOG_MAX}, so the far bank and the backdrop recede.
+ *
+ * The density follows `frame.fog.y`, which already carries the conditions'
+ * fog scale (#730) and the view-distance tier (#596).
+ */
+export const AERIAL_FOG_START_M = 150;
+export const AERIAL_FOG_MAX = 0.55;
+/** Density per metre for each unit of `frame.fog.y` (0.0005 baseline → 0.0006/m). */
+export const AERIAL_FOG_DENSITY_PER_FOG_Y = 1.2;
+
+/** CPU mirror of `aerialFogAmount` in {@link AERIAL_FOG_WGSL}. */
+export const aerialFogAmount = (distMetres: number, fogY: number): number =>
+  AERIAL_FOG_MAX * (1 - Math.exp(-Math.max(distMetres - AERIAL_FOG_START_M, 0) * fogY * AERIAL_FOG_DENSITY_PER_FOG_Y));
+
+/** The #730 conditions block, for passes that did not declare it themselves. */
+export const LIGHTING_STRUCT_WGSL = /* wgsl */ `
+struct Lighting {
+  sun: vec4<f32>,
+  ambient: vec4<f32>,
+  zenith: vec4<f32>,
+  horizonCool: vec4<f32>,
+  horizonWarm: vec4<f32>,
+  sunDisc: vec4<f32>,
+  cloudTint: vec4<f32>,
+  waterTint: vec4<f32>,
+};
+`;
+
+/** Declare the lighting block at group 0, binding `binding`. */
+export const lightingBindingWgsl = (binding: number): string =>
+  `${LIGHTING_STRUCT_WGSL}@group(0) @binding(${binding}) var<uniform> lighting: Lighting;\n`;
+
+/**
+ * `applyFog(col, toFrag)`: `toFrag` is the fragment's world position minus
+ * the camera's. Needs `frame`, `lighting` and {@link SKY_COLOUR_WGSL}.
+ */
+export const AERIAL_FOG_WGSL = /* wgsl */ `
+const AERIAL_FOG_START_M: f32 = ${AERIAL_FOG_START_M.toFixed(1)};
+const AERIAL_FOG_MAX: f32 = ${AERIAL_FOG_MAX.toFixed(3)};
+const AERIAL_FOG_DENSITY_PER_FOG_Y: f32 = ${AERIAL_FOG_DENSITY_PER_FOG_Y.toFixed(3)};
+fn aerialFogAmount(dist: f32) -> f32 {
+  return AERIAL_FOG_MAX * (1.0 - exp(-max(dist - AERIAL_FOG_START_M, 0.0) * frame.fog.y * AERIAL_FOG_DENSITY_PER_FOG_Y));
+}
+fn applyFog(col: vec3<f32>, toFrag: vec3<f32>) -> vec3<f32> {
+  let f = aerialFogAmount(length(toFrag.xz));
+  if (f <= 0.0) {
+    return col;
+  }
+  let horizon = skyColourToward(normalize(vec3<f32>(toFrag.x, 0.0, toFrag.z) + vec3<f32>(1e-5, 0.0, 0.0)));
+  return mix(col, horizon, f);
+}
+`;
+
+/**
  * #734 VP-16 FR1/FR5 — the water surface both water passes (the river
  * strip and the #493 lake polygons) shade with: `waterSlope(p, t, dist)`
  * from the wave table in `plan/waterWaves.ts`, and its Fresnel and sun-lobe

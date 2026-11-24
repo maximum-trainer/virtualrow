@@ -822,15 +822,16 @@ export const createRideScene = async (
       format,
       frameUniforms,
       sproutUniforms,
+      lightingUniforms,
       pools: scenePools,
       telemetry: telemetry.scenery,
       foliageAtlasView,
       foliageSampler,
     }),
-    createBoatPass({ device, format, frameUniforms, mesh: boatMesh }),
+    createBoatPass({ device, format, frameUniforms, lightingUniforms, mesh: boatMesh }),
     // #734 FR4 — kit scenery and the scull receive shadows wherever the
     // kit casts them (medium and up); basic/low draw as before.
-    createSceneryMeshPass({ device, format, frameUniforms, receiveShadows: tierCaps.castSceneryShadows }),
+    createSceneryMeshPass({ device, format, frameUniforms, lightingUniforms, receiveShadows: tierCaps.castSceneryShadows }),
   ]));
   const BOAT_SCULL_PREFIX = 'boat-scull';
   /**
@@ -1213,6 +1214,7 @@ export const createRideScene = async (
     device,
     format,
     frameUniforms,
+    lightingUniforms,
     shadow: shadowResources,
     pool: buildingsPool,
     telemetry: telemetry.buildings,

@@ -11,6 +11,7 @@
 
 import type { PoolCullResources } from './sceneryCull';
 import sceneryWgsl from './scenery.wgsl?raw';
+import { AERIAL_FOG_WGSL, lightingBindingWgsl, SKY_COLOUR_WGSL } from '../engine/shaderSnippets';
 import { renderPipelineAsync } from '../engine/pipelineAsync';
 import { sceneMultisample } from '../engine/msaa';
 
@@ -28,7 +29,11 @@ export const createScenerySignature = async (
   device: GPUDevice,
   format: GPUTextureFormat,
 ): Promise<ScenerySignature> => {
-  const module = device.createShaderModule({ label: 'scenery', code: sceneryWgsl });
+  // #725 FR6 — the shared aerial fog, in the sky's horizon colour.
+  const module = device.createShaderModule({
+    label: 'scenery',
+    code: lightingBindingWgsl(4) + SKY_COLOUR_WGSL + AERIAL_FOG_WGSL + sceneryWgsl,
+  });
   const frameLayout = device.createBindGroupLayout({
     label: 'scenery-frame',
     entries: [
@@ -38,6 +43,8 @@ export const createScenerySignature = async (
       // + sampler. Populated by `attach.ts` from `paintFoliage` output.
       { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float', viewDimension: '2d-array' } },
       { binding: 3, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
+      // #725 FR6 — the conditions block, for the fog's horizon colour.
+      { binding: 4, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
     ],
   });
   const poolLayout = device.createBindGroupLayout({

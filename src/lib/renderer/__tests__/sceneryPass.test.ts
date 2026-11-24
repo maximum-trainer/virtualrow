@@ -93,6 +93,19 @@ describe('sceneryPass', () => {
     for (const p of pools) p.dispose();
   });
 
+  it('owns the midday lighting buffer only when none is supplied (#725 FR6)', async () => {
+    const destroyedAfter = async (withLighting: boolean): Promise<number> => {
+      const device = makeMockDevice();
+      const frameUniforms = makeUniformBuffer(device);
+      const lightingUniforms = withLighting ? makeUniformBuffer(device) : undefined;
+      const pass = await createSceneryPass({ device, format: 'bgra8unorm', frameUniforms, sproutUniforms: frameUniforms, lightingUniforms, pools: [] });
+      const before = device.__log.destroyedBuffers;
+      pass.dispose();
+      return device.__log.destroyedBuffers - before;
+    };
+    expect(await destroyedAfter(false)).toBe((await destroyedAfter(true)) + 1);
+  });
+
   it('encodes nothing when pools are empty', async () => {
     const device = makeMockDevice();
     const frameUniforms = makeUniformBuffer(device);
