@@ -14,6 +14,7 @@ import { attach } from '../attach';
 import { resetWebGPUHealth } from '../health';
 import { installGPUStub, makeMockAdapter, makeMockCanvas, makeMockGPU } from '../../__tests__/_mockWebGPU';
 import { releaseTelemetry } from '../telemetry';
+import { RENDER_BUDGET } from '../../renderBudget';
 
 type Harness = {
   _frameOnce: () => void;
@@ -90,18 +91,27 @@ describe('flat scenery cost along Willowbrook (#727)', () => {
       }
     };
     const shadows: number[] = [];
+    const drawn: number[] = [];
     const resident: { at: number; bytes: number }[] = [];
     for (distance = 0; distance <= total; distance += 250) {
       await settle();
       const s = renderer._telemetry.renderStats;
       shadows.push(s.shadowTriangles);
+      drawn.push(s.triangles);
       resident.push({ at: distance, bytes: s.residentMeshBytes });
     }
     expect(median(shadows)).toBeGreaterThan(0);
     expect(Math.max(...shadows), `shadow triangles every 250 m: ${shadows.join(', ')}`).toBeLessThanOrEqual(
       1.5 * median(shadows),
     );
-    const early = resident.find((r) => r.at >= 500)!;
+    // #725 FR7 — denser stations still fit the tier's triangle budget.
+    expect(Math.max(...drawn), `triangles every 250 m: ${drawn.join(', ')}`).toBeLessThanOrEqual(
+      RENDER_BUDGET.high.triangles,
+    );
+    // Measured from once the first look-ahead window (at least 600 m, #726
+    // FR2) has loaded: with stations every 35 m (#725 FR1) the route's
+    // models are still arriving at 500 m.
+    const early = resident.find((r) => r.at >= 1000)!;
     const late = resident[resident.length - 1];
     expect(early.bytes).toBeGreaterThan(0);
     expect(late.bytes, `resident bytes: ${resident.map((r) => `${r.at} m ${r.bytes}`).join(', ')}`).toBeLessThanOrEqual(

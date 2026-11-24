@@ -67,6 +67,27 @@ export const centrelineIndex = (points: readonly (readonly [number, number, numb
   };
 };
 
+/** Metres between samples in {@link sampledCentreline}. */
+export const CENTRELINE_SAMPLE_METRES = 5;
+
+/**
+ * #725 — the centreline as the spline draws it, one point every
+ * {@link CENTRELINE_SAMPLE_METRES}. Control points cut the inside of a
+ * tight turn, which the spline swings wide of.
+ */
+export const sampledCentreline = (curve: {
+  lengthMeters: number;
+  sample(progress: number): { position: ArrayLike<number> };
+}): [number, number, number][] => {
+  const count = Math.max(2, Math.ceil(curve.lengthMeters / CENTRELINE_SAMPLE_METRES) + 1);
+  const out: [number, number, number][] = [];
+  for (let i = 0; i < count; i += 1) {
+    const p = curve.sample(i / (count - 1)).position;
+    out.push([p[0], p[1], p[2]]);
+  }
+  return out;
+};
+
 /** Lane and turn buoys and bridge spans belong on the water. */
 const onWaterByDesign = (id: string): boolean => /buoy/.test(id) || /bridge/.test(id);
 

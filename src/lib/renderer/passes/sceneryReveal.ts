@@ -20,7 +20,7 @@ export const SCENERY_VISIBILITY_METRES = 2000;
 /** Reveal time for a mesh that should draw fully from its first frame. */
 export const ALWAYS_REVEALED = -1e9;
 
-/** Bytes of the per-mesh reveal uniform: {revealTime, fadeSeconds, visibility, pad}. */
+/** Bytes of the per-mesh reveal uniform: {revealTime, fadeSeconds, visibility, drawDistance}. */
 export const SCENERY_REVEAL_UNIFORM_BYTES = 16;
 
 export interface RevealOptions {
@@ -42,10 +42,14 @@ export const revealAlpha = (
   return Math.min(1, Math.max(0, (now - revealTime) / fadeSeconds));
 };
 
-export const packRevealUniform = (revealTime: number, out = new Float32Array(4)): Float32Array => {
+/**
+ * `drawDistance` (#725 FR7): metres beyond which the mesh is not drawn, 0 for
+ * no limit. The shader dithers it out over the last fifth of that distance.
+ */
+export const packRevealUniform = (revealTime: number, out = new Float32Array(4), drawDistance = 0): Float32Array => {
   out[0] = revealTime;
   out[1] = SCENERY_REVEAL_SECONDS;
   out[2] = SCENERY_VISIBILITY_METRES;
-  out[3] = 0;
+  out[3] = drawDistance;
   return out;
 };

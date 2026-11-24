@@ -130,11 +130,31 @@ export const boxOutsideFrustum = (
  * The runs of visible instances: `(first, count)` pairs written into `out`,
  * adjacent cells merged into one run. Returns the number of runs.
  */
-export const visibleRuns = (layout: CellLayout, planes: Float32Array, out: Uint32Array): number => {
+export interface NearLimit {
+  /** Eye position on the ground plane. */
+  x: number;
+  z: number;
+  /** #725 FR7 — cells whose box is further than this (horizontally) are skipped; 0 means no limit. */
+  maxDistance: number;
+}
+
+/** Horizontal distance from (x, z) to a box, 0 inside it. */
+const boxGroundDistance = (x: number, z: number, min: readonly number[], max: readonly number[]): number =>
+  Math.hypot(Math.max(min[0] - x, 0, x - max[0]), Math.max(min[2] - z, 0, z - max[2]));
+
+export const visibleRuns = (
+  layout: CellLayout,
+  planes: Float32Array,
+  out: Uint32Array,
+  near?: NearLimit | null,
+): number => {
   if (boxOutsideFrustum(planes, layout.min, layout.max)) return 0;
+  const limit = near && near.maxDistance > 0 ? near : null;
+  if (limit && boxGroundDistance(limit.x, limit.z, layout.min, layout.max) > limit.maxDistance) return 0;
   let runs = 0;
   for (const cell of layout.cells) {
     if (boxOutsideFrustum(planes, cell.min, cell.max)) continue;
+    if (limit && boxGroundDistance(limit.x, limit.z, cell.min, cell.max) > limit.maxDistance) continue;
     const last = runs - 1;
     if (last >= 0 && out[last * 2] + out[last * 2 + 1] === cell.first) {
       out[last * 2 + 1] += cell.count;

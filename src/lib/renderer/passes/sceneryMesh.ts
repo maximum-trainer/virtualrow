@@ -96,11 +96,23 @@ export interface SceneryMeshInput {
    * leaves it off.
    */
   cullCellMetres?: number;
+  /**
+   * #725 FR7 — metres from the camera beyond which this mesh is not drawn
+   * (cells further away are skipped, and the shader fades it out before).
+   * 0 or absent draws it at any distance.
+   */
+  drawDistanceMetres?: number;
+  /** #725 FR7 — metres from the camera beyond which it casts no shadow; 0 or absent for no limit. */
+  shadowDistanceMetres?: number;
 }
 
 /** #727 — per-mesh culling state: the cell layout and a scratch run list. */
 interface MeshCull {
   cellMetres: number;
+  /** #725 FR7 — horizontal draw limit from the eye, 0 for none. */
+  drawDistance: number;
+  /** #725 FR7 — horizontal shadow-casting limit from the eye, 0 for none. */
+  shadowDistance: number;
   /** The model's reach from its pivot, before instance scale. */
   radius: number;
   layout: CellLayout | null;
@@ -237,7 +249,7 @@ export interface SceneryMeshPass extends Pass {
    * #727 FR1 — the camera's view-projection for this frame. Culled meshes
    * draw only their cells inside it; until it is set they draw whole.
    */
-  setView(viewProj: Mat4): void;
+  setView(viewProj: Mat4, eye?: ArrayLike<number>): void;
   /**
    * #727 FR2 — like `forEachActiveShadowCaster`, with the runs of each
    * mesh's instances inside `viewProj` (a cascade's light projection):
@@ -463,7 +475,7 @@ export const createSceneryMeshPass = async ({
       size: SCENERY_REVEAL_UNIFORM_BYTES,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
-    device.queue.writeBuffer(revealBuffer, 0, packRevealUniform(input.revealAt ?? ALWAYS_REVEALED) as BufferSource);
+    device.queue.writeBuffer(revealBuffer, 0, packRevealUniform(input.revealAt ?? ALWAYS_REVEALED, undefined, input.drawDistanceMetres ?? 0) as BufferSource);
     const meshEntries: GPUBindGroupEntry[] = [
       { binding: 1, resource: { buffer: instanceBuffer, offset: instanceOffset, size: instanceSize } },
       { binding: 2, resource: { buffer: revealBuffer } },
@@ -504,7 +516,7 @@ export const createSceneryMeshPass = async ({
       castsShadow: input.castsShadow ?? true,
       cull:
         input.cullCellMetres && !group
-          ? { cellMetres: input.cullCellMetres, radius: meshRadius(input.positions), layout: null, runs: new Uint32Array(0) }
+          ? { cellMetres: input.cullCellMetres, drawDistance: Math.max(0, input.drawDistanceMetres ?? 0), shadowDistance: Math.max(0, input.shadowDistanceMetres ?? 0), radius: meshRadius(input.positions), layout: null, runs: new Uint32Array(0) }
           : null,
       bytes:
         input.positions.byteLength +
@@ -590,10 +602,17 @@ export const createSceneryMeshPass = async ({
   const viewPlanes = new Float32Array(24);
   let viewSet = false;
   const cascadePlanes = new Float32Array(24);
+  // #725 FR7 — the eye, for meshes with a draw distance.
+  const nearLimit = { x: 0, z: 0, maxDistance: 0 };
+  let eyeSet = false;
   const wholeRun = new Uint32Array(2);
   const runResult: { runs: Uint32Array; count: number } = { runs: wholeRun, count: 0 };
   /** Runs of `mesh` to draw inside `planes`; the whole list when it is not culled. */
-  const runsIn = (mesh: RegisteredMesh, planes: Float32Array | null): { runs: Uint32Array; count: number } => {
+  const runsIn = (
+    mesh: RegisteredMesh,
+    planes: Float32Array | null,
+    forShadow = false,
+  ): { runs: Uint32Array; count: number } => {
     if (!mesh.cull?.layout || !planes) {
       wholeRun[0] = 0;
       wholeRun[1] = mesh.instanceCount;
@@ -602,7 +621,8 @@ export const createSceneryMeshPass = async ({
       return runResult;
     }
     runResult.runs = mesh.cull.runs;
-    runResult.count = visibleRuns(mesh.cull.layout, planes, mesh.cull.runs);
+    nearLimit.maxDistance = eyeSet ? (forShadow ? mesh.cull.shadowDistance : mesh.cull.drawDistance) : 0;
+    runResult.count = visibleRuns(mesh.cull.layout, planes, mesh.cull.runs, nearLimit);
     return runResult;
   };
   // One reused snapshot object, so the per-cascade walk allocates nothing.
@@ -674,15 +694,20 @@ export const createSceneryMeshPass = async ({
     stats,
     setShadow,
     receivesShadows: receiveShadows,
-    setView(viewProj: Mat4) {
+    setView(viewProj: Mat4, eye?: ArrayLike<number>) {
       frustumPlanes(viewProj, viewPlanes);
       viewSet = true;
+      if (eye) {
+        nearLimit.x = eye[0];
+        nearLimit.z = eye[2];
+        eyeSet = true;
+      }
     },
     forEachShadowCasterIn(viewProj, cb) {
       frustumPlanes(viewProj, cascadePlanes);
       for (const mesh of registry.values()) {
         if (mesh.instanceCount === 0 || !mesh.castsShadow) continue;
-        const { runs, count } = runsIn(mesh, cascadePlanes);
+        const { runs, count } = runsIn(mesh, cascadePlanes, true);
         if (count === 0) continue;
         cb(snapshotOf(mesh), runs, count);
       }

@@ -76,7 +76,12 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   // seconds instead of popping in at full opacity. Interleaved gradient
   // noise on the pixel picks which fragments survive, so the opaque pass
   // keeps writing depth and needs no sorting.
-  let revealA = select(clamp((frame.time - reveal.x) / reveal.y, 0.0, 1.0), 1.0, in.worldDist > reveal.z);
+  var revealA = select(clamp((frame.time - reveal.x) / reveal.y, 0.0, 1.0), 1.0, in.worldDist > reveal.z);
+  // #725 FR7 — small detail is drawn only to `reveal.w` metres, and
+  // dithers out over the last fifth of that rather than popping.
+  if (reveal.w > 0.0) {
+    revealA = min(revealA, clamp((reveal.w - in.worldDist) / (0.2 * reveal.w), 0.0, 1.0));
+  }
   if (revealA < 1.0) {
     let px = floor(in.clip.xy);
     let noise = fract(52.9829189 * fract(0.06711056 * px.x + 0.00583715 * px.y));
