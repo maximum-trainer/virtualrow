@@ -259,6 +259,8 @@
     untrack(() => {
       if (!mounted || next === attachedRoute) return;
       if (backend === 'unavailable') return;
+      // #753 FR5: a spec counts the rebuilds a late route causes.
+      if (typeof window !== 'undefined') window.__ROWER3D_REBUILDS = (window.__ROWER3D_REBUILDS ?? 0) + 1;
       if (!currentHandle) {
         // Nothing on screen yet: build the newer scene in place.
         releaseCurrent();

@@ -40,6 +40,7 @@
     "default:rower-slide.spec.ts": 432,
     "default:rower-stroke.spec.ts": 125,
     "default:rownative-background-trace.spec.ts": 12,
+    "default:webgpu-route-rebuild.spec.ts": 20,
     "default:rownative-course-import.spec.ts": 9,
     "default:rownative-track-attach.spec.ts": 7,
     "default:rownative-challenges-flow.spec.ts": 20,
