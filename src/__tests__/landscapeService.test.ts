@@ -378,6 +378,19 @@ describe('land cover (FR4)', () => {
     expect(forest.points[0]).toEqual(forest.points[forest.points.length - 1]);
     expect(forest.points.length).toBeGreaterThanOrEqual(4);
   });
+
+  it('carries a wood\'s leaf type, and only the known ones (#764 FR5)', () => {
+    const features = landCoverFromElements(
+      [
+        { ...WOOD, tags: { natural: 'wood', leaf_type: 'needleleaved' } },
+        { ...WOOD, tags: { natural: 'wood', leaf_type: 'leafless' } },
+        { ...WOOD, tags: { natural: 'wood' } },
+      ],
+      COURSE[0],
+    );
+    expect(features.map((f) => f.leafType)).toEqual(['needleleaved', undefined, undefined]);
+    expect('leafType' in features[2]).toBe(false);
+  });
 });
 
 describe('built form (FR5)', () => {
