@@ -269,6 +269,7 @@
           class="route-overview-map__cluster"
           data-testid="route-cluster"
           data-cluster-count={entry.count}
+          data-rownative-count={entry.rownativePreviewIds.length}
           style="left: {pos ? `${pos.x}px` : '50%'}; top: {pos ? `${pos.y}px` : '50%'};"
           aria-label={`${entry.count} routes near this location — zoom in to see them`}
           onclick={() => {

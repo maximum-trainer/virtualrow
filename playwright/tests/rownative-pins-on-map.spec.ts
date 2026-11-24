@@ -29,12 +29,19 @@ test('guest sees rownative pins on the Routes world map, with no mirror fetch (#
 
   await page.goto('/virtualrow/app/search', { waitUntil: 'networkidle' });
 
-  // At least one rownative pin lands on the map. The bundled snapshot has
-  // ~166 established courses, so not finding one would mean the loader or
-  // the map wiring is broken.
-  await expect(page.locator('[data-testid="route-pin-rownative"]').first()).toBeVisible();
-  const count = await page.locator('[data-testid="route-pin-rownative"]').count();
-  expect(count).toBeGreaterThan(0);
+  // The SVG fallback stays at FALLBACK_ZOOM (2) with 166 established
+  // courses, so Supercluster rolls most previews into a handful of
+  // clusters — standalone `route-pin-rownative` pins only appear once
+  // a cluster breaks apart on zoom. The map is still proving it
+  // surfaces previews so long as at least one cluster or pin carries
+  // rownative preview ids.
+  await expect(page.locator('[data-testid="route-overview-map"]')).toBeVisible();
+  const previewLocator = page.locator(
+    '[data-testid="route-pin-rownative"], [data-testid="route-cluster"][data-rownative-count]:not([data-rownative-count="0"])',
+  );
+  await expect(previewLocator.first()).toBeVisible();
+  const previewCount = await previewLocator.count();
+  expect(previewCount).toBeGreaterThan(0);
 
   // AC10 / NFR3: guests never touch the live mirror or rownative.icu.
   expect(upstreamHits).toEqual([]);
