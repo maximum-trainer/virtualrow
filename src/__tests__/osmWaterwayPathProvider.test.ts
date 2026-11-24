@@ -341,4 +341,17 @@ describe('OsmWaterwayPathProvider at a stake', () => {
     expect(near.length).toBeGreaterThan(3);
     for (const p of near) expect(Math.hypot(xOf(p), yOf(p) - 2000)).toBeGreaterThan(5);
   });
+
+  it('crosses a stake laid as a pair of gates gate to gate, without dipping back to the centreline', async () => {
+    const { provider } = overpass([STRAIGHT]);
+    const north = at(0, 2000);
+    const south = at(-20, 2000);
+    const path = await provider.findPath([at(0, 0), north, south, at(-20, 0)], { gateExtentsMeters: [40, 40, 40, 40] });
+    expect(path).not.toBeNull();
+    const i = path!.findIndex((p) => Math.abs(p.lat - north.lat) < 1e-9 && Math.abs(p.lng - north.lng) < 1e-9);
+    expect(i).toBeGreaterThan(0);
+    expect(path![i + 1]).toEqual(south);
+    // Nothing near the stake lies between the two gates on the centreline.
+    expect(path!.every((p) => !(yOf(p) > 1990 && Math.abs(xOf(p)) < 1 && p !== path![i]))).toBe(true);
+  });
 });

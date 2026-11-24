@@ -87,12 +87,24 @@ const arc = (centre: Vec, from: Vec, sweep: number): Vec[] => {
 };
 
 /**
- * #753 VP-30 FR1 — the gate centres where a course turns back on itself: an
- * interior gate whose chain turns by more than {@link STAKE_TURN_THRESHOLD_DEG}.
- * These are the stakes (or turn buoys) the line is rounded about, and the
- * engine marks each with a turn buoy.
+ * Two gates this close together, with the course turning back between them,
+ * are one stake laid as a pair: the crew goes up one side and comes back
+ * through the other (rownative course 233's "red #18 NB" and "red #18 SB").
  */
-export function stakeTurnCentres(chain: readonly Coordinate[]): Coordinate[] {
+export const STAKE_PAIR_MAX_GAP_M = 60;
+
+/** A stake: the chain indices of its gate (or its pair of gates) and where it stands. */
+export interface StakeTurn {
+  gates: number[];
+  centre: Coordinate;
+}
+
+/**
+ * #753 VP-30 FR1 — where a course turns back on itself: an interior gate
+ * whose chain turns by more than {@link STAKE_TURN_THRESHOLD_DEG}, or a pair
+ * of gates under {@link STAKE_PAIR_MAX_GAP_M} apart that do so between them.
+ */
+export function stakeTurns(chain: readonly Coordinate[]): StakeTurn[] {
   if (chain.length < 3) return [];
   const origin = chain[0];
   const lngScale = METERS_PER_DEGREE_LAT * Math.max(0.01, Math.cos(origin.lat * RAD));
@@ -100,16 +112,33 @@ export function stakeTurnCentres(chain: readonly Coordinate[]): Coordinate[] {
     x: (c.lng - origin.lng) * lngScale,
     y: (c.lat - origin.lat) * METERS_PER_DEGREE_LAT,
   });
-  const out: Coordinate[] = [];
-  for (let i = 1; i < chain.length - 1; i += 1) {
-    const a = toLocal(chain[i - 1]);
-    const b = toLocal(chain[i]);
-    const c = toLocal(chain[i + 1]);
-    if (len(sub(b, a)) <= 0 || len(sub(c, b)) <= 0) continue;
-    const turn = Math.acos(Math.max(-1, Math.min(1, dot(unit(sub(b, a)), unit(sub(c, b))))));
-    if (turn > STAKE_TURN_THRESHOLD_DEG * RAD) out.push({ lat: chain[i].lat, lng: chain[i].lng });
+  const pts = chain.map(toLocal);
+  const turnBetween = (a: Vec, b: Vec, c: Vec, d: Vec): number => {
+    if (len(sub(b, a)) <= 0 || len(sub(d, c)) <= 0) return 0;
+    return Math.acos(Math.max(-1, Math.min(1, dot(unit(sub(b, a)), unit(sub(d, c))))));
+  };
+  const threshold = STAKE_TURN_THRESHOLD_DEG * RAD;
+  const out: StakeTurn[] = [];
+  for (let i = 1; i < pts.length - 1; i += 1) {
+    if (turnBetween(pts[i - 1], pts[i], pts[i], pts[i + 1]) > threshold) {
+      out.push({ gates: [i], centre: { lat: chain[i].lat, lng: chain[i].lng } });
+      continue;
+    }
+    const pair = i + 2 < pts.length && len(sub(pts[i + 1], pts[i])) < STAKE_PAIR_MAX_GAP_M;
+    if (pair && turnBetween(pts[i - 1], pts[i], pts[i + 1], pts[i + 2]) > threshold) {
+      out.push({
+        gates: [i, i + 1],
+        centre: { lat: (chain[i].lat + chain[i + 1].lat) / 2, lng: (chain[i].lng + chain[i + 1].lng) / 2 },
+      });
+      i += 1;
+    }
   }
   return out;
+}
+
+/** The centre of each stake in {@link stakeTurns}, where the engine puts a turn buoy. */
+export function stakeTurnCentres(chain: readonly Coordinate[]): Coordinate[] {
+  return stakeTurns(chain).map((stake) => stake.centre);
 }
 
 export interface RoundCourseCornersOptions {
