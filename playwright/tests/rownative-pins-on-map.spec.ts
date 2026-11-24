@@ -29,12 +29,10 @@ test('guest sees rownative pins on the Routes world map, with no mirror fetch (#
 
   await page.goto('/virtualrow/app/search', { waitUntil: 'networkidle' });
 
-  // The SVG fallback stays at FALLBACK_ZOOM (2) with 166 established
-  // courses, so Supercluster rolls most previews into a handful of
-  // clusters — standalone `route-pin-rownative` pins only appear once
-  // a cluster breaks apart on zoom. The map is still proving it
-  // surfaces previews so long as at least one cluster or pin carries
-  // rownative preview ids.
+  // The overview opens on the whole set (user routes + previews), so at
+  // world zoom Supercluster rolls most of the ~166 courses into clusters.
+  // A rownative pin, or a cluster carrying rownative ids, proves the
+  // previews reached the map.
   await expect(page.locator('[data-testid="route-overview-map"]')).toBeVisible();
   const previewLocator = page.locator(
     '[data-testid="route-pin-rownative"], [data-testid="route-cluster"][data-rownative-count]:not([data-rownative-count="0"])',

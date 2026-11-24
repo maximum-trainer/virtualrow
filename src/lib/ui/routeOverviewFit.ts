@@ -46,6 +46,7 @@ const boundsOf = (points: Iterable<Coordinate>): OverviewFit['bounds'] | null =>
 export const overviewFit = (
   pins: readonly OverviewPin[],
   defaultRouteId: string | null,
+  extraPoints: readonly Coordinate[] = [],
 ): OverviewFit | null => {
   const defaultPin = pins.find((p) => p.route.id === defaultRouteId);
   if (defaultPin) {
@@ -60,8 +61,8 @@ export const overviewFit = (
     };
   }
   const bounds =
-    pins.length === 1
+    pins.length === 1 && extraPoints.length === 0
       ? boundsOf(pins[0].route.coordinates)
-      : boundsOf(pins.map((p) => p.centroid));
+      : boundsOf([...pins.map((p) => p.centroid), ...extraPoints]);
   return bounds ? { bounds, padding: 48, maxZoom: OVERVIEW_MAX_ZOOM } : null;
 };

@@ -56,4 +56,30 @@ describe('overviewFit (#738)', () => {
   it('returns null with no pins', () => {
     expect(overviewFit([], null)).toBeNull();
   });
+
+  it('#822: widens a lone route to take in the rownative preview pins', () => {
+    const sydney = { lat: -33.8, lng: 151.2 };
+    const fit = overviewFit([willow], null, [sydney])!;
+    expect(fit.bounds[0][0]).toBeCloseTo(-1.0);
+    expect(fit.bounds[0][1]).toBeCloseTo(-33.8);
+    expect(fit.bounds[1][0]).toBeCloseTo(151.2);
+    expect(fit.bounds[1][1]).toBeCloseTo(51.01);
+  });
+
+  it('#822: fits preview pins alone when the user has no routes', () => {
+    const fit = overviewFit([], null, [
+      { lat: 10, lng: 20 },
+      { lat: -5, lng: -30 },
+    ])!;
+    expect(fit.bounds).toEqual([
+      [-30, -5],
+      [20, 10],
+    ]);
+  });
+
+  it('#822: the default route still wins over preview pins', () => {
+    const fit = overviewFit([willow, thames], 'thames', [{ lat: -33.8, lng: 151.2 }])!;
+    expect(fit.bounds[0][0]).toBeCloseTo(-0.46);
+    expect(fit.padding).toBe(32);
+  });
 });

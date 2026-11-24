@@ -111,12 +111,14 @@
     // Read the reactive deps synchronously so the effect re-runs like React's
     // [pins, defaultRouteId] dependency list.
     const currentPins = pins;
+    const currentPreviews = previewPins;
     const currentDefault = defaultRouteId;
     const el = canvasEl;
 
     let cancelled = false;
     let mapInstance: { remove: () => void } | null = null;
-    if (!el || currentPins.length === 0) {
+    const firstPoint = currentPins[0]?.centroid ?? currentPreviews[0];
+    if (!el || !firstPoint) {
       mapReady = false;
       return;
     }
@@ -162,7 +164,7 @@
           container: el,
           style,
           attributionControl: false,
-          center: [currentPins[0].centroid.lng, currentPins[0].centroid.lat],
+          center: [firstPoint.lng, firstPoint.lat],
           zoom: 2,
         });
         if (cancelled) {
@@ -173,7 +175,7 @@
         mapInstanceRef = map;
 
         // #738: a lone route fits to its own course; every fit is capped.
-        const fit = overviewFit(currentPins, currentDefault);
+        const fit = overviewFit(currentPins, currentDefault, currentPreviews);
         if (fit) {
           map.fitBounds(fit.bounds, { padding: fit.padding, maxZoom: fit.maxZoom, animate: false });
         }
