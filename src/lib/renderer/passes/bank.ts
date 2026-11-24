@@ -111,12 +111,11 @@ export const createBankPass = async ({
   grass,
   footprint,
   landSide,
-}: BankPassOptions): Promise<Pass> => {
-  // #725 FR6 — the shared aerial fog, in the sky's horizon colour.
-  const code = SHADOW_UNIFORMS_WGSL + SAMPLE_SHADOW_WGSL + HORIZON_HAZE_WGSL + SKY_COLOUR_WGSL + AERIAL_FOG_WGSL + bankWgsl;
   profileForProgress,
 }: BankPassOptions): Promise<BankPass> => {
-  const code = SHADOW_UNIFORMS_WGSL + SAMPLE_SHADOW_WGSL + HORIZON_HAZE_WGSL + bankBiomeWgsl() + bankWgsl;
+  // #725 FR6 — the shared aerial fog, in the sky's horizon colour.
+  const code = SHADOW_UNIFORMS_WGSL + SAMPLE_SHADOW_WGSL + HORIZON_HAZE_WGSL + SKY_COLOUR_WGSL + AERIAL_FOG_WGSL
+    + bankBiomeWgsl() + bankWgsl;
   const module = device.createShaderModule({ label: 'bank', code });
   const pipeline = await renderPipelineAsync(device, {
     multisample: sceneMultisample(device),
