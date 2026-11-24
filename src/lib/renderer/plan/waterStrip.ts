@@ -14,6 +14,7 @@
 
 import { RouteCurve } from '../math/curve';
 import { vec3, vec3Normalize, type Vec3 } from '../math/vec3';
+import { stripSchedule } from './stripSchedule';
 
 /** Half-width of the water when a route carries no edges. */
 export const DEFAULT_WATER_HALF_WIDTH_M = 20;
@@ -68,7 +69,10 @@ export const buildWaterStrip = (
   // quad represents ≈10 m of route. Low division counts (the old 128) let a
   // sharp bend between two columns pull the straight-line strip quad off
   // the curve centre and read the boat as drifting onto the bank.
-  const divisions = Math.max(2, options.divisions ?? defaultStripDivisions(curve));
+  // #745 FR4 — with no count asked for, a route's rows come from its detail
+  // schedule: sparser on straights, denser on bends (`stripSchedule.ts`).
+  const schedule = options.divisions === undefined && curve && curve.length >= 2 ? stripSchedule(curve) : null;
+  const divisions = schedule ? schedule.length - 1 : Math.max(2, options.divisions ?? defaultStripDivisions(curve));
   const edgesForProgress = options.edgesForProgress
     ?? ((_t: number): WaterEdges => ({ left: halfWidth, right: halfWidth }));
 
@@ -79,7 +83,7 @@ export const buildWaterStrip = (
     const sample = { position: vec3(), tangent: vec3(0, 0, -1), angle: 0 };
     const perp = vec3();
     for (let i = 0; i <= divisions; i += 1) {
-      const t = i / divisions;
+      const t = schedule ? schedule[i] : i / divisions;
       curve.sample(t, sample);
       // Left-hand perpendicular = tangent × up, normalised.
       perp[0] = sample.tangent[1] * UP[2] - sample.tangent[2] * UP[1];
