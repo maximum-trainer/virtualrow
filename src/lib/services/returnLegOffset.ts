@@ -84,12 +84,25 @@ export const gateSide = (leg: Coordinate[], gates: readonly Coordinate[]): 1 | -
   return sum < 0 ? -1 : 1;
 };
 
+export interface OffsetLegOptions {
+  /** Ease in from 0 at the first vertex (default). Off where the leg leaves a stake (#751 FR4). */
+  easeStart?: boolean;
+  /** Ease back to 0 at the last vertex (default). */
+  easeEnd?: boolean;
+}
+
 /**
  * `leg` shifted `distanceMeters` to `side`, easing in from 0 at the first
  * vertex and back to 0 at the last over {@link OFFSET_TAPER_M} (or a third of
- * the leg, if shorter).
+ * the leg, if shorter). A leg that leaves a stake starts at the full offset,
+ * so the turn goes round the stake to the return side.
  */
-export const offsetLeg = (leg: Coordinate[], distanceMeters: number, side: 1 | -1): Coordinate[] => {
+export const offsetLeg = (
+  leg: Coordinate[],
+  distanceMeters: number,
+  side: 1 | -1,
+  { easeStart = true, easeEnd = true }: OffsetLegOptions = {},
+): Coordinate[] => {
   if (leg.length < 2 || distanceMeters <= 0) return leg;
   const along = cumulativeLengths(leg);
   const total = along[along.length - 1];
@@ -98,7 +111,8 @@ export const offsetLeg = (leg: Coordinate[], distanceMeters: number, side: 1 | -
 
   // Put a vertex where each taper ends, so a long straight segment still
   // carries the full offset through its middle.
-  const knots = [...new Set([taper, total - taper])].filter((d) => d > 0 && d < total);
+  const knots = [...new Set([easeStart ? taper : 0, easeEnd ? total - taper : total])]
+    .filter((d) => d > 0 && d < total);
   const dense: Coordinate[] = [];
   const denseAlong: number[] = [];
   for (let i = 0; i < leg.length; i++) {
@@ -122,7 +136,7 @@ export const offsetLeg = (leg: Coordinate[], distanceMeters: number, side: 1 | -
   const pts = dense.map(toLocal);
   return pts.map((p, i) => {
     const s = denseAlong[i];
-    const ease = Math.min(1, s / taper, (total - s) / taper);
+    const ease = Math.min(1, easeStart ? s / taper : 1, easeEnd ? (total - s) / taper : 1);
     const n = rightNormal(pts, i);
     const shift = side * distanceMeters * ease;
     return toCoordinate({ x: p.x + n.x * shift, y: p.y + n.y * shift });

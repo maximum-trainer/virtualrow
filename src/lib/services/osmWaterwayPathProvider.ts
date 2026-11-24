@@ -56,6 +56,7 @@ import type { Coordinate } from '../types/index';
 import { distanceBetweenMeters, polylineLengthMeters } from '../utils/coordinateUtils';
 import { slicePolyline } from '../utils/polylineGeometry';
 import type { WaterwayPathOptions, WaterwayPathProvider } from './rownativeGeometry';
+import { stakeTurnCentres } from '../utils/courseCorners';
 import { gateSide, offsetLeg, retracesLeg, returnLegOffsetMeters } from './returnLegOffset';
 import { deriveAreaCentreline, parseWaterAreas } from './waterAreaCentreline';
 
@@ -68,6 +69,10 @@ const WATERWAY_FILTER = '^(river|canal|stream|tidal_channel|fairway)$';
  * return leg sits 0.3 x 40 = 12 m off the outbound one.
  */
 const UNKNOWN_WATER_WIDTH_M = 40;
+/** #751 FR4: the line leaves the centreline this far before a stake, and rejoins this far after. */
+export const STAKE_RUN_IN_M = 20;
+const sameCoordinate = (a: Coordinate, b: Coordinate): boolean =>
+  Math.abs(a.lat - b.lat) < 1e-9 && Math.abs(a.lng - b.lng) < 1e-9;
 /** #751 FR1: water mapped as an area (`water=river|canal|dock` are `natural=water`). */
 const WATER_AREA_SELECTORS = [
   'way["natural"="water"]',
@@ -384,6 +389,7 @@ export class OsmWaterwayPathProvider implements WaterwayPathProvider {
     const rings = parseWaterAreas(areas);
     if (rings.length === 0) return null;
 
+    const stakes = stakeTurnCentres(gates);
     const legs: Coordinate[][] = [];
     let full: Coordinate[] = [];
     for (let i = 0; i < gates.length - 1; i++) {
@@ -394,7 +400,10 @@ export class OsmWaterwayPathProvider implements WaterwayPathProvider {
         // #751 FR3 on a derived centreline: the width is measured, not guessed.
         const widths = [...derived.halfWidths].sort((a, b) => a - b);
         const width = 2 * (widths[Math.floor(widths.length / 2)] ?? UNKNOWN_WATER_WIDTH_M / 2);
-        leg = offsetLeg(leg, returnLegOffsetMeters(width), gateSide(leg, [gates[i + 1]]));
+        leg = offsetLeg(leg, returnLegOffsetMeters(width), gateSide(leg, [gates[i + 1]]), {
+          easeStart: !stakes.some((stake) => sameCoordinate(stake, gates[i])),
+          easeEnd: !stakes.some((stake) => sameCoordinate(stake, gates[i + 1])),
+        });
       }
       legs.push(derived.coordinates);
       full = full.concat(full.length > 0 ? leg.slice(1) : leg);
@@ -446,16 +455,22 @@ export class OsmWaterwayPathProvider implements WaterwayPathProvider {
     // centreline. The walk either side is trimmed back by the gate's offset so
     // the run-in is a diagonal, not a spike out and back along the same line.
     const offCentre = (index: number): boolean => snaps[index].distanceMeters > ON_CENTRELINE_M;
-    let full: Coordinate[] = offCentre(0) ? [gates[0]] : [];
+    // #751 FR4: at a stake the line leaves the centreline for the gate centre,
+    // so roundCourseCorners can draw the turn as an arc round it.
+    const stakes = stakeTurnCentres(gates);
+    const isStake = (index: number): boolean => stakes.some((stake) => sameCoordinate(stake, gates[index]));
+    const runsIn = (index: number): boolean => offCentre(index) || isStake(index);
+    const runIn = (index: number, legLength: number): number =>
+      Math.min(
+        Math.max(snaps[index].distanceMeters, isStake(index) ? STAKE_RUN_IN_M : 0),
+        legLength * RUN_IN_MAX_LEG_SHARE,
+      );
+    let full: Coordinate[] = runsIn(0) ? [gates[0]] : [];
     for (let i = 0; i < legs.length; i++) {
       let leg = legs[i];
       const legLength = polylineLengthMeters(leg);
-      const trimStart = offCentre(i)
-        ? Math.min(snaps[i].distanceMeters, legLength * RUN_IN_MAX_LEG_SHARE)
-        : 0;
-      const trimEnd = offCentre(i + 1)
-        ? Math.min(snaps[i + 1].distanceMeters, legLength * RUN_IN_MAX_LEG_SHARE)
-        : 0;
+      const trimStart = runsIn(i) ? runIn(i, legLength) : 0;
+      const trimEnd = runsIn(i + 1) ? runIn(i + 1, legLength) : 0;
       if (leg.length >= 2 && (trimStart > 0 || trimEnd > 0)) {
         leg = slicePolyline(leg, trimStart, legLength - trimEnd);
       }
@@ -465,12 +480,15 @@ export class OsmWaterwayPathProvider implements WaterwayPathProvider {
           options.gateExtentsMeters?.[i] ?? 0,
           options.gateExtentsMeters?.[i + 1] ?? 0,
         ) || UNKNOWN_WATER_WIDTH_M;
-        leg = offsetLeg(leg, returnLegOffsetMeters(width), gateSide(leg, [gates[i + 1]]));
+        leg = offsetLeg(leg, returnLegOffsetMeters(width), gateSide(leg, [gates[i + 1]]), {
+          easeStart: !isStake(i),
+          easeEnd: !isStake(i + 1),
+        });
       }
       const last = full[full.length - 1];
       const fresh = last && leg[0] && vertexKey(last) === vertexKey(leg[0]) ? leg.slice(1) : leg;
       full = full.concat(fresh);
-      if (offCentre(i + 1)) full.push(gates[i + 1]);
+      if (runsIn(i + 1)) full.push(gates[i + 1]);
     }
     if (full.length < 2) return null;
 

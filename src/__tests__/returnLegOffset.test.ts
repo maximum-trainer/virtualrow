@@ -71,6 +71,19 @@ describe('offsetLeg', () => {
     }
   });
 
+  it('starts at the full offset when the leg leaves a stake (#751 FR4)', () => {
+    const pts = offsetLeg(back, 12, 1, { easeStart: false }).map(toLocal);
+    expect(pts[0].x).toBeCloseTo(-12, 1);
+    expect(pts[0].y).toBeCloseTo(1000, 1);
+    expect(pts[pts.length - 1].x).toBeCloseTo(0, 3);
+  });
+
+  it('can hold the offset to the end too', () => {
+    const pts = offsetLeg(back, 12, 1, { easeStart: false, easeEnd: false }).map(toLocal);
+    expect(pts).toHaveLength(back.length);
+    for (const p of pts) expect(p.x).toBeCloseTo(-12, 1);
+  });
+
   it('leaves a leg alone when there is nothing to shift', () => {
     expect(offsetLeg(back, 0, 1)).toBe(back);
     expect(offsetLeg([at(0, 0)], 10, 1)).toHaveLength(1);
