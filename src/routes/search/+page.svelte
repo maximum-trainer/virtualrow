@@ -26,6 +26,7 @@
   import RouteThumbnail from '$lib/ui/RouteThumbnail.svelte';
   import type { RownativeBundledCourse } from '$lib/services/rownativeService';
   import type { RownativePreviewInput } from '$lib/utils/routePinClusters';
+  import { routesInView, type MapView } from '$lib/utils/routesInView';
 
   const auth = getAuth();
   const routes = getRoutesStore();
@@ -47,6 +48,20 @@
       cancelled = true;
     };
   });
+
+  // Once the user pans or zooms the overview map, the drawer lists what is in
+  // view (their routes and rownative courses) in place of "My routes".
+  let mapView = $state<MapView | null>(null);
+  const areaList = $derived.by(() => {
+    if (!mapView?.userMoved) return null;
+    const inView = routesInView(routes.routes, rownativePreviews, mapView.bbox);
+    const filter = routes.difficultyFilter;
+    return {
+      routes: filter === 'all' ? inView.routes : inView.routes.filter((r) => r.difficulty === filter),
+      previews: filter === 'all' ? inView.previews : [],
+    };
+  });
+  const listedRoutes = $derived(areaList ? areaList.routes : routes.filteredRoutes);
 
   // Playwright drives the signed-in flows without a live OAuth round trip.
   const showAuthFeatures = $derived(
@@ -144,6 +159,7 @@
             onSelect={(route: WaterRoute) => (routes.routeDetailOpen = route)}
             rownativePreviews={rownativePreviews}
             onRownativeSelect={rownativeImport}
+            onViewChange={(view) => (mapView = view)}
           />
         </div>
       </section>
@@ -177,7 +193,11 @@
 
         <section class="route-search-section routes-list">
           <div class="routes-list-header">
-            <h3>My routes</h3>
+            <h3 data-testid="routes-list-title">
+              {areaList
+                ? `Routes in this area (${areaList.routes.length + areaList.previews.length})`
+                : 'My routes'}
+            </h3>
             <div class="route-filters">
               <div class="filter-group">
                 {#each DIFFICULTIES as d (d)}
@@ -192,7 +212,7 @@
               </div>
             </div>
           </div>
-          {#each routes.filteredRoutes as route (route.id)}
+          {#each listedRoutes as route (route.id)}
             {@const rownativeStatus = extractRouteStatus(route.tags)}
             {@const isDefault = routes.defaultRouteId === route.id}
             {@const badge = geometryProvenanceBadge(routeGeometrySource(route))}
@@ -269,6 +289,49 @@
               {/if}
             </div>
           {/each}
+          {#if areaList}
+            {#each areaList.previews as preview (preview.id)}
+              <div
+                class="route-item route-item--rownative"
+                data-testid="route-item-rownative"
+                data-rownative-id={preview.id}
+                onclick={() => rownativeImport(preview)}
+                role="button"
+                tabindex="0"
+                onkeydown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    void rownativeImport(preview);
+                  }
+                }}
+              >
+                <div class="route-item-header">
+                  <h4>{preview.name}</h4>
+                  <div class="route-item-badges">
+                    <span class="badge badge-source">rownative.icu</span>
+                  </div>
+                </div>
+                {#if preview.country && preview.country !== 'Unknown'}
+                  <p class="route-item-location">{preview.country}</p>
+                {/if}
+                <div class="route-item-meta">
+                  <span>{formatRouteDistanceKm(preview.distanceMeters / 1000)}</span>
+                  {#if rownativeImporting === preview.id}
+                    <span>•</span>
+                    <span class="route-item-status">Importing…</span>
+                  {:else if !showAuthFeatures}
+                    <span>•</span>
+                    <span>Sign in to row this course</span>
+                  {/if}
+                </div>
+              </div>
+            {/each}
+            {#if areaList.routes.length + areaList.previews.length === 0}
+              <p class="route-search-hint" data-testid="routes-in-view-empty">
+                No routes in this area. Zoom out to see more.
+              </p>
+            {/if}
+          {/if}
         </section>
 
         {#if showAuthFeatures}
