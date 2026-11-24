@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildRiverGuides,
   buildWaterDebugMesh,
+  DEBUG_COLOUR_GUIDE_CENTRE,
+  DEBUG_COLOUR_GUIDE_EDGE,
   DEBUG_COLOUR_ISLAND,
   DEBUG_COLOUR_ON_LAND,
   DEBUG_COLOUR_SHORELINE,
@@ -8,6 +11,8 @@ import {
   type RGB,
 } from '../lib/renderer/plan/waterDebugLines';
 import { WATER_SURFACE_Y } from '../lib/renderer/plan/waterStrip';
+import { RouteCurve } from '../lib/renderer/math/curve';
+import { vec3 } from '../lib/renderer/math/vec3';
 
 const expectColourCloseTo = (actual: readonly number[], expected: RGB) => {
   expect(actual[0]).toBeCloseTo(expected[0], 5);
@@ -86,5 +91,31 @@ describe('buildWaterDebugMesh', () => {
     });
     // 4+4 shoreline+island segments + 2 plus-signs × 2 segments = 12 segments → 24 endpoints
     expect(mesh.vertexCount).toBe(24);
+  });
+});
+
+const key = (c: readonly number[]) => c.map((v) => v.toFixed(3)).join(',');
+
+describe('river guides (#745 FR3)', () => {
+  it('runs yellow down the middle and red along each edge of the water strip', () => {
+    const curve = new RouteCurve([vec3(0, 0, 0), vec3(0, 0, -500)]);
+    const guides = buildRiverGuides(curve, { edgesForProgress: () => ({ left: 10, right: 30 }) });
+    expect(guides.centre.length).toBeGreaterThan(10);
+    expect(guides.left.length).toBe(guides.centre.length);
+    // Measured edges: 10 m to the left (−x on a course heading −z), 30 m right.
+    for (let i = 0; i < guides.centre.length; i++) {
+      expect(guides.centre[i].x).toBeCloseTo(0, 3);
+      expect(guides.left[i].x).toBeCloseTo(-10, 3);
+      expect(guides.right[i].x).toBeCloseTo(30, 3);
+    }
+    const mesh = buildWaterDebugMesh({ shorelines: [], islands: [], onLandSamples: [], riverGuides: guides });
+    expect(mesh.vertexCount).toBe(3 * (guides.centre.length - 1) * 2);
+    const colours = new Set<string>();
+    for (let v = 0; v < mesh.vertexCount; v++) colours.add(key([...mesh.vertices.slice(v * 6 + 3, v * 6 + 6)]));
+    expect(colours).toEqual(new Set([key(DEBUG_COLOUR_GUIDE_CENTRE), key(DEBUG_COLOUR_GUIDE_EDGE)]));
+  });
+
+  it('draws nothing without a route curve', () => {
+    expect(buildRiverGuides(null).centre).toEqual([]);
   });
 });

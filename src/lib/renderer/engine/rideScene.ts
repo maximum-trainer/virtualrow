@@ -51,6 +51,7 @@ import { createWaterPass } from '../passes/water';
 import { createWaterPolygonPass } from '../passes/waterPolygon';
 import { simplifyPolygons } from '../plan/polygonSimplify';
 import { bridgeParallelLegs, islandLand } from '../plan/parallelLegs';
+import { buildRiverGuides } from '../plan/waterDebugLines';
 import { createWaterDebugPass } from '../passes/waterDebug';
 import { isPolygonWaterEnabled } from './polygonWater';
 import {
@@ -1175,7 +1176,9 @@ export const createRideScene = async (
   const onLandSamples = isSceneryRoute(opts.route) && opts.route.onLandSamples
     ? opts.route.onLandSamples
     : [];
-  const waterDebugPassPending = isWaterDebugEnabled() && (polygonLakes.length > 0 || onLandSamples.length > 0)
+  // #745 FR3 — the river guides (centreline, water edges) join the
+  // overlay on any route with a curve.
+  const waterDebugPassPending = isWaterDebugEnabled() && (polygonLakes.length > 0 || onLandSamples.length > 0 || hasRouteCurve)
     ? createWaterDebugPass({
         device,
         format,
@@ -1184,6 +1187,9 @@ export const createRideScene = async (
           shorelines: polygonLakes.map((p) => p.outer),
           islands: polygonLakes.flatMap((p) => p.holes),
           onLandSamples,
+          ...(hasRouteCurve
+            ? { riverGuides: buildRiverGuides(waterCurve, { edgesForProgress: stripEdgesForProgress }) }
+            : {}),
         },
       })
     : Promise.resolve(null);
