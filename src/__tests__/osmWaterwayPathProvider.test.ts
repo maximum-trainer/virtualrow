@@ -260,3 +260,48 @@ describe('OsmWaterwayPathProvider on water mapped only as an area', () => {
     expect(await provider.findPath([at(0, 0), at(1000, 0)])).toBeNull();
   });
 });
+
+// #751 FR3: out-and-back on one centreline.
+describe('OsmWaterwayPathProvider on an out-and-back course', () => {
+  const STRAIGHT = way([0, -200], [0, 3000]);
+  const yOf = (c: Coordinate) => (c.lat - ORIGIN.lat) * M_PER_DEG_LAT;
+  const xOf = (c: Coordinate) => (c.lng - ORIGIN.lng) * LNG_SCALE;
+
+  it('moves the return leg off the outbound one', async () => {
+    const { provider } = overpass([STRAIGHT]);
+    const path = await provider.findPath([at(0, 0), at(0, 2000), at(0, 0)], {
+      gateExtentsMeters: [40, 40, 40],
+    });
+    expect(path).not.toBeNull();
+    // Find the stake, then measure the return half against the outbound half.
+    const stake = path!.reduce((best, p, i) => (yOf(p) > yOf(path![best]) ? i : best), 0);
+    const outbound = path!.slice(0, stake + 1);
+    const back = path!.slice(stake);
+    // Past the eased ends, the return runs parallel: check its vertices there.
+    const apart = back
+      .filter((p) => yOf(p) > 50 && yOf(p) < 1950)
+      .map((p) => projectPointOntoPolyline(p, outbound).offsetMeters);
+    expect(apart.length).toBeGreaterThan(0);
+    for (const d of apart) expect(d).toBeGreaterThanOrEqual(8);
+    // Coming back south, keeping right puts it to the west.
+    expect(back.filter((p) => yOf(p) > 50 && yOf(p) < 1950).every((p) => xOf(p) < 0)).toBe(true);
+  });
+
+  it('does the same on a river mapped only as an area', async () => {
+    const riverArea = {
+      ...way([-60, -100], [60, -100], [60, 2100], [-60, 2100], [-60, -100]),
+      tags: { natural: 'water' },
+    };
+    const { provider } = overpass([riverArea]);
+    const path = await provider.findPath([at(0, 0), at(0, 2000), at(0, 0)]);
+    expect(path).not.toBeNull();
+    const stake = path!.reduce((best, p, i) => (yOf(p) > yOf(path![best]) ? i : best), 0);
+    const outbound = path!.slice(0, stake + 1);
+    const apart = path!.slice(stake)
+      .filter((p) => yOf(p) > 200 && yOf(p) < 1800)
+      .map((p) => projectPointOntoPolyline(p, outbound).offsetMeters);
+    expect(apart.length).toBeGreaterThan(0);
+    // 120 m wide: 0.3 x 120 caps at 15 m.
+    for (const d of apart) expect(d).toBeCloseTo(15, 0);
+  });
+});

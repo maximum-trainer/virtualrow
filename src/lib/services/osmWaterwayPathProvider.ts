@@ -56,12 +56,18 @@ import type { Coordinate } from '../types/index';
 import { distanceBetweenMeters, polylineLengthMeters } from '../utils/coordinateUtils';
 import { slicePolyline } from '../utils/polylineGeometry';
 import type { WaterwayPathOptions, WaterwayPathProvider } from './rownativeGeometry';
+import { gateSide, offsetLeg, retracesLeg, returnLegOffsetMeters } from './returnLegOffset';
 import { deriveAreaCentreline, parseWaterAreas } from './waterAreaCentreline';
 
 const OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
 
 /** Waterway classes a rowing course can plausibly follow. */
 const WATERWAY_FILTER = '^(river|canal|stream|tidal_channel|fairway)$';
+/**
+ * #751 FR3: the width assumed for a river whose gates give none, so a
+ * return leg sits 0.3 x 40 = 12 m off the outbound one.
+ */
+const UNKNOWN_WATER_WIDTH_M = 40;
 /** #751 FR1: water mapped as an area (`water=river|canal|dock` are `natural=water`). */
 const WATER_AREA_SELECTORS = [
   'way["natural"="water"]',
@@ -378,11 +384,20 @@ export class OsmWaterwayPathProvider implements WaterwayPathProvider {
     const rings = parseWaterAreas(areas);
     if (rings.length === 0) return null;
 
+    const legs: Coordinate[][] = [];
     let full: Coordinate[] = [];
     for (let i = 0; i < gates.length - 1; i++) {
-      const leg = deriveAreaCentreline(gates[i], gates[i + 1], rings);
-      if (!leg) return null;
-      full = full.concat(full.length > 0 ? leg.coordinates.slice(1) : leg.coordinates);
+      const derived = deriveAreaCentreline(gates[i], gates[i + 1], rings);
+      if (!derived) return null;
+      let leg = derived.coordinates;
+      if (i > 0 && retracesLeg(legs[i - 1], leg)) {
+        // #751 FR3 on a derived centreline: the width is measured, not guessed.
+        const widths = [...derived.halfWidths].sort((a, b) => a - b);
+        const width = 2 * (widths[Math.floor(widths.length / 2)] ?? UNKNOWN_WATER_WIDTH_M / 2);
+        leg = offsetLeg(leg, returnLegOffsetMeters(width), gateSide(leg, [gates[i + 1]]));
+      }
+      legs.push(derived.coordinates);
+      full = full.concat(full.length > 0 ? leg.slice(1) : leg);
     }
     return full.length >= 2 && OsmWaterwayPathProvider.withinTotalDetour(gates, full) ? full : null;
   }
@@ -443,6 +458,14 @@ export class OsmWaterwayPathProvider implements WaterwayPathProvider {
         : 0;
       if (leg.length >= 2 && (trimStart > 0 || trimEnd > 0)) {
         leg = slicePolyline(leg, trimStart, legLength - trimEnd);
+      }
+      // #751 FR3: a leg back along the one before moves over to its own side.
+      if (i > 0 && retracesLeg(legs[i - 1], legs[i])) {
+        const width = Math.max(
+          options.gateExtentsMeters?.[i] ?? 0,
+          options.gateExtentsMeters?.[i + 1] ?? 0,
+        ) || UNKNOWN_WATER_WIDTH_M;
+        leg = offsetLeg(leg, returnLegOffsetMeters(width), gateSide(leg, [gates[i + 1]]));
       }
       const last = full[full.length - 1];
       const fresh = last && leg[0] && vertexKey(last) === vertexKey(leg[0]) ? leg.slice(1) : leg;
