@@ -15,6 +15,18 @@ Monthly workflow regenerates route-specific scenery via llm-cad.
 See the scenery kit README beside this file's parent for the generic
 kit conventions (`public/assets/scenery/README.md`).
 
+## Which courses a run processes
+
+```
+node scripts/scenery-generation/plan.mjs [--max 5] [--dry-run]
+```
+
+Loads the rownative index (bundled `public/assets/rownative/rownative-index.json`
+when the live one is unreachable) and prints the courses missing from
+`processed-courses.json`, or whose course file changed since, in id order and
+at most `--max` per run (D3, D5). The workflow runs this on every schedule,
+with or without the llm-cad key.
+
 ## Local reproduce
 
 ```
