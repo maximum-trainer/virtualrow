@@ -10,15 +10,26 @@
 
 import { spawn } from 'node:child_process';
 
+// `landscape` runs the #762 landscape-source contract instead of the mirror's.
+const CHECKS = {
+  mirror: { file: 'src/__tests__/rownativeMirrorContract.test.ts', env: 'ROWNATIVE_CONTRACT_CHECK' },
+  landscape: { file: 'src/__tests__/landscapeContract.test.ts', env: 'LANDSCAPE_CONTRACT_CHECK' },
+};
+const check = CHECKS[process.argv[2] ?? 'mirror'];
+if (!check) {
+  console.error(`unknown contract check: ${process.argv[2]} (expected ${Object.keys(CHECKS).join(' or ')})`);
+  process.exit(2);
+}
+
 const child = spawn(
   'npx',
-  ['vitest', 'run', 'src/__tests__/rownativeMirrorContract.test.ts'],
+  ['vitest', 'run', check.file],
   {
     stdio: 'inherit',
     // shell: true so this resolves npx on Windows as well as POSIX without
     // hard-coding npx.cmd, which node refuses to spawn directly.
     shell: true,
-    env: { ...process.env, ROWNATIVE_CONTRACT_CHECK: '1' },
+    env: { ...process.env, [check.env]: '1' },
   },
 );
 
