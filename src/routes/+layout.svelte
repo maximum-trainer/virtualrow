@@ -32,6 +32,7 @@
   import { SessionStore } from '$lib/ui/sessionStore.svelte';
   import { setRideSession } from '$lib/ui/rideSessionContext';
   import { RideSessionStore } from '$lib/ui/rideSession.svelte';
+  import { SoundSubscriptions } from '$lib/ui/soundSubscriptions.svelte';
   import { setDeepLink } from '$lib/ui/deepLinkContext';
   import { RownativeDeepLinkRunner } from '$lib/ui/deepLink.svelte';
   import AuthButton from '$lib/ui/AuthButton.svelte';
@@ -87,6 +88,12 @@
   // sequence and the finish) also outlives the view switch, so it is provided
   // here and reads the session and route stores it was handed.
   const ride = setRideSession(new RideSessionStore(session, routes, {}, auth));
+  // Sound subscribers (#884). The switch wires to `audioService.enable()`, but
+  // the three things that actually made the row audible in React — the water
+  // bed, the stroke splashes and the race cues — never came across in the
+  // #542 cutover. One store composes all three and the owner's `$effect`
+  // feeds it the live inputs.
+  const sound = new SoundSubscriptions();
   const deepLink = setDeepLink(new RownativeDeepLinkRunner());
 
   onMount(() => {
@@ -121,6 +128,7 @@
     return () => {
       stopSession();
       stopRide();
+      sound.destroy();
       window.removeEventListener('virtualrow:sessionStarted', onStarted);
       window.removeEventListener('virtualrow:sessionEnded', onEnded);
     };
@@ -144,6 +152,23 @@
       active: session.sessionActive,
       strokeAt: ride.strokeAt,
       autoStart: session.isDemoMode,
+    });
+  });
+
+  // Feed the sound subscribers (#884). Every reactive read goes through this
+  // effect so Svelte re-runs it when the water bed, cues or stroke-splash
+  // gates change. The store's own guards (idempotent water bed, one-shot cues,
+  // a raf loop that starts and stops with the gate) handle re-entry — teardown
+  // on unmount is wired below.
+  $effect(() => {
+    sound.update({
+      soundEnabled: session.soundEnabled,
+      sessionActive: session.sessionActive,
+      cadenceSpm: ride.pm5Data?.cadence ?? 0,
+      intensity: ride.strokeIntensity,
+      startPhase: ride.startSequence.phase,
+      countdown: ride.startSequence.countdown,
+      finished: ride.finish !== null,
     });
   });
 
