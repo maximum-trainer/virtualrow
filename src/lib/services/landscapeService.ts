@@ -816,25 +816,35 @@ export class LandscapeService {
 /** The app's instance: IndexedDB-cached, publishing telemetry. */
 export const landscapeService = new LandscapeService();
 
+const layerTelemetry = ({ source, ms, count }: LandscapeLayer<unknown>) => ({ source, ms, count });
+
 /**
  * FR10 — the port under Playwright: no request, every layer unavailable, and
- * the telemetry published as the real service would.
+ * the telemetry published as the real service would. A spec that sets
+ * `window.__E2E_LANDSCAPE_FIXTURE = 'dense'` gets #885's budget fixture laid
+ * along its course instead, still without a request.
  */
 export const offlineLandscapeService = {
   load: async (routeCoordinates: Coordinate[]): Promise<Landscape> => {
-    const landscape: Landscape = {
+    const key = landscapeKey(routeFrame(routeCoordinates ?? []));
+    const wantsFixture =
+      typeof window !== 'undefined' &&
+      (window as unknown as { __E2E_LANDSCAPE_FIXTURE?: string }).__E2E_LANDSCAPE_FIXTURE === 'dense';
+    const fixture = wantsFixture
+      ? (await import('./denseLandscapeFixture')).denseLandscapeFixture(routeCoordinates ?? [], key)
+      : null;
+    const landscape: Landscape = fixture ?? {
       origin: routeCoordinates?.[0] ?? null,
-      key: landscapeKey(routeFrame(routeCoordinates ?? [])),
+      key,
       elevation: unavailable(),
       landCover: unavailable(),
       built: unavailable(),
     };
     if (typeof window !== 'undefined') {
-      const none = { source: 'unavailable' as const, ms: 0, count: 0 };
       (window as unknown as { __ROWER3D_LANDSCAPE?: LandscapeTelemetry }).__ROWER3D_LANDSCAPE = {
-        elevation: none,
-        landCover: none,
-        built: none,
+        elevation: layerTelemetry(landscape.elevation),
+        landCover: layerTelemetry(landscape.landCover),
+        built: layerTelemetry(landscape.built),
       };
     }
     return landscape;

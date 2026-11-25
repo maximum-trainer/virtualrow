@@ -486,4 +486,29 @@ describe('the test-mode port (FR10)', () => {
     );
     expect((await offlineLandscapeService.load([])).origin).toBeNull();
   });
+
+  it('serves the dense budget fixture when a spec asks for it, still with no request (#885 FR1)', async () => {
+    const { offlineLandscapeService } = await import('../lib/services/landscapeService');
+    const flag = window as unknown as {
+      __E2E_LANDSCAPE_FIXTURE?: string;
+      __ROWER3D_LANDSCAPE?: { landCover: { source: string; count: number } };
+    };
+    flag.__E2E_LANDSCAPE_FIXTURE = 'dense';
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    try {
+      const landscape = await offlineLandscapeService.load(COURSE);
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(landscape.key).toBe(landscapeKey(FRAME));
+      expect([landscape.elevation.source, landscape.landCover.source, landscape.built.source]).toEqual([
+        'cache',
+        'cache',
+        'cache',
+      ]);
+      expect(landscape.landCover.data?.length).toBeGreaterThan(0);
+      expect(flag.__ROWER3D_LANDSCAPE?.landCover).toEqual({ source: 'cache', ms: 0, count: landscape.landCover.count });
+    } finally {
+      fetchSpy.mockRestore();
+      delete flag.__E2E_LANDSCAPE_FIXTURE;
+    }
+  });
 });

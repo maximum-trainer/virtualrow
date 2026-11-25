@@ -25,6 +25,10 @@ export interface LandCoverSummary {
   woodlandPolygons: number;
   treelineInstances: number;
   hedgeMetres: number;
+  /** #885 FR3 — kit trees planted inside the real woods (#764 FR5); set by the route builder. */
+  woodlandTrees: number;
+  /** #885 FR3 — the class mask's upload size, held to 4 MB. */
+  maskBytes: number;
 }
 
 export interface LandscapeScenery {
@@ -73,6 +77,8 @@ export const landscapeScenery = (
       woodlandPolygons: plan.woodlandPolygons,
       treelineInstances: plan.instances.length,
       hedgeMetres: Math.round(landCover.hedgeMetres),
+      woodlandTrees: 0,
+      maskBytes: landCover.data.byteLength,
     },
   };
 };
