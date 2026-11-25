@@ -47,7 +47,27 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: "Guard: skip when LLM_CAD_MODEL_API_KEY is absent"
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      # Needs no secret and writes nothing, so it runs on every schedule and
+      # dispatch: the log always shows which courses are waiting (#449 FR2, AC2).
+      - name: Plan the courses to process
+        id: diff
+        env:
+          MAX_NEW_COURSES: ${{ inputs.max_new_courses || 5 }}
+          DRY_RUN: ${{ inputs.dry_run || 'false' }}
+        run: |
+          set -o pipefail
+          if [ "$DRY_RUN" = "true" ]; then
+            node scripts/scenery-generation/plan.mjs --max "$MAX_NEW_COURSES" --dry-run | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            node scripts/scenery-generation/plan.mjs --max "$MAX_NEW_COURSES" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: "Guard: skip generation when LLM_CAD_MODEL_API_KEY is absent"
         id: guard
         env:
           LLM_CAD_MODEL_API_KEY: ${{ secrets.LLM_CAD_MODEL_API_KEY }}
@@ -55,55 +75,30 @@ jobs:
           if [ -z "${LLM_CAD_MODEL_API_KEY}" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
             {
-              echo "### Skipped"
+              echo "### Generation skipped"
               echo ""
-              echo "LLM_CAD_MODEL_API_KEY is not set in this environment. The scenery-generation workflow is a no-op until the secret is configured. This matches the convention from the project's other optional jobs so a scheduled run never reddens \`main\`."
+              echo "LLM_CAD_MODEL_API_KEY is not set, so no models are generated. This matches the convention from the project's other optional jobs so a scheduled run never reddens \`main\`."
             } >> "$GITHUB_STEP_SUMMARY"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Setup Node
-        if: steps.guard.outputs.skip != 'true'
-        uses: actions/setup-node@v6
-        with:
-          node-version: '20'
-          cache: npm
-
-      - name: Install deps
-        if: steps.guard.outputs.skip != 'true'
-        run: npm ci
-
-      - name: Diff rownative index against processed-courses snapshot (dry-run supported)
-        if: steps.guard.outputs.skip != 'true'
-        id: diff
-        env:
-          MAX_NEW_COURSES: ${{ inputs.max_new_courses || 5 }}
-          DRY_RUN: ${{ inputs.dry_run || 'false' }}
-        run: |
-          node -e "
-          const fs = require('node:fs');
-          const path = 'scripts/scenery-generation/processed-courses.json';
-          const snapshot = JSON.parse(fs.readFileSync(path, 'utf8'));
-          const processed = new Set(Object.keys(snapshot.courses ?? {}));
-          console.log('processed count:', processed.size);
-          console.log('note: a real run would fetch ROWNATIVE_INDEX_URL and diff; this guard just prints the current snapshot.');
-          console.log('MAX_NEW_COURSES=' + process.env.MAX_NEW_COURSES + ' DRY_RUN=' + process.env.DRY_RUN);
-          "
-
       - name: Run generation shim (dry-run default)
-        if: steps.guard.outputs.skip != 'true' && (inputs.dry_run != true)
+        if: steps.guard.outputs.skip != 'true' && (inputs.dry_run != true) && steps.diff.outputs.courses != ''
         env:
+          COURSES: ${{ steps.diff.outputs.courses }}
           LLM_CAD_MODEL_API_KEY: ${{ secrets.LLM_CAD_MODEL_API_KEY }}
           LLM_CAD_REF: ${{ inputs.llm_cad_ref || 'main' }}
         run: |
+          echo "[scenery-generation] courses: ${COURSES}"
           echo "[scenery-generation] llm-cad ref: ${LLM_CAD_REF}"
           echo "[scenery-generation] skipping real invocation until llm-cad CLI (D1) is pinned"
           echo "[scenery-generation] run.mjs is reproducible locally with the same shim."
 
       - name: Open PR with generated scenery (if diff non-empty)
-        if: steps.guard.outputs.skip != 'true' && (inputs.dry_run != true)
-        uses: peter-evans/create-pull-request@v7
+        if: steps.guard.outputs.skip != 'true' && (inputs.dry_run != true) && steps.diff.outputs.courses != ''
+        # Third-party action with a write token: pinned to a commit (#449 NFR1). v7.0.11.
+        uses: peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676
         with:
           commit-message: "chore(scenery): monthly llm-cad run"
           title: "Scenery generation — monthly run"
