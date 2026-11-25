@@ -236,6 +236,10 @@ export interface Rower3DScenery {
     woodlandPolygons: number;
     treelineInstances: number;
     hedgeMetres: number;
+    /** #885 FR3 — kit trees inside the real woods. */
+    woodlandTrees: number;
+    /** #885 FR3 — the land-cover mask's bytes (at most 4 MB). */
+    maskBytes: number;
   } | null;
   /** #763 FR9 — the landforms the real terrain put on the horizon; null without elevation data. */
   relief?: { runs: number; placed: number; maxElevationDeg: number } | null;

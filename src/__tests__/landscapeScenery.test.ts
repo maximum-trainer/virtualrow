@@ -45,6 +45,9 @@ describe('landscapeScenery (#764)', () => {
       woodlandPolygons: 1,
       treelineInstances: 3,
       hedgeMetres: 400,
+      // #885 FR3 — the route builder fills in the wood-interior trees; the mask is one byte a texel.
+      woodlandTrees: 0,
+      maskBytes: out.landCover.width * out.landCover.height,
     });
   });
 
