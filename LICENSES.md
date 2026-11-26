@@ -23,6 +23,7 @@ scripts named, and released under the same terms as this repository.
 | `public/assets/scenery/tier-f/` | Generic biome kit | `scripts/build_scenery.py` |
 | `public/assets/scenery/tier-g/` | Additional archetypes | `scripts/build_scenery.py` |
 | `public/assets/scenery/tier-l/` | Liveried landmark heroes | `scripts/build_scenery.py` |
+| `public/assets/scenery/tier-r/` | Route-specific models, one folder per rownative course | `scripts/scenery-generation/run.mjs` (llm-cad `generate-course`, #449) |
 | `public/assets/boat/` | Sculls and crew | `scripts/build_crew.py` |
 | `public/assets/flora/` | Leaf atlas, drawn procedurally | `scripts/build-flora-atlas.mjs` |
 
