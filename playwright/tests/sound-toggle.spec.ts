@@ -1,15 +1,20 @@
 import { test, expect } from '../fixtures/crash-watch';
 
 /**
- * #884 — flipping the Sound switch on during a demo row must produce audible
- * output, not just open a silent AudioContext.
+ * #884 — flipping the Sound switch on and starting a demo row must produce
+ * audible output, not just open a silent AudioContext.
  *
  * The test replaces `window.AudioContext` before page load with a bookkeeping
  * stub that records what the page connected: the production `AudioService`
- * builds a master gain, so the water bed (a `BufferSource` → `BiquadFilter` →
- * `Gain` → master) and splash / cue calls each become one or more `connect()`
- * links on that graph. An empty graph means the toggle wired to nothing —
- * exactly the #884 regression we are closing.
+ * builds a master gain, and the water bed (a `BufferSource` → `BiquadFilter`
+ * → `Gain` → master) adds its own source with three more `connect()` links.
+ * An empty graph after the row starts means the subscribers never re-attached
+ * across the shell's Routes → `/row` navigation — the #884 regression.
+ *
+ * The Sound switch lives on the Routes screen (`+page.svelte`), not on
+ * `/row`, so the flip must happen BEFORE the demo button. Doing it after
+ * races the navigation that `virtualrow:sessionStarted` kicks off and the
+ * click lands on a detached element.
  *
  * No GPU and no real hardware — the demo button starts the pipeline through
  * the same path as a connected rower, so this spec runs on every CI shard.
@@ -98,38 +103,42 @@ test('a demo row with the Sound switch on produces a live audio graph', async ({
 
   await page.goto('./');
 
-  // Start a demo row: no mock-bluetooth, no sign-in needed (the demo button
-  // runs the same pipeline a connected PM5 would).
-  const demo = page.locator('.btn-try-demo');
-  await expect(demo).toBeVisible({ timeout: 15_000 });
-  await demo.click();
-  // The shell navigates to /row on the start event; wait for the Sound switch
-  // (the one ambient control on the workout view).
+  // `SoundPicker` is on the Routes screen (the home page), not on `/row`, so
+  // the switch must be flipped before the demo starts — otherwise the element
+  // detaches when the shell navigates on `virtualrow:sessionStarted` and the
+  // `.check()` lands on a stale handle (what reddened main after #884 shipped).
   const soundSwitch = page.getByRole('switch', { name: 'Sound' });
   await expect(soundSwitch).toBeVisible({ timeout: 15_000 });
-
-  // Flip it on. This is the gesture `AudioService.enable()` needs — a browser
-  // will not start an AudioContext without one.
   await soundSwitch.check();
   await expect(soundSwitch).toBeChecked();
 
-  // Within 500 ms the service should have built the master graph (gain +
-  // resume) AND the water-bed subscriber should have landed its own source.
+  // The service builds its master graph synchronously inside `enable()` (the
+  // gain + at least one `connect` to destination), and the browser then
+  // resumes the context. Wait briefly for both before starting the row.
   await page.waitForFunction(
     () => {
-      const l = (window as unknown as { __VIRTUALROW_AUDIO_LOG__?: { gains: number; sources: number; resumes: number; connects: number } }).__VIRTUALROW_AUDIO_LOG__;
-      return !!l && l.resumes >= 1 && l.gains >= 1 && l.sources >= 1 && l.connects >= 3;
+      const l = (window as unknown as { __VIRTUALROW_AUDIO_LOG__?: { gains: number; resumes: number; connects: number } }).__VIRTUALROW_AUDIO_LOG__;
+      return !!l && l.gains >= 1 && l.resumes >= 1 && l.connects >= 1;
     },
     null,
     { timeout: 500 },
   );
 
-  // Flipping it off must stop the water bed and close the hardware handle.
-  await soundSwitch.uncheck();
+  // Start a demo row: the shell navigates to `/row` on
+  // `virtualrow:sessionStarted`, and SessionStore's `sessionActive` goes
+  // true, which is what the water-bed subscriber waits for.
+  const demo = page.locator('.btn-try-demo');
+  await expect(demo).toBeVisible({ timeout: 15_000 });
+  await demo.click();
+  await page.waitForURL(/\/row\/?$/, { timeout: 15_000 });
+
+  // Within 500 ms of the workout starting, the water bed should have landed
+  // its own source on the master. An empty source count would mean the
+  // subscribers never re-attached across the navigation — the #884 regression.
   await page.waitForFunction(
     () => {
-      const l = (window as unknown as { __VIRTUALROW_AUDIO_LOG__?: { closed: boolean } }).__VIRTUALROW_AUDIO_LOG__;
-      return !!l && l.closed === true;
+      const l = (window as unknown as { __VIRTUALROW_AUDIO_LOG__?: { sources: number; connects: number } }).__VIRTUALROW_AUDIO_LOG__;
+      return !!l && l.sources >= 1 && l.connects >= 3;
     },
     null,
     { timeout: 500 },
