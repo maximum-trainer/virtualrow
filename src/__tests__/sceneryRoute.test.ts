@@ -472,3 +472,79 @@ describe('the map built form in the engine route (#765)', () => {
     expect(route.sceneryGlbs).toEqual(plain.sceneryGlbs);
   });
 });
+
+describe('woodland kit trees grounded on terrain (#886 FR3)', () => {
+  // A wood polygon north of the demo route (z=-120..-300), covered by a flat
+  // 8 m elevation plateau. The course runs east along z=0, so the wood is
+  // outside the bank-strip's reach; every kit-tree instance that lands inside
+  // the polygon came from `planWoodlandTrees`.
+  const cols = 201;
+  const rows = 201;
+  const stepX = 10;
+  const stepZ = -10;
+  const originX = -500;
+  const originZ = 1000;
+  const inWood = (z: number): boolean => z < -120 && z > -300;
+  const withHeights = (constant: number) => {
+    const heights = new Float32Array(cols * rows);
+    heights.fill(constant);
+    return heights;
+  };
+  const woodPolygon: [number, number][] = [
+    [-50, -120],
+    [200, -120],
+    [200, -300],
+    [-50, -300],
+    [-50, -120],
+  ];
+  const landscape = (constant: number) =>
+    ({
+      origin: { lat: 0, lng: 0 },
+      key: 'k',
+      elevation: {
+        source: 'network',
+        ms: 0,
+        count: cols * rows,
+        data: { originX, originZ, stepX, stepZ, spacingM: 10, cols, rows, heights: withHeights(constant), complete: true },
+      },
+      landCover: {
+        source: 'network',
+        ms: 0,
+        count: 1,
+        data: [{ kind: 'wood', shape: 'polygon', points: woodPolygon }],
+      },
+      built: { source: 'unavailable', ms: 0, count: 0, data: null },
+    }) as never;
+
+  // The planWoodlandTrees models for the fallback profile — pine, oak, willow.
+  const WOODLAND_MODEL_IDS = new Set([
+    'e02-weeping-willow',
+    'e04-english-oak',
+    'e07-eastern-white-pine',
+    'e08-scots-pine',
+    'e12-pollarded-willow',
+  ]);
+  const kitInsideWood = (route: ReturnType<typeof toEngineRoute>) =>
+    (route?.sceneryGlbs ?? [])
+      .filter((g) => WOODLAND_MODEL_IDS.has(g.id))
+      .flatMap((g) => g.instances)
+      .filter((i) => i.position[0] > -50 && i.position[0] < 200 && inWood(i.position[2]));
+
+  it('stands every woodland kit tree on the terrain height at its (x, z)', () => {
+    const route = toEngineRoute(makeRoute(), null, 'medium', landscape(8))!;
+    const wooded = kitInsideWood(route);
+    expect(wooded.length).toBeGreaterThan(0);
+    for (const t of wooded) {
+      expect(t.position[1]).toBeCloseTo(8, 1);
+    }
+  });
+
+  it('leaves woodland trees at y=0 where the terrain is flat', () => {
+    const route = toEngineRoute(makeRoute(), null, 'medium', landscape(0))!;
+    const wooded = kitInsideWood(route);
+    expect(wooded.length).toBeGreaterThan(0);
+    for (const t of wooded) {
+      expect(t.position[1]).toBe(0);
+    }
+  });
+});
