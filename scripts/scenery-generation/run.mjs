@@ -40,8 +40,8 @@ const REPO_ROOT = join(HERE, '..', '..');
 export const GZIP_CAP_BYTES = 500 * 1024;
 /** The kit gate in sceneryKitGates.test.ts (#890 D5-a) holds every LOD0 to 450 KB on disk. */
 export const RAW_CAP_BYTES = 450 * 1024;
-/** Pinned so a re-run of a course reproduces it (FR12). The workflow can override it. */
-export const DEFAULT_MODEL = 'anthropic/claude-sonnet-5';
+/** Pinned so a re-run of a course reproduces it (FR12): Claude via the Messages API with an Anthropic key (llm-cad#44). The workflow can override it. */
+export const DEFAULT_MODEL = 'claude-opus-5-5';
 export const MAX_MODELS_PER_COURSE = 3;
 
 const REGISTRY_PATH = ['public', 'assets', 'scenery', 'route-placements.json'];

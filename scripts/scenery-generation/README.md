@@ -30,10 +30,10 @@ with or without the llm-cad key.
 ## Generating scenery for courses
 
 ```
-export LLM_CAD_MODEL_API_KEY=...   # OpenRouter key by default; never printed
+export LLM_CAD_MODEL_API_KEY=...   # an Anthropic key (sk-ant-...); never printed
 git clone https://github.com/MaximumTrainer/llm-cad ../llm-cad && uv sync --directory ../llm-cad
 node scripts/scenery-generation/run.mjs --courses "180 277" --llm-cad-dir ../llm-cad \
-  [--model anthropic/claude-sonnet-5] [--summary out.md] [--dry-run]
+  [--model claude-opus-5-5] [--summary out.md] [--dry-run]
 npm run build:assets               # compress, LOD1s, manifest (D12)
 ```
 

@@ -32,7 +32,7 @@ on:
       model:
         description: Model id llm-cad generates with (pinned so a re-run reproduces, FR12)
         type: string
-        default: anthropic/claude-sonnet-5
+        default: claude-opus-5-5
       dry_run:
         description: Print the planned work without writing files or opening a PR
         type: boolean
@@ -115,7 +115,7 @@ jobs:
         env:
           COURSES: ${{ steps.diff.outputs.courses }}
           LLM_CAD_MODEL_API_KEY: ${{ secrets.LLM_CAD_MODEL_API_KEY }}
-          MODEL: ${{ inputs.model || 'anthropic/claude-sonnet-5' }}
+          MODEL: ${{ inputs.model || 'claude-opus-5-5' }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           node scripts/scenery-generation/run.mjs --courses "${COURSES}" \
