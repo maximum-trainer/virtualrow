@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { LandscapeService } from '../lib/services/landscapeService';
 import { LANDSCAPE_GRID_MIN_SPACING_M } from '../lib/services/landscapeArea';
 import heerenveen from './fixtures/landscape/277.json';
+import { expectLandscapePortContract } from './helpers/landscapePortContract';
 
 /**
  * #762 TDD step 3 — one live call per landscape source (Open-Meteo GLO-90,
@@ -37,5 +38,8 @@ describe.skipIf(!enabled)('landscape sources contract (live network)', () => {
     expect(Array.isArray(built.footprints)).toBe(true);
     expect(Array.isArray(built.places)).toBe(true);
     expect(Array.isArray(built.landmarks)).toBe(true);
+
+    // #762 AC-R1: the live sources keep the same port contract as every other backend.
+    expectLandscapePortContract(landscape, route);
   }, 180_000);
 });
