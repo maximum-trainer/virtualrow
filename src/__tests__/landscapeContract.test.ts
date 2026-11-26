@@ -18,7 +18,9 @@ describe.skipIf(!enabled)('landscape sources contract (live network)', () => {
   const route = (heerenveen as { route: { lat: number; lng: number }[] }).route;
 
   it('loads every layer from the network in the shape the scene reads', async () => {
-    const landscape = await new LandscapeService({ cache: null, publish: false }).load(route);
+    // A generous layer budget: this checks the sources' shape, not the 45 s
+    // in-app budget, and Open-Meteo answers a 429 with a Retry-After.
+    const landscape = await new LandscapeService({ cache: null, publish: false, layerBudgetMs: 5 * 60_000 }).load(route);
 
     expect(landscape.elevation.source).toBe('network');
     const grid = landscape.elevation.data!;
@@ -41,5 +43,5 @@ describe.skipIf(!enabled)('landscape sources contract (live network)', () => {
 
     // #762 AC-R1: the live sources keep the same port contract as every other backend.
     expectLandscapePortContract(landscape, route);
-  }, 180_000);
+  }, 6 * 60_000);
 });

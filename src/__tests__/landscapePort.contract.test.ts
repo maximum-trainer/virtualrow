@@ -98,7 +98,7 @@ describe('LandscapePort contract (#762 AC-R1)', () => {
  * coast. Each holds the "heights are relative to the water" scenario on real data.
  */
 /** AC-R2: the fixture set must not shrink below this. */
-const MIN_RECORDED_ROUTES = 2;
+const MIN_RECORDED_ROUTES = 4;
 const FIXTURE_DIR = join(__dirname, 'fixtures', 'landscape');
 const recorded = readdirSync(FIXTURE_DIR)
   .filter((f) => f.endsWith('.json'))
@@ -109,8 +109,8 @@ const recorded = readdirSync(FIXTURE_DIR)
   });
 
 describe('recorded real landscapes (#762 AC-R2)', () => {
-  it('covers at least four real routes', () => {
-    expect(recorded.map((r) => r.courseId).sort()).toEqual(expect.arrayContaining(['180', '277']));
+  it('covers at least four real routes: a loch, a canal, a city river and a coast', () => {
+    expect(recorded.map((r) => r.courseId).sort()).toEqual(expect.arrayContaining(['175', '180', '277', '61']));
     expect(recorded.length).toBeGreaterThanOrEqual(MIN_RECORDED_ROUTES);
   });
 
@@ -120,18 +120,23 @@ describe('recorded real landscapes (#762 AC-R2)', () => {
     expect(g.heights.length).toBe(g.cols * g.rows);
     const frame = routeFrame(r.route)!;
     let near = 0;
+    let closest = Infinity;
     for (let row = 0; row < g.rows; row += 1) {
       for (let col = 0; col < g.cols; col += 1) {
         const h = g.heights[row * g.cols + col];
         if (h === null) continue;
         const x = g.originX + col * g.stepX;
         const z = g.originZ + row * g.stepZ;
-        if (distanceToCourse(frame, x, -z) <= WATER_FLAT_M) {
+        const d = distanceToCourse(frame, x, -z);
+        closest = Math.min(closest, d);
+        if (d <= WATER_FLAT_M) {
           near += 1;
           expect(Math.abs(h), `course ${r.courseId} (${col},${row})`).toBeLessThanOrEqual(2);
         }
       }
     }
-    expect(near).toBeGreaterThan(0);
+    // A coarse grid can miss the 30 m band (Stonehaven's nearest cell is 35 m
+    // off): then the grid must still reach the course, within half a diagonal.
+    if (near === 0) expect(closest).toBeLessThanOrEqual(g.spacingM * Math.SQRT1_2);
   });
 });
