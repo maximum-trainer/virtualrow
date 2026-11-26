@@ -134,6 +134,10 @@ jobs:
         if: steps.generate.outputs.landed != '' && steps.generate.outputs.landed != '0'
         # Third-party action with a write token: pinned to a commit (#449 NFR1). v7.0.11.
         uses: peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676
+        env:
+          # `npm ci` installs the repo's git hooks, and pre-push would run the
+          # whole verify suite inside this push. The PR's own CI runs it.
+          SKIP_HOOKS: '1'
         with:
           # D10: a PAT or App token so the PR's CI runs; GITHUB_TOKEN cannot trigger it.
           token: ${{ secrets.SCENERY_GEN_GITHUB_TOKEN || github.token }}
@@ -146,4 +150,7 @@ jobs:
             public/assets/scenery/**
             scripts/scenery-generation/processed-courses.json
             assets-src/scenery/compression-report.json
+            src/lib/scenery/sceneryFootprints.generated.ts
+            src/lib/scenery/bridgeSpans.generated.ts
+            LICENSES.md
           body-path: ${{ runner.temp }}/scenery-summary.md

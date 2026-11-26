@@ -14,7 +14,8 @@
  * course id (FR4, FR12), check each GLB against the size caps (NFR2 and the kit
  * gate), copy it to `public/assets/scenery/tier-r/<id>/` (FR5), merge its
  * placements into `route-placements.json` (FR6) and record the course in
- * `processed-courses.json` (FR7). A course that fails stays out of the snapshot
+ * `processed-courses.json` (FR7), adding LICENSES.md's tier-r row the first
+ * time a model lands. Each GLB is stored as `r-<id>-<name>.glb`. A course that fails stays out of the snapshot
  * so the next run retries it. The workflow and a local run take this same path;
  * neither touches git (AC11). The workflow regenerates the manifest afterwards
  * (D12).
@@ -61,13 +62,40 @@ export const sizeProblem = (bytes) => {
   return null;
 };
 
+/**
+ * The file name a course's GLB gets on disk. The manifest keys models by file
+ * name, and two courses can draw the same name ("narragansett-boat-club-
+ * boathouse.glb" for both 104 and 106 in the first real run), so the course id
+ * goes in front.
+ */
+export const diskName = (courseId, filename) => `r-${courseId}-${filename}`;
+
+/** LICENSES.md row for the generated tier (#890 AC11): the kit gate fails on a GLB folder it does not cover. */
+export const TIER_R_LICENCE_ROW =
+  '| `public/assets/scenery/tier-r/` | Route-specific models, one folder per rownative course | `scripts/scenery-generation/run.mjs` (llm-cad `generate-course`, #449) |';
+
+/** Adds the tier-r row after the last own-work scenery tier row, once. */
+export const ensureLicenceRow = (markdown) => {
+  if (markdown.includes('`public/assets/scenery/tier-r/`')) return markdown;
+  const lines = markdown.split('\n');
+  const end = lines.findIndex((l) => l.startsWith('## Third party'));
+  const ownWork = end < 0 ? lines : lines.slice(0, end);
+  let at = -1;
+  ownWork.forEach((l, i) => {
+    if (l.startsWith('| `public/assets/scenery/tier-')) at = i;
+  });
+  if (at < 0) throw new Error('LICENSES.md: no own-work scenery tier row to add tier-r after');
+  lines.splice(at + 1, 0, TIER_R_LICENCE_ROW);
+  return lines.join('\n');
+};
+
 /** One llm-cad placement as a registry entry (FR6 / D7). */
 export const toRegistryEntry = (courseId, placement, sourceRun) => {
   const slug = String(placement.filename).replace(/\.glb$/i, '');
   const modelId = /^r-[A-Za-z0-9_-]{1,196}$/.test(placement.modelId) ? placement.modelId : `r-${courseId}-${slug}`.slice(0, 198);
   const entry = {
     modelId,
-    assetPath: `/assets/scenery/tier-r/${courseId}/${placement.filename}`,
+    assetPath: `/assets/scenery/tier-r/${courseId}/${diskName(courseId, placement.filename)}`,
     distanceAlongRouteMeters: Math.max(0, Number(placement.distanceAlongRouteMeters)),
     bankSide: placement.bankSide,
     lateralOffsetMeters: Number(placement.lateralOffsetMeters ?? 0),
@@ -183,11 +211,12 @@ export const applyOutcome = async ({ outcome, root, registry, snapshot, now, run
   const dir = join(root, ...TIER_R_PATH, outcome.courseId);
   await mkdir(dir, { recursive: true });
   for (const glb of outcome.admitted) {
-    const target = join(dir, glb.filename);
+    const name = diskName(outcome.courseId, glb.filename);
+    const target = join(dir, name);
     if (existsSync(target)) {
       const current = await readFile(target);
       if (sha256(current) !== sha256(glb.bytes)) {
-        kept.push(glb.filename);
+        kept.push(name);
         continue;
       }
     }
@@ -307,6 +336,12 @@ const main = async () => {
   if (!args.dryRun) {
     await writeFile(registryPath, `${JSON.stringify(registry, null, 2)}\n`);
     await writeFile(snapshotPath, `${JSON.stringify(snapshot, null, 2)}\n`);
+    if (outcomes.some((o) => o.admitted.length > 0)) {
+      const licencesPath = join(root, 'LICENSES.md');
+      const licences = await readFile(licencesPath, 'utf8');
+      const next = ensureLicenceRow(licences);
+      if (next !== licences) await writeFile(licencesPath, next);
+    }
   }
   const summary = formatSummary(outcomes, { model, runUrl: args.runUrl });
   if (args.summary) await writeFile(args.summary, summary);

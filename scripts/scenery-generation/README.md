@@ -41,7 +41,7 @@ The workflow runs exactly this (FR10 / AC11). Per course `run.mjs` fetches the
 course JSON from rownative and hashes it, runs `llm-cad generate-course`
 (llm-cad#42) with the pinned model and a seed derived from the course id
 (FR12), rejects any GLB over 450 KB on disk (the kit gate) or 500 KB gzipped
-(NFR2), copies the rest to `public/assets/scenery/tier-r/<id>/`, and merges the
+(NFR2), copies the rest to `public/assets/scenery/tier-r/<id>/` as `r-<id>-<name>.glb` (the manifest keys models by file name, so the course id keeps two courses apart), adds the tier-r row to LICENSES.md the first time, and merges the
 placements into `route-placements.json` and the course into
 `processed-courses.json`. A course that produces nothing stays out of the
 snapshot, so the next run retries it. An existing GLB that differs from the new

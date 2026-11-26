@@ -13,7 +13,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   GZIP_CAP_BYTES,
   RAW_CAP_BYTES,
+  TIER_R_LICENCE_ROW,
   applyOutcome,
+  diskName,
+  ensureLicenceRow,
   formatSummary,
   invokeLlmCad,
   processCourse,
@@ -136,7 +139,7 @@ describe('scenery-generation run (#449)', () => {
   it('maps an llm-cad placement onto the registry schema (FR6, D7)', () => {
     expect(toRegistryEntry('7', placement('tower.glb'), 'https://run/1')).toEqual({
       modelId: 'r-7-tower',
-      assetPath: '/assets/scenery/tier-r/7/tower.glb',
+      assetPath: '/assets/scenery/tier-r/7/r-7-tower.glb',
       distanceAlongRouteMeters: 120,
       bankSide: 'left',
       lateralOffsetMeters: 12,
@@ -157,7 +160,7 @@ describe('scenery-generation run (#449)', () => {
     const registry = { $schemaVersion: 2, placements: { '3': [] } };
     const snapshot = { $schemaVersion: 1, courses: {} };
     const res = await applyOutcome({ outcome: o, root, registry, snapshot, now: '2026-11-26T00:00:00.000Z', runId: '99' });
-    expect(await readFile(join(root, 'public/assets/scenery/tier-r/7/tower.glb'))).toEqual(Buffer.from([1, 2, 3]));
+    expect(await readFile(join(root, 'public/assets/scenery/tier-r/7/r-7-tower.glb'))).toEqual(Buffer.from([1, 2, 3]));
     expect(Object.keys(res.registry.placements)).toEqual(['3', '7']);
     expect(res.registry.placements['7']).toHaveLength(1);
     expect(res.snapshot.courses['7']).toEqual({ courseSha: o.courseSha, generatedAt: '2026-11-26T00:00:00.000Z', workflowRunId: '99' });
@@ -176,11 +179,31 @@ describe('scenery-generation run (#449)', () => {
   it('never overwrites a GLB that was edited by hand (D11)', async () => {
     const dir = join(root, 'public/assets/scenery/tier-r/7');
     await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, 'tower.glb'), Buffer.from([9, 9]));
+    await writeFile(join(dir, 'r-7-tower.glb'), Buffer.from([9, 9]));
     const o = { courseId: '7', courseSha: 's', admitted: [{ filename: 'tower.glb', bytes: new Uint8Array([1]), gzipBytes: 20 }], rejected: [], placements: [placement('tower.glb')], failures: [], error: null };
     const res = await applyOutcome({ outcome: o, root, registry: { placements: {} }, snapshot: { courses: {} }, now: 'n' });
-    expect(res.kept).toEqual(['tower.glb']);
-    expect(await readFile(join(dir, 'tower.glb'))).toEqual(Buffer.from([9, 9]));
+    expect(res.kept).toEqual(['r-7-tower.glb']);
+    expect(await readFile(join(dir, 'r-7-tower.glb'))).toEqual(Buffer.from([9, 9]));
+  });
+
+  it('names each GLB on disk after its course, so two courses never share a manifest id', () => {
+    // The manifest keys models by file name: course 104 and 106 both drew a
+    // "narragansett-boat-club-boathouse.glb" in the first real run.
+    expect(diskName('104', 'narragansett-boat-club-boathouse.glb')).toBe('r-104-narragansett-boat-club-boathouse.glb');
+    expect(diskName('106', 'narragansett-boat-club-boathouse.glb')).not.toBe(diskName('104', 'narragansett-boat-club-boathouse.glb'));
+  });
+
+  it('adds the tier-r licence row once, inside the own-work table (#890 AC11)', () => {
+    const md = [
+      '## Own work', '', '| Path | What | Built by |', '|---|---|---|',
+      '| `public/assets/scenery/tier-l/` | Liveried landmark heroes | `scripts/build_scenery.py` |',
+      '| `public/assets/boat/` | Sculls and crew | `scripts/build_crew.py` |', '', '## Third party', '',
+    ].join('\n');
+    const once = ensureLicenceRow(md);
+    expect(once).toContain(TIER_R_LICENCE_ROW);
+    expect(once.indexOf(TIER_R_LICENCE_ROW)).toBeLessThan(once.indexOf('## Third party'));
+    expect(once.indexOf(TIER_R_LICENCE_ROW)).toBeGreaterThan(once.indexOf('tier-l/'));
+    expect(ensureLicenceRow(once)).toBe(once);
   });
 
   it('summarises landed and failed courses for the PR body (FR8)', () => {
