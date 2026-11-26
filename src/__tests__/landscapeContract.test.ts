@@ -1,3 +1,6 @@
+// @vitest-environment node
+// Node, not jsdom: jsdom's AbortSignal is not one undici's fetch accepts, so
+// under jsdom every live request throws before it leaves the machine.
 import { describe, expect, it } from 'vitest';
 import { LandscapeService } from '../lib/services/landscapeService';
 import { LANDSCAPE_GRID_MIN_SPACING_M } from '../lib/services/landscapeArea';
@@ -14,13 +17,20 @@ import { expectLandscapePortContract } from './helpers/landscapePortContract';
  */
 const enabled = process.env.LANDSCAPE_CONTRACT_CHECK === '1';
 
+/**
+ * Overpass answers 406 to Node's anonymous default user agent; a browser
+ * always sends its own. Name the client the way a browser would identify itself.
+ */
+const namedFetch: typeof fetch = (input, init) =>
+  fetch(input, { ...init, headers: { ...(init?.headers as Record<string, string> | undefined), 'User-Agent': 'virtualrow-landscape-contract/1.0' } });
+
 describe.skipIf(!enabled)('landscape sources contract (live network)', () => {
   const route = (heerenveen as { route: { lat: number; lng: number }[] }).route;
 
   it('loads every layer from the network in the shape the scene reads', async () => {
     // A generous layer budget: this checks the sources' shape, not the 45 s
     // in-app budget, and Open-Meteo answers a 429 with a Retry-After.
-    const landscape = await new LandscapeService({ cache: null, publish: false, layerBudgetMs: 5 * 60_000 }).load(route);
+    const landscape = await new LandscapeService({ cache: null, publish: false, layerBudgetMs: 5 * 60_000, fetchImpl: namedFetch }).load(route);
 
     expect(landscape.elevation.source).toBe('network');
     const grid = landscape.elevation.data!;
