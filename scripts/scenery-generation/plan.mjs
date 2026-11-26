@@ -13,7 +13,7 @@
 
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -109,7 +109,8 @@ const main = async () => {
   }
 };
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// The second test is the one that matches on Windows (C:\\... vs file:///C:/...).
+if (import.meta.url === `file://${process.argv[1]}` || (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url))) {
   main().catch((err) => {
     console.error(err);
     process.exit(1);

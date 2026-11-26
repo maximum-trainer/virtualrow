@@ -27,13 +27,23 @@ when the live one is unreachable) and prints the courses missing from
 at most `--max` per run (D3, D5). The workflow runs this on every schedule,
 with or without the llm-cad key.
 
-## Local reproduce
+## Generating scenery for courses
 
 ```
-node scripts/scenery-generation/run.mjs --course-id <id> --out <dir> [--dry-run]
+export LLM_CAD_MODEL_API_KEY=...   # an Anthropic key (sk-ant-...); never printed
+git clone https://github.com/MaximumTrainer/llm-cad ../llm-cad && uv sync --directory ../llm-cad
+node scripts/scenery-generation/run.mjs --courses "180 277" --llm-cad-dir ../llm-cad \
+  [--model claude-opus-5-5] [--summary out.md] [--dry-run]
+npm run build:assets               # compress, LOD1s, manifest (D12)
 ```
 
-Mirrors what the workflow does for one course without opening a PR
-(FR10/AC11). Reads `LLM_CAD_MODEL_API_KEY` from the environment when
-present; without it the harness still processes a stubbed GLB so the
-local run stays testable.
+The workflow runs exactly this (FR10 / AC11). Per course `run.mjs` fetches the
+course JSON from rownative and hashes it, runs `llm-cad generate-course`
+(llm-cad#42) with the pinned model and a seed derived from the course id
+(FR12), rejects any GLB over 450 KB on disk (the kit gate) or 500 KB gzipped
+(NFR2), copies the rest to `public/assets/scenery/tier-r/<id>/`, and merges the
+placements into `route-placements.json` and the course into
+`processed-courses.json`. A course that produces nothing stays out of the
+snapshot, so the next run retries it. An existing GLB that differs from the new
+one is kept (D11). It never touches git; `--stub` swaps llm-cad for a
+placeholder GLB so the harness runs offline.

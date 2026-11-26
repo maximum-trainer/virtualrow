@@ -11,9 +11,10 @@ name: Scenery generation (monthly)
 #
 # Secrets gate: without `LLM_CAD_MODEL_API_KEY` the workflow skips with
 # a step-summary note and succeeds — matches the project's convention
-# so a scheduled run never reddens `main`. With secrets set, the
-# generation half calls into the shared `scripts/scenery-generation/run.mjs`
-# shim so the CI run and `node run.mjs --course-id ...` follow one path.
+# so a scheduled run never reddens `main`. With secrets set, generation
+# runs `scripts/scenery-generation/run.mjs`, which calls
+# `llm-cad generate-course` (llm-cad#42, D1), so the CI run and a local
+# `node run.mjs --course-id ...` follow one path.
 
 on:
   schedule:
@@ -28,6 +29,10 @@ on:
         description: SHA / tag of MaximumTrainer/llm-cad to clone
         type: string
         default: main
+      model:
+        description: Model id llm-cad generates with (pinned so a re-run reproduces, FR12)
+        type: string
+        default: claude-opus-5-5
       dry_run:
         description: Print the planned work without writing files or opening a PR
         type: boolean
@@ -83,36 +88,62 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Run generation shim (dry-run default)
-        if: steps.guard.outputs.skip != 'true' && (inputs.dry_run != true) && steps.diff.outputs.courses != ''
+      - name: Setup Python for llm-cad
+        if: steps.guard.outputs.skip != 'true' && inputs.dry_run != true && steps.diff.outputs.courses != ''
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install dependencies and llm-cad
+        if: steps.guard.outputs.skip != 'true' && inputs.dry_run != true && steps.diff.outputs.courses != ''
+        env:
+          LLM_CAD_REF: ${{ inputs.llm_cad_ref || 'main' }}
+        run: |
+          npm ci
+          python3 -m pip install uv
+          git clone https://github.com/MaximumTrainer/llm-cad "${RUNNER_TEMP}/llm-cad"
+          git -C "${RUNNER_TEMP}/llm-cad" checkout "${LLM_CAD_REF}"
+          echo "llm-cad at $(git -C "${RUNNER_TEMP}/llm-cad" rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
+          uv sync --directory "${RUNNER_TEMP}/llm-cad"
+
+      # One path for CI and a local run (FR10 / AC11): run.mjs fetches each
+      # course, calls `llm-cad generate-course`, enforces the size caps and
+      # merges placements and the snapshot. A failed course is reported, not fatal.
+      - name: Generate and ingest scenery
+        id: generate
+        if: steps.guard.outputs.skip != 'true' && inputs.dry_run != true && steps.diff.outputs.courses != ''
         env:
           COURSES: ${{ steps.diff.outputs.courses }}
           LLM_CAD_MODEL_API_KEY: ${{ secrets.LLM_CAD_MODEL_API_KEY }}
-          LLM_CAD_REF: ${{ inputs.llm_cad_ref || 'main' }}
+          MODEL: ${{ inputs.model || 'claude-opus-5-5' }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          echo "[scenery-generation] courses: ${COURSES}"
-          echo "[scenery-generation] llm-cad ref: ${LLM_CAD_REF}"
-          echo "[scenery-generation] skipping real invocation until llm-cad CLI (D1) is pinned"
-          echo "[scenery-generation] run.mjs is reproducible locally with the same shim."
+          node scripts/scenery-generation/run.mjs --courses "${COURSES}" \
+            --llm-cad-dir "${RUNNER_TEMP}/llm-cad" --model "${MODEL}" \
+            --run-url "${RUN_URL}" --run-id "${{ github.run_id }}" \
+            --summary "${RUNNER_TEMP}/scenery-summary.md"
+          cat "${RUNNER_TEMP}/scenery-summary.md" >> "$GITHUB_STEP_SUMMARY"
+          echo "month=$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
 
-      - name: Open PR with generated scenery (if diff non-empty)
-        if: steps.guard.outputs.skip != 'true' && (inputs.dry_run != true) && steps.diff.outputs.courses != ''
+      # Compress, build LOD1s and regenerate the manifest like the rest of the kit (D12).
+      - name: Build the kit assets
+        if: steps.generate.outputs.landed != '' && steps.generate.outputs.landed != '0'
+        run: npm run build:assets
+
+      - name: Open PR with generated scenery
+        if: steps.generate.outputs.landed != '' && steps.generate.outputs.landed != '0'
         # Third-party action with a write token: pinned to a commit (#449 NFR1). v7.0.11.
         uses: peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676
         with:
-          commit-message: "chore(scenery): monthly llm-cad run"
-          title: "Scenery generation — monthly run"
+          # D10: a PAT or App token so the PR's CI runs; GITHUB_TOKEN cannot trigger it.
+          token: ${{ secrets.SCENERY_GEN_GITHUB_TOKEN || github.token }}
+          commit-message: "chore(scenery): llm-cad run ${{ steps.generate.outputs.month }}"
+          title: "Scenery generation — ${{ steps.generate.outputs.month }} (${{ steps.generate.outputs.landed }} new courses)"
           branch: scenery/generate-${{ github.run_id }}
           delete-branch: true
           labels: scenery-generation,automated
-          body: |
-            Automated monthly llm-cad regenerate (#449 FR1 / FR8).
-
-            This PR body is a template until the llm-cad CLI (D1) is pinned
-            and the shim starts writing real GLBs under
-            `public/assets/scenery/tier-r/`. Phase 1 shipped the registry +
-            schema + parser + the local harness; this PR surfaces the
-            workflow skeleton so a scheduled run has somewhere to land.
-
-            See `scripts/scenery-generation/README.md` for the local
-            reproduce.
+          add-paths: |
+            public/assets/scenery/**
+            scripts/scenery-generation/processed-courses.json
+            assets-src/scenery/compression-report.json
+          body-path: ${{ runner.temp }}/scenery-summary.md
