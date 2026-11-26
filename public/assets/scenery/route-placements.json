@@ -1,4 +1,945 @@
 {
   "$schemaVersion": 2,
-  "placements": {}
+  "placements": {
+    "1": [
+      {
+        "modelId": "r-1-route-9-arch-bridge",
+        "assetPath": "/assets/scenery/tier-r/1/r-1-route-9-arch-bridge.glb",
+        "distanceAlongRouteMeters": 2600,
+        "bankSide": "centre",
+        "lateralOffsetMeters": 0,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-1-quinsig-riprap-shore",
+        "assetPath": "/assets/scenery/tier-r/1/r-1-quinsig-riprap-shore.glb",
+        "distanceAlongRouteMeters": 1500,
+        "bankSide": "left",
+        "lateralOffsetMeters": 80,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-1-south-cove-gazebo",
+        "assetPath": "/assets/scenery/tier-r/1/r-1-south-cove-gazebo.glb",
+        "distanceAlongRouteMeters": 40,
+        "bankSide": "left",
+        "lateralOffsetMeters": 45,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      }
+    ],
+    "11": [
+      {
+        "modelId": "r-11-brno-dam-wall",
+        "assetPath": "/assets/scenery/tier-r/11/r-11-brno-dam-wall.glb",
+        "distanceAlongRouteMeters": 1914,
+        "bankSide": "right",
+        "lateralOffsetMeters": 200,
+        "orientationDegrees": -30,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-11-prygl-rocky-wooded-shore",
+        "assetPath": "/assets/scenery/tier-r/11/r-11-prygl-rocky-wooded-shore.glb",
+        "distanceAlongRouteMeters": 900,
+        "bankSide": "right",
+        "lateralOffsetMeters": 40,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-11-bystrc-forested-ridge",
+        "assetPath": "/assets/scenery/tier-r/11/r-11-bystrc-forested-ridge.glb",
+        "distanceAlongRouteMeters": 1400,
+        "bankSide": "left",
+        "lateralOffsetMeters": 250,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      }
+    ],
+    "12": [
+      {
+        "modelId": "r-12-bystrc-ferry-pier-with-steamer",
+        "assetPath": "/assets/scenery/tier-r/12/r-12-bystrc-ferry-pier-with-steamer.glb",
+        "distanceAlongRouteMeters": 480,
+        "bankSide": "left",
+        "lateralOffsetMeters": 70,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-12-prygl-granite-rocky-shore",
+        "assetPath": "/assets/scenery/tier-r/12/r-12-prygl-granite-rocky-shore.glb",
+        "distanceAlongRouteMeters": 250,
+        "bankSide": "right",
+        "lateralOffsetMeters": 40,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-12-bystrc-wooded-ridge",
+        "assetPath": "/assets/scenery/tier-r/12/r-12-bystrc-wooded-ridge.glb",
+        "distanceAlongRouteMeters": 800,
+        "bankSide": "left",
+        "lateralOffsetMeters": 160,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      }
+    ],
+    "13": [
+      {
+        "modelId": "r-13-prygl-passenger-pier",
+        "assetPath": "/assets/scenery/tier-r/13/r-13-prygl-passenger-pier.glb",
+        "distanceAlongRouteMeters": 420,
+        "bankSide": "right",
+        "lateralOffsetMeters": 45,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-13-prygl-granite-outcrops",
+        "assetPath": "/assets/scenery/tier-r/13/r-13-prygl-granite-outcrops.glb",
+        "distanceAlongRouteMeters": 200,
+        "bankSide": "left",
+        "lateralOffsetMeters": 40,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-13-prygl-wooded-ridge",
+        "assetPath": "/assets/scenery/tier-r/13/r-13-prygl-wooded-ridge.glb",
+        "distanceAlongRouteMeters": 650,
+        "bankSide": "left",
+        "lateralOffsetMeters": 160,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      }
+    ],
+    "14": [
+      {
+        "modelId": "r-14-vysehrad-railway-bridge",
+        "assetPath": "/assets/scenery/tier-r/14/r-14-vysehrad-railway-bridge.glb",
+        "distanceAlongRouteMeters": 760,
+        "bankSide": "centre",
+        "lateralOffsetMeters": 0,
+        "orientationDegrees": 0,
+        "scale": 2.5,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-14-vltava-granite-quay",
+        "assetPath": "/assets/scenery/tier-r/14/r-14-vltava-granite-quay.glb",
+        "distanceAlongRouteMeters": 520,
+        "bankSide": "right",
+        "lateralOffsetMeters": 4,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-14-vysehrad-basilica-on-rock",
+        "assetPath": "/assets/scenery/tier-r/14/r-14-vysehrad-basilica-on-rock.glb",
+        "distanceAlongRouteMeters": 430,
+        "bankSide": "right",
+        "lateralOffsetMeters": 180,
+        "orientationDegrees": 0,
+        "scale": 2,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      }
+    ],
+    "15": [
+      {
+        "modelId": "r-15-new-hope-lambertville-truss-bridge",
+        "assetPath": "/assets/scenery/tier-r/15/r-15-new-hope-lambertville-truss-bridge.glb",
+        "distanceAlongRouteMeters": 1689,
+        "bankSide": "centre",
+        "lateralOffsetMeters": 0,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-15-canal-towpath-stone-wall",
+        "assetPath": "/assets/scenery/tier-r/15/r-15-canal-towpath-stone-wall.glb",
+        "distanceAlongRouteMeters": 1000,
+        "bankSide": "right",
+        "lateralOffsetMeters": 35,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-15-lambertville-riverfront-rowhouses",
+        "assetPath": "/assets/scenery/tier-r/15/r-15-lambertville-riverfront-rowhouses.glb",
+        "distanceAlongRouteMeters": 1450,
+        "bankSide": "left",
+        "lateralOffsetMeters": 70,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      }
+    ],
+    "102": [
+      {
+        "modelId": "r-102-fish-creek-rowing-boathouse",
+        "assetPath": "/assets/scenery/tier-r/102/r-102-fish-creek-rowing-boathouse.glb",
+        "distanceAlongRouteMeters": 200,
+        "bankSide": "right",
+        "lateralOffsetMeters": 28,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-102-fish-creek-cattail-margin",
+        "assetPath": "/assets/scenery/tier-r/102/r-102-fish-creek-cattail-margin.glb",
+        "distanceAlongRouteMeters": 900,
+        "bankSide": "left",
+        "lateralOffsetMeters": 6,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-102-saratoga-mixed-treeline",
+        "assetPath": "/assets/scenery/tier-r/102/r-102-saratoga-mixed-treeline.glb",
+        "distanceAlongRouteMeters": 1600,
+        "bankSide": "left",
+        "lateralOffsetMeters": 45,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      }
+    ],
+    "104": [
+      {
+        "modelId": "r-104-seekonk-boat-club-boathouse",
+        "assetPath": "/assets/scenery/tier-r/104/r-104-seekonk-boat-club-boathouse.glb",
+        "distanceAlongRouteMeters": 2400,
+        "bankSide": "left",
+        "lateralOffsetMeters": 30,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-104-seekonk-granite-seawall",
+        "assetPath": "/assets/scenery/tier-r/104/r-104-seekonk-granite-seawall.glb",
+        "distanceAlongRouteMeters": 1500,
+        "bankSide": "right",
+        "lateralOffsetMeters": 12,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-104-seekonk-park-woods",
+        "assetPath": "/assets/scenery/tier-r/104/r-104-seekonk-park-woods.glb",
+        "distanceAlongRouteMeters": 3500,
+        "bankSide": "left",
+        "lateralOffsetMeters": 60,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      }
+    ],
+    "106": [
+      {
+        "modelId": "r-106-crook-point-bascule-bridge",
+        "assetPath": "/assets/scenery/tier-r/106/r-106-crook-point-bascule-bridge.glb",
+        "distanceAlongRouteMeters": 600,
+        "bankSide": "right",
+        "lateralOffsetMeters": 20,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-106-seekonk-granite-riprap",
+        "assetPath": "/assets/scenery/tier-r/106/r-106-seekonk-granite-riprap.glb",
+        "distanceAlongRouteMeters": 1500,
+        "bankSide": "left",
+        "lateralOffsetMeters": 22,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-106-narragansett-boat-club",
+        "assetPath": "/assets/scenery/tier-r/106/r-106-narragansett-boat-club.glb",
+        "distanceAlongRouteMeters": 2600,
+        "bankSide": "left",
+        "lateralOffsetMeters": 30,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      }
+    ],
+    "107": [
+      {
+        "modelId": "r-107-strawberry-mansion-bridge",
+        "assetPath": "/assets/scenery/tier-r/107/r-107-strawberry-mansion-bridge.glb",
+        "distanceAlongRouteMeters": 1000,
+        "bankSide": "centre",
+        "lateralOffsetMeters": 0,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-107-kelly-drive-stone-wall",
+        "assetPath": "/assets/scenery/tier-r/107/r-107-kelly-drive-stone-wall.glb",
+        "distanceAlongRouteMeters": 600,
+        "bankSide": "right",
+        "lateralOffsetMeters": 35,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-107-fairmount-park-woods",
+        "assetPath": "/assets/scenery/tier-r/107/r-107-fairmount-park-woods.glb",
+        "distanceAlongRouteMeters": 1400,
+        "bankSide": "left",
+        "lateralOffsetMeters": 70,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      }
+    ],
+    "109": [
+      {
+        "modelId": "r-109-narragansett-boat-club",
+        "assetPath": "/assets/scenery/tier-r/109/r-109-narragansett-boat-club.glb",
+        "distanceAlongRouteMeters": 100,
+        "bankSide": "left",
+        "lateralOffsetMeters": 30,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-109-seekonk-riprap-bank",
+        "assetPath": "/assets/scenery/tier-r/109/r-109-seekonk-riprap-bank.glb",
+        "distanceAlongRouteMeters": 1200,
+        "bankSide": "right",
+        "lateralOffsetMeters": 15,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-109-swan-point-wooded-bluff",
+        "assetPath": "/assets/scenery/tier-r/109/r-109-swan-point-wooded-bluff.glb",
+        "distanceAlongRouteMeters": 1900,
+        "bankSide": "left",
+        "lateralOffsetMeters": 70,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      }
+    ],
+    "114": [
+      {
+        "modelId": "r-114-cuyahoga-vertical-lift-bridge",
+        "assetPath": "/assets/scenery/tier-r/114/r-114-cuyahoga-vertical-lift-bridge.glb",
+        "distanceAlongRouteMeters": 1500,
+        "bankSide": "centre",
+        "lateralOffsetMeters": 0,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-114-flats-steel-bulkhead",
+        "assetPath": "/assets/scenery/tier-r/114/r-114-flats-steel-bulkhead.glb",
+        "distanceAlongRouteMeters": 800,
+        "bankSide": "left",
+        "lateralOffsetMeters": 35,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-114-flats-cement-silos",
+        "assetPath": "/assets/scenery/tier-r/114/r-114-flats-cement-silos.glb",
+        "distanceAlongRouteMeters": 3000,
+        "bankSide": "right",
+        "lateralOffsetMeters": 80,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      }
+    ],
+    "115": [
+      {
+        "modelId": "r-115-donahue-rowing-center",
+        "assetPath": "/assets/scenery/tier-r/115/r-115-donahue-rowing-center.glb",
+        "distanceAlongRouteMeters": 0,
+        "bankSide": "right",
+        "lateralOffsetMeters": 35,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-115-quinsigamond-granite-riprap",
+        "assetPath": "/assets/scenery/tier-r/115/r-115-quinsigamond-granite-riprap.glb",
+        "distanceAlongRouteMeters": 2000,
+        "bankSide": "left",
+        "lateralOffsetMeters": 30,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-115-wooded-turning-island",
+        "assetPath": "/assets/scenery/tier-r/115/r-115-wooded-turning-island.glb",
+        "distanceAlongRouteMeters": 4300,
+        "bankSide": "left",
+        "lateralOffsetMeters": 80,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      }
+    ],
+    "116": [
+      {
+        "modelId": "r-116-regatta-point-finish-tower",
+        "assetPath": "/assets/scenery/tier-r/116/r-116-regatta-point-finish-tower.glb",
+        "distanceAlongRouteMeters": 2000,
+        "bankSide": "right",
+        "lateralOffsetMeters": 25,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-116-quinsigamond-granite-riprap",
+        "assetPath": "/assets/scenery/tier-r/116/r-116-quinsigamond-granite-riprap.glb",
+        "distanceAlongRouteMeters": 1000,
+        "bankSide": "right",
+        "lateralOffsetMeters": 5,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-116-i290-lake-bridge",
+        "assetPath": "/assets/scenery/tier-r/116/r-116-i290-lake-bridge.glb",
+        "distanceAlongRouteMeters": 0,
+        "bankSide": "centre",
+        "lateralOffsetMeters": 0,
+        "orientationDegrees": 90,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      }
+    ],
+    "117": [
+      {
+        "modelId": "r-117-donahue-rowing-center",
+        "assetPath": "/assets/scenery/tier-r/117/r-117-donahue-rowing-center.glb",
+        "distanceAlongRouteMeters": 488,
+        "bankSide": "right",
+        "lateralOffsetMeters": 45,
+        "orientationDegrees": -90,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-117-drc-floating-docks",
+        "assetPath": "/assets/scenery/tier-r/117/r-117-drc-floating-docks.glb",
+        "distanceAlongRouteMeters": 491,
+        "bankSide": "right",
+        "lateralOffsetMeters": 22,
+        "orientationDegrees": -90,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-117-start-gazebo",
+        "assetPath": "/assets/scenery/tier-r/117/r-117-start-gazebo.glb",
+        "distanceAlongRouteMeters": 0,
+        "bankSide": "left",
+        "lateralOffsetMeters": 30,
+        "orientationDegrees": 90,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      }
+    ],
+    "123": [
+      {
+        "modelId": "r-123-krugkoppel-bridge",
+        "assetPath": "/assets/scenery/tier-r/123/r-123-krugkoppel-bridge.glb",
+        "distanceAlongRouteMeters": 2000,
+        "bankSide": "centre",
+        "lateralOffsetMeters": 0,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-123-alster-brick-quay-lawn",
+        "assetPath": "/assets/scenery/tier-r/123/r-123-alster-brick-quay-lawn.glb",
+        "distanceAlongRouteMeters": 800,
+        "bankSide": "left",
+        "lateralOffsetMeters": 0,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-123-white-alster-villa",
+        "assetPath": "/assets/scenery/tier-r/123/r-123-white-alster-villa.glb",
+        "distanceAlongRouteMeters": 3200,
+        "bankSide": "right",
+        "lateralOffsetMeters": 40,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      }
+    ],
+    "124": [
+      {
+        "modelId": "r-124-alster-brick-arch-bridge",
+        "assetPath": "/assets/scenery/tier-r/124/r-124-alster-brick-arch-bridge.glb",
+        "distanceAlongRouteMeters": 1800,
+        "bankSide": "centre",
+        "lateralOffsetMeters": 0,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-124-alster-quay-wall-jetty",
+        "assetPath": "/assets/scenery/tier-r/124/r-124-alster-quay-wall-jetty.glb",
+        "distanceAlongRouteMeters": 3500,
+        "bankSide": "left",
+        "lateralOffsetMeters": 18,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-124-white-alster-villa",
+        "assetPath": "/assets/scenery/tier-r/124/r-124-white-alster-villa.glb",
+        "distanceAlongRouteMeters": 5200,
+        "bankSide": "right",
+        "lateralOffsetMeters": 45,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      }
+    ],
+    "125": [
+      {
+        "modelId": "r-125-charles-brick-arch-bridge",
+        "assetPath": "/assets/scenery/tier-r/125/r-125-charles-brick-arch-bridge.glb",
+        "distanceAlongRouteMeters": 1500,
+        "bankSide": "centre",
+        "lateralOffsetMeters": 0,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-125-charles-granite-seawall",
+        "assetPath": "/assets/scenery/tier-r/125/r-125-charles-granite-seawall.glb",
+        "distanceAlongRouteMeters": 800,
+        "bankSide": "left",
+        "lateralOffsetMeters": 35,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-125-harvard-house-bell-tower",
+        "assetPath": "/assets/scenery/tier-r/125/r-125-harvard-house-bell-tower.glb",
+        "distanceAlongRouteMeters": 2600,
+        "bankSide": "right",
+        "lateralOffsetMeters": 150,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      }
+    ],
+    "126": [
+      {
+        "modelId": "r-126-cape-cod-shingled-boathouse",
+        "assetPath": "/assets/scenery/tier-r/126/r-126-cape-cod-shingled-boathouse.glb",
+        "distanceAlongRouteMeters": 1200,
+        "bankSide": "left",
+        "lateralOffsetMeters": 30,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-126-kettle-pond-sand-beach-boulders",
+        "assetPath": "/assets/scenery/tier-r/126/r-126-kettle-pond-sand-beach-boulders.glb",
+        "distanceAlongRouteMeters": 3500,
+        "bankSide": "right",
+        "lateralOffsetMeters": 25,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-126-pitch-pine-treeline",
+        "assetPath": "/assets/scenery/tier-r/126/r-126-pitch-pine-treeline.glb",
+        "distanceAlongRouteMeters": 5500,
+        "bankSide": "left",
+        "lateralOffsetMeters": 60,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      }
+    ],
+    "140": [
+      {
+        "modelId": "r-140-aarkanaal-lift-bridge",
+        "assetPath": "/assets/scenery/tier-r/140/r-140-aarkanaal-lift-bridge.glb",
+        "distanceAlongRouteMeters": 3200,
+        "bankSide": "centre",
+        "lateralOffsetMeters": 0,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-140-timber-beschoeiing-bank",
+        "assetPath": "/assets/scenery/tier-r/140/r-140-timber-beschoeiing-bank.glb",
+        "distanceAlongRouteMeters": 6500,
+        "bankSide": "left",
+        "lateralOffsetMeters": 22,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-140-aarlanderveen-polder-mill",
+        "assetPath": "/assets/scenery/tier-r/140/r-140-aarlanderveen-polder-mill.glb",
+        "distanceAlongRouteMeters": 9800,
+        "bankSide": "right",
+        "lateralOffsetMeters": 80,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      }
+    ],
+    "141": [
+      {
+        "modelId": "r-141-marietta-stepped-levee",
+        "assetPath": "/assets/scenery/tier-r/141/r-141-marietta-stepped-levee.glb",
+        "distanceAlongRouteMeters": 1900,
+        "bankSide": "right",
+        "lateralOffsetMeters": 30,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      }
+    ],
+    "142": [
+      {
+        "modelId": "r-142-weeks-footbridge",
+        "assetPath": "/assets/scenery/tier-r/142/r-142-weeks-footbridge.glb",
+        "distanceAlongRouteMeters": 2450,
+        "bankSide": "centre",
+        "lateralOffsetMeters": 0,
+        "orientationDegrees": 0,
+        "scale": 1.5,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-142-charles-granite-edge-grass-bank",
+        "assetPath": "/assets/scenery/tier-r/142/r-142-charles-granite-edge-grass-bank.glb",
+        "distanceAlongRouteMeters": 1500,
+        "bankSide": "right",
+        "lateralOffsetMeters": 6,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-142-dunster-house-tower",
+        "assetPath": "/assets/scenery/tier-r/142/r-142-dunster-house-tower.glb",
+        "distanceAlongRouteMeters": 2600,
+        "bankSide": "right",
+        "lateralOffsetMeters": 85,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      }
+    ],
+    "143": [
+      {
+        "modelId": "r-143-route-29-schuylerville-bridge",
+        "assetPath": "/assets/scenery/tier-r/143/r-143-route-29-schuylerville-bridge.glb",
+        "distanceAlongRouteMeters": 0,
+        "bankSide": "centre",
+        "lateralOffsetMeters": 0,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-143-champlain-canal-riprap-bank",
+        "assetPath": "/assets/scenery/tier-r/143/r-143-champlain-canal-riprap-bank.glb",
+        "distanceAlongRouteMeters": 2000,
+        "bankSide": "left",
+        "lateralOffsetMeters": 40,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-143-saratoga-monument",
+        "assetPath": "/assets/scenery/tier-r/143/r-143-saratoga-monument.glb",
+        "distanceAlongRouteMeters": 1200,
+        "bankSide": "right",
+        "lateralOffsetMeters": 900,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      }
+    ],
+    "146": [
+      {
+        "modelId": "r-146-thyro-boathouse",
+        "assetPath": "/assets/scenery/tier-r/146/r-146-thyro-boathouse.glb",
+        "distanceAlongRouteMeters": 3700,
+        "bankSide": "left",
+        "lateralOffsetMeters": 36,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-146-twentekanaal-riprap-bank",
+        "assetPath": "/assets/scenery/tier-r/146/r-146-twentekanaal-riprap-bank.glb",
+        "distanceAlongRouteMeters": 1500,
+        "bankSide": "right",
+        "lateralOffsetMeters": 26,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-146-twente-poplar-row",
+        "assetPath": "/assets/scenery/tier-r/146/r-146-twente-poplar-row.glb",
+        "distanceAlongRouteMeters": 2500,
+        "bankSide": "left",
+        "lateralOffsetMeters": 70,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      }
+    ],
+    "147": [
+      {
+        "modelId": "r-147-twentekanaal-bowstring-bridge",
+        "assetPath": "/assets/scenery/tier-r/147/r-147-twentekanaal-bowstring-bridge.glb",
+        "distanceAlongRouteMeters": 1900,
+        "bankSide": "centre",
+        "lateralOffsetMeters": 0,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-147-canal-basalt-riprap-bank",
+        "assetPath": "/assets/scenery/tier-r/147/r-147-canal-basalt-riprap-bank.glb",
+        "distanceAlongRouteMeters": 600,
+        "bankSide": "right",
+        "lateralOffsetMeters": 28,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-147-twente-poplar-row",
+        "assetPath": "/assets/scenery/tier-r/147/r-147-twente-poplar-row.glb",
+        "distanceAlongRouteMeters": 1100,
+        "bankSide": "left",
+        "lateralOffsetMeters": 60,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      }
+    ],
+    "149": [
+      {
+        "modelId": "r-149-thyro-boathouse",
+        "assetPath": "/assets/scenery/tier-r/149/r-149-thyro-boathouse.glb",
+        "distanceAlongRouteMeters": 40,
+        "bankSide": "left",
+        "lateralOffsetMeters": 22,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-149-canal-riprap-revetment",
+        "assetPath": "/assets/scenery/tier-r/149/r-149-canal-riprap-revetment.glb",
+        "distanceAlongRouteMeters": 320,
+        "bankSide": "right",
+        "lateralOffsetMeters": 10,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-149-twente-poplar-row",
+        "assetPath": "/assets/scenery/tier-r/149/r-149-twente-poplar-row.glb",
+        "distanceAlongRouteMeters": 480,
+        "bankSide": "left",
+        "lateralOffsetMeters": 45,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      }
+    ],
+    "150": [
+      {
+        "modelId": "r-150-thyro-boathouse-vlot",
+        "assetPath": "/assets/scenery/tier-r/150/r-150-thyro-boathouse-vlot.glb",
+        "distanceAlongRouteMeters": 200,
+        "bankSide": "right",
+        "lateralOffsetMeters": 18,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-150-twentekanaal-riprap-bank",
+        "assetPath": "/assets/scenery/tier-r/150/r-150-twentekanaal-riprap-bank.glb",
+        "distanceAlongRouteMeters": 100,
+        "bankSide": "left",
+        "lateralOffsetMeters": 22,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-150-twente-poplar-row",
+        "assetPath": "/assets/scenery/tier-r/150/r-150-twente-poplar-row.glb",
+        "distanceAlongRouteMeters": 60,
+        "bankSide": "right",
+        "lateralOffsetMeters": 45,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      }
+    ],
+    "153": [
+      {
+        "modelId": "r-153-newell-boathouse",
+        "assetPath": "/assets/scenery/tier-r/153/r-153-newell-boathouse.glb",
+        "distanceAlongRouteMeters": 5200,
+        "bankSide": "left",
+        "lateralOffsetMeters": 45,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-153-charles-granite-seawall",
+        "assetPath": "/assets/scenery/tier-r/153/r-153-charles-granite-seawall.glb",
+        "distanceAlongRouteMeters": 3000,
+        "bankSide": "right",
+        "lateralOffsetMeters": 30,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-153-harvard-house-tower",
+        "assetPath": "/assets/scenery/tier-r/153/r-153-harvard-house-tower.glb",
+        "distanceAlongRouteMeters": 4600,
+        "bankSide": "right",
+        "lateralOffsetMeters": 160,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      }
+    ],
+    "154": [
+      {
+        "modelId": "r-154-redwood-city-cement-silos",
+        "assetPath": "/assets/scenery/tier-r/154/r-154-redwood-city-cement-silos.glb",
+        "distanceAlongRouteMeters": 2500,
+        "bankSide": "right",
+        "lateralOffsetMeters": 60,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-154-bay-riprap-marsh-levee",
+        "assetPath": "/assets/scenery/tier-r/154/r-154-bay-riprap-marsh-levee.glb",
+        "distanceAlongRouteMeters": 1000,
+        "bankSide": "left",
+        "lateralOffsetMeters": 25,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-154-cargill-salt-piles",
+        "assetPath": "/assets/scenery/tier-r/154/r-154-cargill-salt-piles.glb",
+        "distanceAlongRouteMeters": 4200,
+        "bankSide": "right",
+        "lateralOffsetMeters": 300,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      }
+    ],
+    "156": [
+      {
+        "modelId": "r-156-redwood-city-salt-pile",
+        "assetPath": "/assets/scenery/tier-r/156/r-156-redwood-city-salt-pile.glb",
+        "distanceAlongRouteMeters": 950,
+        "bankSide": "right",
+        "lateralOffsetMeters": 120,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-156-bay-levee-riprap",
+        "assetPath": "/assets/scenery/tier-r/156/r-156-bay-levee-riprap.glb",
+        "distanceAlongRouteMeters": 300,
+        "bankSide": "left",
+        "lateralOffsetMeters": 25,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      },
+      {
+        "modelId": "r-156-redwood-creek-marina-houseboats",
+        "assetPath": "/assets/scenery/tier-r/156/r-156-redwood-creek-marina-houseboats.glb",
+        "distanceAlongRouteMeters": 620,
+        "bankSide": "right",
+        "lateralOffsetMeters": 40,
+        "orientationDegrees": 0,
+        "scale": 1,
+        "sourceRun": "https://github.com/maximum-trainer/virtualrow/actions/runs/45795737524"
+      }
+    ]
+  }
 }

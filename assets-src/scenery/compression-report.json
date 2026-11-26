@@ -2311,6 +2311,1502 @@
       ],
       "simplified": true,
       "boundsDrift": 0
+    },
+    "r-1-quinsig-riprap-shore": {
+      "path": "public/assets/scenery/tier-r/1/r-1-quinsig-riprap-shore.glb",
+      "bytesBefore": 17648,
+      "bytesAfter": 4060,
+      "trianglesBefore": 532,
+      "trianglesAfter": 516,
+      "bounds": [
+        -16000,
+        -7500,
+        0,
+        16000,
+        2400,
+        1995
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-1-route-9-arch-bridge": {
+      "path": "public/assets/scenery/tier-r/1/r-1-route-9-arch-bridge.glb",
+      "bytesBefore": 17164,
+      "bytesAfter": 4584,
+      "trianglesBefore": 524,
+      "trianglesAfter": 412,
+      "bounds": [
+        -30000,
+        -7000,
+        0,
+        30000,
+        7000,
+        16600
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-1-south-cove-gazebo": {
+      "path": "public/assets/scenery/tier-r/1/r-1-south-cove-gazebo.glb",
+      "bytesBefore": 15604,
+      "bytesAfter": 4696,
+      "trianglesBefore": 460,
+      "trianglesAfter": 440,
+      "bounds": [
+        -4200,
+        -4200,
+        0,
+        4200,
+        4200,
+        6500
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-102-fish-creek-cattail-margin": {
+      "path": "public/assets/scenery/tier-r/102/r-102-fish-creek-cattail-margin.glb",
+      "bytesBefore": 121352,
+      "bytesAfter": 12908,
+      "trianglesBefore": 4812,
+      "trianglesAfter": 2892,
+      "bounds": [
+        -10000,
+        -1900,
+        0,
+        10000,
+        1100,
+        2549.24755859375
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-102-fish-creek-rowing-boathouse": {
+      "path": "public/assets/scenery/tier-r/102/r-102-fish-creek-rowing-boathouse.glb",
+      "bytesBefore": 42816,
+      "bytesAfter": 8152,
+      "trianglesBefore": 1496,
+      "trianglesAfter": 992,
+      "bounds": [
+        -15500,
+        -7600,
+        -600,
+        15500,
+        11000,
+        10800
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-102-saratoga-mixed-treeline": {
+      "path": "public/assets/scenery/tier-r/102/r-102-saratoga-mixed-treeline.glb",
+      "bytesBefore": 63240,
+      "bytesAfter": 10504,
+      "trianglesBefore": 2899,
+      "trianglesAfter": 2068,
+      "bounds": [
+        -26800,
+        -4774.26953125,
+        0,
+        26800,
+        5187.26953125,
+        13000
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-104-seekonk-boat-club-boathouse": {
+      "path": "public/assets/scenery/tier-r/104/r-104-seekonk-boat-club-boathouse.glb",
+      "bytesBefore": 36788,
+      "bytesAfter": 9224,
+      "trianglesBefore": 1192,
+      "trianglesAfter": 808,
+      "bounds": [
+        -12500,
+        -7600,
+        -300,
+        12500,
+        11000,
+        16000
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-104-seekonk-granite-seawall": {
+      "path": "public/assets/scenery/tier-r/104/r-104-seekonk-granite-seawall.glb",
+      "bytesBefore": 30756,
+      "bytesAfter": 4720,
+      "trianglesBefore": 968,
+      "trianglesAfter": 742,
+      "bounds": [
+        -20000,
+        -7300,
+        0,
+        20000,
+        1460,
+        1800
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-104-seekonk-park-woods": {
+      "path": "public/assets/scenery/tier-r/104/r-104-seekonk-park-woods.glb",
+      "bytesBefore": 42584,
+      "bytesAfter": 9080,
+      "trianglesBefore": 1984,
+      "trianglesAfter": 1752,
+      "bounds": [
+        -18431.634765625,
+        -8416.4423828125,
+        0,
+        18765.001953125,
+        5924.03857421875,
+        20400
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-106-crook-point-bascule-bridge": {
+      "path": "public/assets/scenery/tier-r/106/r-106-crook-point-bascule-bridge.glb",
+      "bytesBefore": 86992,
+      "bytesAfter": 12120,
+      "trianglesBefore": 3152,
+      "trianglesAfter": 2480,
+      "bounds": [
+        -6000,
+        -46250,
+        0,
+        6000,
+        9210.9853515625,
+        50529.21875
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-106-narragansett-boat-club": {
+      "path": "public/assets/scenery/tier-r/106/r-106-narragansett-boat-club.glb",
+      "bytesBefore": 8528,
+      "bytesAfter": 5340,
+      "trianglesBefore": 140,
+      "trianglesAfter": 140,
+      "bounds": [
+        -12500,
+        -7800,
+        0,
+        12500,
+        13000,
+        13000
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-106-seekonk-granite-riprap": {
+      "path": "public/assets/scenery/tier-r/106/r-106-seekonk-granite-riprap.glb",
+      "bytesBefore": 43288,
+      "bytesAfter": 6868,
+      "trianglesBefore": 1364,
+      "trianglesAfter": 1216,
+      "bounds": [
+        -10043.8564453125,
+        -8500,
+        -100,
+        10733.8564453125,
+        3315.295166015625,
+        2900
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-107-fairmount-park-woods": {
+      "path": "public/assets/scenery/tier-r/107/r-107-fairmount-park-woods.glb",
+      "bytesBefore": 68800,
+      "bytesAfter": 13012,
+      "trianglesBefore": 3234,
+      "trianglesAfter": 2730,
+      "bounds": [
+        -25136.193359375,
+        -15924.0390625,
+        0,
+        25963.544921875,
+        924.0387573242188,
+        17000
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-107-kelly-drive-stone-wall": {
+      "path": "public/assets/scenery/tier-r/107/r-107-kelly-drive-stone-wall.glb",
+      "bytesBefore": 8260,
+      "bytesAfter": 3744,
+      "trianglesBefore": 196,
+      "trianglesAfter": 190,
+      "bounds": [
+        -20000,
+        -9000,
+        0,
+        20000,
+        250,
+        1700
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-107-strawberry-mansion-bridge": {
+      "path": "public/assets/scenery/tier-r/107/r-107-strawberry-mansion-bridge.glb",
+      "bytesBefore": 54924,
+      "bytesAfter": 7228,
+      "trianglesBefore": 1848,
+      "trianglesAfter": 1206,
+      "bounds": [
+        -7000,
+        -30000,
+        0,
+        7000,
+        30000,
+        19393.314453125
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-109-narragansett-boat-club": {
+      "path": "public/assets/scenery/tier-r/109/r-109-narragansett-boat-club.glb",
+      "bytesBefore": 27340,
+      "bytesAfter": 7832,
+      "trianglesBefore": 748,
+      "trianglesAfter": 664,
+      "bounds": [
+        -15500,
+        -7800,
+        0,
+        15500,
+        13000,
+        13000
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-109-seekonk-riprap-bank": {
+      "path": "public/assets/scenery/tier-r/109/r-109-seekonk-riprap-bank.glb",
+      "bytesBefore": 7912,
+      "bytesAfter": 3040,
+      "trianglesBefore": 208,
+      "trianglesAfter": 194,
+      "bounds": [
+        -10000,
+        -6000,
+        0,
+        10000,
+        2500,
+        1600
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-109-swan-point-wooded-bluff": {
+      "path": "public/assets/scenery/tier-r/109/r-109-swan-point-wooded-bluff.glb",
+      "bytesBefore": 75904,
+      "bytesAfter": 12192,
+      "trianglesBefore": 3590,
+      "trianglesAfter": 2790,
+      "bounds": [
+        -27446.826171875,
+        -9425.5576171875,
+        0,
+        28566.4609375,
+        3446.8271484375,
+        17380
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-11-brno-dam-wall": {
+      "path": "public/assets/scenery/tier-r/11/r-11-brno-dam-wall.glb",
+      "bytesBefore": 13520,
+      "bytesAfter": 5928,
+      "trianglesBefore": 300,
+      "trianglesAfter": 300,
+      "bounds": [
+        -25000,
+        -4000,
+        0,
+        25000,
+        5000,
+        20500
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-11-bystrc-forested-ridge": {
+      "path": "public/assets/scenery/tier-r/11/r-11-bystrc-forested-ridge.glb",
+      "bytesBefore": 64168,
+      "bytesAfter": 12788,
+      "trianglesBefore": 3105,
+      "trianglesAfter": 2640,
+      "bounds": [
+        -28000,
+        -9000,
+        0,
+        28000,
+        9431.634765625,
+        23000
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-11-prygl-rocky-wooded-shore": {
+      "path": "public/assets/scenery/tier-r/11/r-11-prygl-rocky-wooded-shore.glb",
+      "bytesBefore": 23708,
+      "bytesAfter": 6324,
+      "trianglesBefore": 847,
+      "trianglesAfter": 568,
+      "bounds": [
+        -10861.1923828125,
+        -5183.95947265625,
+        0,
+        10625.025390625,
+        3769.358642578125,
+        15500
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-114-cuyahoga-vertical-lift-bridge": {
+      "path": "public/assets/scenery/tier-r/114/r-114-cuyahoga-vertical-lift-bridge.glb",
+      "bytesBefore": 67560,
+      "bytesAfter": 9968,
+      "trianglesBefore": 2368,
+      "trianglesAfter": 2126,
+      "bounds": [
+        -32000,
+        -6500,
+        0,
+        32000,
+        6500,
+        51300
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-114-flats-cement-silos": {
+      "path": "public/assets/scenery/tier-r/114/r-114-flats-cement-silos.glb",
+      "bytesBefore": 20820,
+      "bytesAfter": 5732,
+      "trianglesBefore": 724,
+      "trianglesAfter": 724,
+      "bounds": [
+        -13000,
+        -28000,
+        0,
+        13000,
+        8500,
+        42000
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-114-flats-steel-bulkhead": {
+      "path": "public/assets/scenery/tier-r/114/r-114-flats-steel-bulkhead.glb",
+      "bytesBefore": 57688,
+      "bytesAfter": 8940,
+      "trianglesBefore": 1848,
+      "trianglesAfter": 1440,
+      "bounds": [
+        -20050,
+        -12700,
+        -1600,
+        20250,
+        700,
+        3050
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-115-donahue-rowing-center": {
+      "path": "public/assets/scenery/tier-r/115/r-115-donahue-rowing-center.glb",
+      "bytesBefore": 17680,
+      "bytesAfter": 7108,
+      "trianglesBefore": 388,
+      "trianglesAfter": 388,
+      "bounds": [
+        -20500,
+        -9800,
+        0,
+        20500,
+        29500,
+        13500
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-115-quinsigamond-granite-riprap": {
+      "path": "public/assets/scenery/tier-r/115/r-115-quinsigamond-granite-riprap.glb",
+      "bytesBefore": 63148,
+      "bytesAfter": 8676,
+      "trianglesBefore": 2172,
+      "trianglesAfter": 1880,
+      "bounds": [
+        -16000,
+        -5600,
+        -300,
+        16496.02734375,
+        2389.2099609375,
+        1700
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-115-wooded-turning-island": {
+      "path": "public/assets/scenery/tier-r/115/r-115-wooded-turning-island.glb",
+      "bytesBefore": 92284,
+      "bytesAfter": 15564,
+      "trianglesBefore": 4151,
+      "trianglesAfter": 3186,
+      "bounds": [
+        -20998.271484375,
+        -8840.0087890625,
+        0,
+        21000,
+        8992.1669921875,
+        16000
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-116-i290-lake-bridge": {
+      "path": "public/assets/scenery/tier-r/116/r-116-i290-lake-bridge.glb",
+      "bytesBefore": 21060,
+      "bytesAfter": 3944,
+      "trianglesBefore": 748,
+      "trianglesAfter": 476,
+      "bounds": [
+        -30000,
+        -14000,
+        0,
+        30000,
+        14000,
+        13400
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-116-quinsigamond-granite-riprap": {
+      "path": "public/assets/scenery/tier-r/116/r-116-quinsigamond-granite-riprap.glb",
+      "bytesBefore": 40424,
+      "bytesAfter": 10784,
+      "trianglesBefore": 1572,
+      "trianglesAfter": 1438,
+      "bounds": [
+        -10000,
+        -8454.4228515625,
+        -402.9656677246094,
+        10000,
+        2500,
+        13500
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-116-regatta-point-finish-tower": {
+      "path": "public/assets/scenery/tier-r/116/r-116-regatta-point-finish-tower.glb",
+      "bytesBefore": 13804,
+      "bytesAfter": 7260,
+      "trianglesBefore": 308,
+      "trianglesAfter": 268,
+      "bounds": [
+        -3400,
+        -3400,
+        0,
+        4350,
+        3400,
+        17500
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-117-donahue-rowing-center": {
+      "path": "public/assets/scenery/tier-r/117/r-117-donahue-rowing-center.glb",
+      "bytesBefore": 8556,
+      "bytesAfter": 5356,
+      "trianglesBefore": 140,
+      "trianglesAfter": 140,
+      "bounds": [
+        -15500,
+        -7600,
+        0,
+        15500,
+        8800,
+        11500
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-117-drc-floating-docks": {
+      "path": "public/assets/scenery/tier-r/117/r-117-drc-floating-docks.glb",
+      "bytesBefore": 27580,
+      "bytesAfter": 4404,
+      "trianglesBefore": 1024,
+      "trianglesAfter": 664,
+      "bounds": [
+        -20000,
+        -2448.90625,
+        -500,
+        20000,
+        8250,
+        1000
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-117-start-gazebo": {
+      "path": "public/assets/scenery/tier-r/117/r-117-start-gazebo.glb",
+      "bytesBefore": 29064,
+      "bytesAfter": 5604,
+      "trianglesBefore": 1079,
+      "trianglesAfter": 672,
+      "bounds": [
+        -3600,
+        -3573.751953125,
+        0,
+        3600,
+        3573.751953125,
+        5700
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-12-bystrc-ferry-pier-with-steamer": {
+      "path": "public/assets/scenery/tier-r/12/r-12-bystrc-ferry-pier-with-steamer.glb",
+      "bytesBefore": 27164,
+      "bytesAfter": 7660,
+      "trianglesBefore": 808,
+      "trianglesAfter": 550,
+      "bounds": [
+        -15000,
+        -8500,
+        -500,
+        15000,
+        12050,
+        5700
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-12-bystrc-wooded-ridge": {
+      "path": "public/assets/scenery/tier-r/12/r-12-bystrc-wooded-ridge.glb",
+      "bytesBefore": 114208,
+      "bytesAfter": 17868,
+      "trianglesBefore": 5493,
+      "trianglesAfter": 4138,
+      "bounds": [
+        -30600,
+        -25000,
+        0,
+        30000,
+        772.293701171875,
+        22611.111328125
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-12-prygl-granite-rocky-shore": {
+      "path": "public/assets/scenery/tier-r/12/r-12-prygl-granite-rocky-shore.glb",
+      "bytesBefore": 11792,
+      "bytesAfter": 4552,
+      "trianglesBefore": 300,
+      "trianglesAfter": 300,
+      "bounds": [
+        -10292.7734375,
+        -7000,
+        -204.068603515625,
+        10427.189453125,
+        768.158447265625,
+        3641
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-123-alster-brick-quay-lawn": {
+      "path": "public/assets/scenery/tier-r/123/r-123-alster-brick-quay-lawn.glb",
+      "bytesBefore": 2908,
+      "bytesAfter": 3040,
+      "trianglesBefore": 36,
+      "trianglesAfter": 36,
+      "bounds": [
+        -15000,
+        -10200,
+        -500,
+        15000,
+        100,
+        1200
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-123-krugkoppel-bridge": {
+      "path": "public/assets/scenery/tier-r/123/r-123-krugkoppel-bridge.glb",
+      "bytesBefore": 12680,
+      "bytesAfter": 5040,
+      "trianglesBefore": 328,
+      "trianglesAfter": 328,
+      "bounds": [
+        -30000,
+        -7150,
+        -2.9194779926910996e-10,
+        30000,
+        7150,
+        8500
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-123-white-alster-villa": {
+      "path": "public/assets/scenery/tier-r/123/r-123-white-alster-villa.glb",
+      "bytesBefore": 7864,
+      "bytesAfter": 4508,
+      "trianglesBefore": 140,
+      "trianglesAfter": 140,
+      "bounds": [
+        -8400,
+        -6600,
+        0,
+        8400,
+        6600,
+        13500
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-124-alster-brick-arch-bridge": {
+      "path": "public/assets/scenery/tier-r/124/r-124-alster-brick-arch-bridge.glb",
+      "bytesBefore": 32496,
+      "bytesAfter": 6088,
+      "trianglesBefore": 1096,
+      "trianglesAfter": 894,
+      "bounds": [
+        -22200,
+        -6350,
+        0,
+        22200,
+        6350,
+        12700
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-124-alster-quay-wall-jetty": {
+      "path": "public/assets/scenery/tier-r/124/r-124-alster-quay-wall-jetty.glb",
+      "bytesBefore": 43420,
+      "bytesAfter": 7204,
+      "trianglesBefore": 1636,
+      "trianglesAfter": 996,
+      "bounds": [
+        -10000,
+        -1600,
+        -800,
+        10000,
+        6000,
+        1450
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-124-white-alster-villa": {
+      "path": "public/assets/scenery/tier-r/124/r-124-white-alster-villa.glb",
+      "bytesBefore": 7864,
+      "bytesAfter": 4508,
+      "trianglesBefore": 140,
+      "trianglesAfter": 140,
+      "bounds": [
+        -8500,
+        -6600,
+        0,
+        8500,
+        6600,
+        13500
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-125-charles-brick-arch-bridge": {
+      "path": "public/assets/scenery/tier-r/125/r-125-charles-brick-arch-bridge.glb",
+      "bytesBefore": 10056,
+      "bytesAfter": 3380,
+      "trianglesBefore": 280,
+      "trianglesAfter": 280,
+      "bounds": [
+        -30300,
+        -6300,
+        -1000,
+        30300,
+        6300,
+        8400
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-125-charles-granite-seawall": {
+      "path": "public/assets/scenery/tier-r/125/r-125-charles-granite-seawall.glb",
+      "bytesBefore": 3212,
+      "bytesAfter": 3180,
+      "trianglesBefore": 36,
+      "trianglesAfter": 36,
+      "bounds": [
+        -10000,
+        -8750,
+        -600,
+        10000,
+        850,
+        1400
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-125-harvard-house-bell-tower": {
+      "path": "public/assets/scenery/tier-r/125/r-125-harvard-house-bell-tower.glb",
+      "bytesBefore": 20304,
+      "bytesAfter": 5780,
+      "trianglesBefore": 549,
+      "trianglesAfter": 494,
+      "bounds": [
+        -20000,
+        -7000,
+        0,
+        20000,
+        7150,
+        39000
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-126-cape-cod-shingled-boathouse": {
+      "path": "public/assets/scenery/tier-r/126/r-126-cape-cod-shingled-boathouse.glb",
+      "bytesBefore": 32312,
+      "bytesAfter": 9500,
+      "trianglesBefore": 1036,
+      "trianglesAfter": 716,
+      "bounds": [
+        -4300,
+        -3500,
+        -300,
+        4300,
+        12000,
+        5600
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-126-kettle-pond-sand-beach-boulders": {
+      "path": "public/assets/scenery/tier-r/126/r-126-kettle-pond-sand-beach-boulders.glb",
+      "bytesBefore": 10892,
+      "bytesAfter": 4268,
+      "trianglesBefore": 240,
+      "trianglesAfter": 240,
+      "bounds": [
+        -10000,
+        -2500,
+        -138.0382537841797,
+        10000,
+        2500,
+        1288.5638427734375
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-126-pitch-pine-treeline": {
+      "path": "public/assets/scenery/tier-r/126/r-126-pitch-pine-treeline.glb",
+      "bytesBefore": 73944,
+      "bytesAfter": 9336,
+      "trianglesBefore": 3128,
+      "trianglesAfter": 2002,
+      "bounds": [
+        -18919.7265625,
+        -4998.89111328125,
+        0,
+        16500,
+        4557.54345703125,
+        16000
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-13-prygl-granite-outcrops": {
+      "path": "public/assets/scenery/tier-r/13/r-13-prygl-granite-outcrops.glb",
+      "bytesBefore": 7708,
+      "bytesAfter": 3856,
+      "trianglesBefore": 168,
+      "trianglesAfter": 166,
+      "bounds": [
+        -16000,
+        -5000,
+        -1276.074462890625,
+        16000,
+        3727.865234375,
+        3676.074462890625
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-13-prygl-passenger-pier": {
+      "path": "public/assets/scenery/tier-r/13/r-13-prygl-passenger-pier.glb",
+      "bytesBefore": 56940,
+      "bytesAfter": 12304,
+      "trianglesBefore": 1880,
+      "trianglesAfter": 1254,
+      "bounds": [
+        -13000,
+        -2500,
+        -1000,
+        15000,
+        8050,
+        4700
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-13-prygl-wooded-ridge": {
+      "path": "public/assets/scenery/tier-r/13/r-13-prygl-wooded-ridge.glb",
+      "bytesBefore": 82840,
+      "bytesAfter": 13416,
+      "trianglesBefore": 4074,
+      "trianglesAfter": 2914,
+      "bounds": [
+        -28000,
+        -6000,
+        0,
+        28000,
+        6000,
+        26000
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-14-vltava-granite-quay": {
+      "path": "public/assets/scenery/tier-r/14/r-14-vltava-granite-quay.glb",
+      "bytesBefore": 31864,
+      "bytesAfter": 5540,
+      "trianglesBefore": 1160,
+      "trianglesAfter": 740,
+      "bounds": [
+        -20000,
+        -1500,
+        0,
+        20000,
+        3000,
+        9500
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-14-vysehrad-basilica-on-rock": {
+      "path": "public/assets/scenery/tier-r/14/r-14-vysehrad-basilica-on-rock.glb",
+      "bytesBefore": 5896,
+      "bytesAfter": 3560,
+      "trianglesBefore": 112,
+      "trianglesAfter": 112,
+      "bounds": [
+        -25000,
+        -21000,
+        0,
+        25000,
+        19000,
+        43000
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-14-vysehrad-railway-bridge": {
+      "path": "public/assets/scenery/tier-r/14/r-14-vysehrad-railway-bridge.glb",
+      "bytesBefore": 43608,
+      "bytesAfter": 6696,
+      "trianglesBefore": 1442,
+      "trianglesAfter": 1032,
+      "bounds": [
+        -30300,
+        -2950,
+        0,
+        30300,
+        2950,
+        6800
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-140-aarkanaal-lift-bridge": {
+      "path": "public/assets/scenery/tier-r/140/r-140-aarkanaal-lift-bridge.glb",
+      "bytesBefore": 18960,
+      "bytesAfter": 4968,
+      "trianglesBefore": 556,
+      "trianglesAfter": 556,
+      "bounds": [
+        -22000,
+        -5800,
+        0,
+        22000,
+        5800,
+        21600
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-140-aarlanderveen-polder-mill": {
+      "path": "public/assets/scenery/tier-r/140/r-140-aarlanderveen-polder-mill.glb",
+      "bytesBefore": 7264,
+      "bytesAfter": 5164,
+      "trianglesBefore": 124,
+      "trianglesAfter": 124,
+      "bounds": [
+        -12472.51953125,
+        -5000,
+        0,
+        12472.51953125,
+        5000,
+        32472.51953125
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-140-timber-beschoeiing-bank": {
+      "path": "public/assets/scenery/tier-r/140/r-140-timber-beschoeiing-bank.glb",
+      "bytesBefore": 54700,
+      "bytesAfter": 7320,
+      "trianglesBefore": 2124,
+      "trianglesAfter": 1284,
+      "bounds": [
+        -10125,
+        -4150,
+        -500,
+        10125,
+        424.088623046875,
+        1000
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-141-marietta-stepped-levee": {
+      "path": "public/assets/scenery/tier-r/141/r-141-marietta-stepped-levee.glb",
+      "bytesBefore": 19108,
+      "bytesAfter": 4568,
+      "trianglesBefore": 664,
+      "trianglesAfter": 424,
+      "bounds": [
+        -12000,
+        -7600,
+        0,
+        12000,
+        3600,
+        3750
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-142-charles-granite-edge-grass-bank": {
+      "path": "public/assets/scenery/tier-r/142/r-142-charles-granite-edge-grass-bank.glb",
+      "bytesBefore": 10104,
+      "bytesAfter": 3200,
+      "trianglesBefore": 264,
+      "trianglesAfter": 264,
+      "bounds": [
+        -10000,
+        -5000,
+        -500,
+        10000,
+        6150,
+        2300
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-142-dunster-house-tower": {
+      "path": "public/assets/scenery/tier-r/142/r-142-dunster-house-tower.glb",
+      "bytesBefore": 30752,
+      "bytesAfter": 7252,
+      "trianglesBefore": 963,
+      "trianglesAfter": 874,
+      "bounds": [
+        -20000,
+        -7500,
+        0,
+        20000,
+        8600,
+        40500
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-142-weeks-footbridge": {
+      "path": "public/assets/scenery/tier-r/142/r-142-weeks-footbridge.glb",
+      "bytesBefore": 21964,
+      "bytesAfter": 4408,
+      "trianglesBefore": 684,
+      "trianglesAfter": 634,
+      "bounds": [
+        -28200,
+        -3900,
+        0,
+        28200,
+        3900,
+        9100
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-143-champlain-canal-riprap-bank": {
+      "path": "public/assets/scenery/tier-r/143/r-143-champlain-canal-riprap-bank.glb",
+      "bytesBefore": 31540,
+      "bytesAfter": 5724,
+      "trianglesBefore": 948,
+      "trianglesAfter": 898,
+      "bounds": [
+        -10000,
+        -6000,
+        -187.75680541992188,
+        10000,
+        3094.778076171875,
+        2000
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-143-route-29-schuylerville-bridge": {
+      "path": "public/assets/scenery/tier-r/143/r-143-route-29-schuylerville-bridge.glb",
+      "bytesBefore": 84496,
+      "bytesAfter": 10928,
+      "trianglesBefore": 2892,
+      "trianglesAfter": 2520,
+      "bounds": [
+        -29000,
+        -6000,
+        0,
+        29000,
+        6000,
+        9575
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-143-saratoga-monument": {
+      "path": "public/assets/scenery/tier-r/143/r-143-saratoga-monument.glb",
+      "bytesBefore": 6856,
+      "bytesAfter": 2852,
+      "trianglesBefore": 156,
+      "trianglesAfter": 144,
+      "bounds": [
+        -8000,
+        -8000,
+        0,
+        8000,
+        8000,
+        46900
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-146-thyro-boathouse": {
+      "path": "public/assets/scenery/tier-r/146/r-146-thyro-boathouse.glb",
+      "bytesBefore": 8292,
+      "bytesAfter": 6128,
+      "trianglesBefore": 120,
+      "trianglesAfter": 120,
+      "bounds": [
+        -12400,
+        -6400,
+        0,
+        12400,
+        11000,
+        7400
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-146-twente-poplar-row": {
+      "path": "public/assets/scenery/tier-r/146/r-146-twente-poplar-row.glb",
+      "bytesBefore": 53240,
+      "bytesAfter": 6888,
+      "trianglesBefore": 2248,
+      "trianglesAfter": 1348,
+      "bounds": [
+        -26300,
+        -1786.8759765625,
+        0,
+        26300,
+        1786.8759765625,
+        19000
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-146-twentekanaal-riprap-bank": {
+      "path": "public/assets/scenery/tier-r/146/r-146-twentekanaal-riprap-bank.glb",
+      "bytesBefore": 23436,
+      "bytesAfter": 5616,
+      "trianglesBefore": 628,
+      "trianglesAfter": 606,
+      "bounds": [
+        -10000,
+        -7000,
+        -425.6004638671875,
+        10000,
+        3000,
+        977.8313598632812
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-147-canal-basalt-riprap-bank": {
+      "path": "public/assets/scenery/tier-r/147/r-147-canal-basalt-riprap-bank.glb",
+      "bytesBefore": 14096,
+      "bytesAfter": 3880,
+      "trianglesBefore": 412,
+      "trianglesAfter": 412,
+      "bounds": [
+        -15000,
+        -6450,
+        -300,
+        15000,
+        2500,
+        1594.3636474609375
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-147-twente-poplar-row": {
+      "path": "public/assets/scenery/tier-r/147/r-147-twente-poplar-row.glb",
+      "bytesBefore": 67068,
+      "bytesAfter": 8520,
+      "trianglesBefore": 3004,
+      "trianglesAfter": 1802,
+      "bounds": [
+        -26500,
+        -1985.417724609375,
+        0,
+        26500,
+        1985.417724609375,
+        23900
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-147-twentekanaal-bowstring-bridge": {
+      "path": "public/assets/scenery/tier-r/147/r-147-twentekanaal-bowstring-bridge.glb",
+      "bytesBefore": 33196,
+      "bytesAfter": 6216,
+      "trianglesBefore": 1104,
+      "trianglesAfter": 956,
+      "bounds": [
+        -27500,
+        -6000,
+        0,
+        27500,
+        6000,
+        17200
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-149-canal-riprap-revetment": {
+      "path": "public/assets/scenery/tier-r/149/r-149-canal-riprap-revetment.glb",
+      "bytesBefore": 3460,
+      "bytesAfter": 3264,
+      "trianglesBefore": 36,
+      "trianglesAfter": 36,
+      "bounds": [
+        -20000,
+        -6100,
+        -900,
+        20000,
+        2500,
+        1000
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-149-thyro-boathouse": {
+      "path": "public/assets/scenery/tier-r/149/r-149-thyro-boathouse.glb",
+      "bytesBefore": 8368,
+      "bytesAfter": 5228,
+      "trianglesBefore": 144,
+      "trianglesAfter": 144,
+      "bounds": [
+        -10400,
+        -6400,
+        0,
+        10400,
+        9100,
+        6900
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-149-twente-poplar-row": {
+      "path": "public/assets/scenery/tier-r/149/r-149-twente-poplar-row.glb",
+      "bytesBefore": 68024,
+      "bytesAfter": 8720,
+      "trianglesBefore": 3056,
+      "trianglesAfter": 1832,
+      "bounds": [
+        -19300,
+        -1786.8759765625,
+        0,
+        19300,
+        1786.8759765625,
+        19000
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-15-canal-towpath-stone-wall": {
+      "path": "public/assets/scenery/tier-r/15/r-15-canal-towpath-stone-wall.glb",
+      "bytesBefore": 7896,
+      "bytesAfter": 4436,
+      "trianglesBefore": 160,
+      "trianglesAfter": 160,
+      "bounds": [
+        -20000,
+        -7750,
+        0,
+        20000,
+        1100,
+        2750
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-15-lambertville-riverfront-rowhouses": {
+      "path": "public/assets/scenery/tier-r/15/r-15-lambertville-riverfront-rowhouses.glb",
+      "bytesBefore": 21148,
+      "bytesAfter": 5880,
+      "trianglesBefore": 516,
+      "trianglesAfter": 516,
+      "bounds": [
+        -17500,
+        -5300,
+        0,
+        17500,
+        5300,
+        13500
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-15-new-hope-lambertville-truss-bridge": {
+      "path": "public/assets/scenery/tier-r/15/r-15-new-hope-lambertville-truss-bridge.glb",
+      "bytesBefore": 39716,
+      "bytesAfter": 6392,
+      "trianglesBefore": 1344,
+      "trianglesAfter": 1026,
+      "bounds": [
+        -30300,
+        -8000,
+        0,
+        30300,
+        8000,
+        16100
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-150-thyro-boathouse-vlot": {
+      "path": "public/assets/scenery/tier-r/150/r-150-thyro-boathouse-vlot.glb",
+      "bytesBefore": 14124,
+      "bytesAfter": 6716,
+      "trianglesBefore": 288,
+      "trianglesAfter": 288,
+      "bounds": [
+        -12000,
+        -6600,
+        -400,
+        12000,
+        11600,
+        9200
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-150-twente-poplar-row": {
+      "path": "public/assets/scenery/tier-r/150/r-150-twente-poplar-row.glb",
+      "bytesBefore": 31252,
+      "bytesAfter": 5436,
+      "trianglesBefore": 1200,
+      "trianglesAfter": 918,
+      "bounds": [
+        -27200,
+        -2183.95947265625,
+        0,
+        27200,
+        4183.95947265625,
+        21000
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-150-twentekanaal-riprap-bank": {
+      "path": "public/assets/scenery/tier-r/150/r-150-twentekanaal-riprap-bank.glb",
+      "bytesBefore": 17760,
+      "bytesAfter": 4592,
+      "trianglesBefore": 584,
+      "trianglesAfter": 424,
+      "bounds": [
+        -20000,
+        -9000,
+        -500,
+        20000,
+        3000,
+        1700
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-153-charles-granite-seawall": {
+      "path": "public/assets/scenery/tier-r/153/r-153-charles-granite-seawall.glb",
+      "bytesBefore": 11544,
+      "bytesAfter": 3084,
+      "trianglesBefore": 328,
+      "trianglesAfter": 256,
+      "bounds": [
+        -10000,
+        -6750,
+        -300,
+        10000,
+        1000,
+        1550
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-153-harvard-house-tower": {
+      "path": "public/assets/scenery/tier-r/153/r-153-harvard-house-tower.glb",
+      "bytesBefore": 20588,
+      "bytesAfter": 5784,
+      "trianglesBefore": 540,
+      "trianglesAfter": 496,
+      "bounds": [
+        -15300,
+        -7300,
+        0,
+        15300,
+        7300,
+        41100
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-153-newell-boathouse": {
+      "path": "public/assets/scenery/tier-r/153/r-153-newell-boathouse.glb",
+      "bytesBefore": 20172,
+      "bytesAfter": 6584,
+      "trianglesBefore": 484,
+      "trianglesAfter": 484,
+      "bounds": [
+        -18600,
+        -9055.8388671875,
+        -800,
+        18600,
+        13000,
+        16500
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-154-bay-riprap-marsh-levee": {
+      "path": "public/assets/scenery/tier-r/154/r-154-bay-riprap-marsh-levee.glb",
+      "bytesBefore": 26872,
+      "bytesAfter": 5108,
+      "trianglesBefore": 836,
+      "trianglesAfter": 734,
+      "bounds": [
+        -15000,
+        -8000,
+        0,
+        15193.5546875,
+        4000,
+        3900
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-154-cargill-salt-piles": {
+      "path": "public/assets/scenery/tier-r/154/r-154-cargill-salt-piles.glb",
+      "bytesBefore": 6880,
+      "bytesAfter": 3108,
+      "trianglesBefore": 214,
+      "trianglesAfter": 170,
+      "bounds": [
+        -27996.09765625,
+        -13907.4638671875,
+        0,
+        28000,
+        13967.8203125,
+        12519.615234375
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-154-redwood-city-cement-silos": {
+      "path": "public/assets/scenery/tier-r/154/r-154-redwood-city-cement-silos.glb",
+      "bytesBefore": 81040,
+      "bytesAfter": 11568,
+      "trianglesBefore": 3108,
+      "trianglesAfter": 2028,
+      "bounds": [
+        -17000,
+        -9500,
+        0,
+        17000,
+        19000,
+        32000
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-156-bay-levee-riprap": {
+      "path": "public/assets/scenery/tier-r/156/r-156-bay-levee-riprap.glb",
+      "bytesBefore": 28228,
+      "bytesAfter": 7032,
+      "trianglesBefore": 780,
+      "trianglesAfter": 704,
+      "bounds": [
+        -10250,
+        -6000,
+        -507.2806396484375,
+        10555.7861328125,
+        8600,
+        3372.1953125
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-156-redwood-city-salt-pile": {
+      "path": "public/assets/scenery/tier-r/156/r-156-redwood-city-salt-pile.glb",
+      "bytesBefore": 7628,
+      "bytesAfter": 3888,
+      "trianglesBefore": 209,
+      "trianglesAfter": 166,
+      "bounds": [
+        -30000,
+        -22000,
+        0,
+        28000,
+        26251.439453125,
+        16500
+      ],
+      "simplified": true,
+      "boundsDrift": 0
+    },
+    "r-156-redwood-creek-marina-houseboats": {
+      "path": "public/assets/scenery/tier-r/156/r-156-redwood-creek-marina-houseboats.glb",
+      "bytesBefore": 41024,
+      "bytesAfter": 8604,
+      "trianglesBefore": 1428,
+      "trianglesAfter": 948,
+      "bounds": [
+        -20000,
+        2800,
+        -500,
+        20000,
+        13200,
+        3900
+      ],
+      "simplified": true,
+      "boundsDrift": 0
     }
   }
 }
