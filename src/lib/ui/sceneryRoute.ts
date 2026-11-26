@@ -49,7 +49,7 @@ import { distanceBetweenLatLng, latLngToMeters } from '../utils/geoUtils';
 import type { Landscape } from '../services/landscapeService';
 import type { LandCoverMask } from '../scenery/landCoverMask';
 import { coastLandSide, landscapeScenery, type LandCoverSummary } from '../scenery/landscapeScenery';
-import { planHorizonRelief, type ReliefPlan } from '../scenery/horizonRelief';
+import { heightAt, landformSurfaceAt, planHorizonRelief, type ReliefPlan } from '../scenery/horizonRelief';
 import { WOODLAND_TREE_BUDGET, planWoodlandTrees } from '../scenery/woodlandTreePlan';
 import { SKYLINE_MODEL_ID, planBuiltForm, type BuiltFormPlan } from '../scenery/builtFormPlan';
 import { tierCapsFor } from '../renderer/engine/tierCaps';
@@ -554,7 +554,19 @@ export const toEngineRoute = (
       regionTrees: (profileTrees?.species ?? []).flatMap((sp) => TREE_SPECIES_MODELS[sp] ?? []),
       max: WOODLAND_TREE_BUDGET[tier],
     });
-    for (const t of woodTrees) addKit(t.id, { position: [t.x, 0, t.z], rotationY: t.yaw, scale: t.scale });
+    // #886 FR3 — stand each tree on the real ground: the DEM sample at (x, z),
+    // raised to any kit landform the plan put over that spot so a tree on a
+    // hill stands on it rather than inside it. `heightAt` returns NaN off the
+    // grid, falling back to the landform surface (0 where none stands).
+    const grid = landscape?.elevation.source !== 'unavailable' ? landscape?.elevation.data ?? null : null;
+    const reliefPlacements = relief?.placements ?? [];
+    for (const t of woodTrees) {
+      const dem = grid ? heightAt(grid, t.x, t.z) : NaN;
+      const landform = landformSurfaceAt(reliefPlacements, t.x, t.z);
+      const demOrZero = Number.isFinite(dem) ? Math.max(0, dem) : 0;
+      const y = Math.max(demOrZero, landform);
+      addKit(t.id, { position: [t.x, y, t.z], rotationY: t.yaw, scale: t.scale });
+    }
     woodlandTrees = woodTrees.length;
   }
   // #765 — the map's buildings by distance band, town skylines and landmarks
