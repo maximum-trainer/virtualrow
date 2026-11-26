@@ -50,6 +50,7 @@ import type { Landscape } from '../services/landscapeService';
 import type { LandCoverMask } from '../scenery/landCoverMask';
 import { coastLandSide, landscapeScenery, type LandCoverSummary } from '../scenery/landscapeScenery';
 import { heightAt, landformSurfaceAt, planHorizonRelief, type ReliefPlan } from '../scenery/horizonRelief';
+import { liftTreesOverLandforms } from '../scenery/groundTrees';
 import { WOODLAND_TREE_BUDGET, planWoodlandTrees } from '../scenery/woodlandTreePlan';
 import { SKYLINE_MODEL_ID, planBuiltForm, type BuiltFormPlan } from '../scenery/builtFormPlan';
 import { tierCapsFor } from '../renderer/engine/tierCaps';
@@ -131,6 +132,15 @@ export interface WaterEdges {
 
 /** Chunk size (metres of route) used when batching foliage into per-chunk pools. */
 export const FOLIAGE_CHUNK_METRES = 150;
+
+/**
+ * #886 FR4 — every kit tree model id across every species the scene can
+ * plant. Used by the post-plan `liftTreesOverLandforms` pass so a bank-strip
+ * or woodland tree whose (x, z) falls over a kit landform stands on it.
+ */
+const KIT_TREE_IDS: ReadonlySet<SceneryModelId> = new Set(
+  Object.values(TREE_SPECIES_MODELS).flat(),
+);
 
 /** One GLB-asset instance in world space, ready for `sceneryMeshPass.setInstances`. */
 export interface SceneryInstance {
@@ -590,6 +600,14 @@ export const toEngineRoute = (
     buildings = [...buildings.slice(0, enrichmentBuildingsFrom), ...built.buildings];
     for (const s of built.skylines) addKit(SKYLINE_MODEL_ID, { position: [s.x, s.y, s.z], rotationY: s.yaw, scale: s.scale });
     for (const l of built.landmarks) addKit(l.id, { position: [l.x, l.y, l.z], rotationY: 0, scale: l.scale });
+  }
+  // #886 FR4 — any kit tree placed (bank-strip or woodland) that falls over
+  // the dome of a planned kit landform stands on it, so bank-edge trees
+  // under a hill don't poke through its mesh. Woodland trees already pick
+  // this up at their own step above; this covers the procedural bank-strip
+  // path through `computePlacements`.
+  if (relief?.placements.length) {
+    sceneryGlbsResult = liftTreesOverLandforms(sceneryGlbsResult, relief.placements, KIT_TREE_IDS);
   }
   return {
     ...(fromLandscape
