@@ -243,6 +243,20 @@ export interface Rower3DScenery {
   } | null;
   /** #763 FR9 — the landforms the real terrain put on the horizon; null without elevation data. */
   relief?: { runs: number; placed: number; maxElevationDeg: number } | null;
+  /** #885 FR6 — the tier budget each real-map layer was planned to; null without a scenery route. */
+  layerBudgets?: Rower3DLayerBudgets | null;
+}
+
+/** #885 FR6 — the per-tier budgets the real-map layer plans read (`tierCaps` and the plan modules). */
+export interface Rower3DLayerBudgets {
+  treelines: number;
+  woodlandTrees: number;
+  /** Horizon landforms per 4 km of course (#763 FR7). */
+  reliefPer4Km: number;
+  skylines: number;
+  landmarks: number;
+  buildingsPerKm: number;
+  maskBytes: number;
 }
 
 /**

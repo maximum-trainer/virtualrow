@@ -16,6 +16,10 @@
  * engine declines (SwiftShader CI, the cloud) it asserts the decline is
  * well-formed and skips. On a laptop, run it with system Chrome
  * (`PW_LOCAL_CHROME=...`) and `--headed`, or headless Chromium declines.
+ *
+ * #885 adds the real-map layers (#763-#765): a signed-in row on a course whose
+ * landscape comes from a fixture through the landscape port's test seam
+ * (never the network), held to each layer's tier budget as the plans read it.
  */
 import { test, expect, type Page } from '../fixtures/crash-watch';
 import {
@@ -27,6 +31,10 @@ import {
   startDemoRide,
   waitForRideOutcome,
 } from './helpers/engineRide';
+import { GPU_MS_BUDGET, median } from './helpers/gpuBudget';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 test.use({ launchOptions: GPU_RIDE_LAUNCH_OPTIONS });
 
@@ -239,3 +247,228 @@ test('a short row fetches a few compressed models, a few at a time (#870 FR4, FR
   }
   expect(uncompressed, `shipped uncompressed: ${uncompressed.join(', ')}`).toEqual([]);
 });
+
+// ── #885 — the real-map layers (#763-#765) on the engine ─────────────────────
+
+/** Only a signed-in rower's non-demo route gets a landscape (#762). */
+const ATHLETE = { id: 'i12345', name: 'Test Athlete', email: 'athlete@example.com' };
+/** #885 FR3 — the land-cover mask's ceiling, whatever the scene reports as its budget. */
+const MASK_CAP_BYTES = 4 * 1024 * 1024;
+/** #763 FR7 — landforms are budgeted per this much course. */
+const RELIEF_WINDOW_METRES = 4_000;
+
+const FIXTURE_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../src/__tests__/fixtures/landscape');
+interface RecordedLandscape {
+  courseId: string;
+  name: string;
+  route: { lat: number; lng: number }[];
+  elevation: unknown;
+}
+const recorded = (id: string): RecordedLandscape =>
+  JSON.parse(readFileSync(path.join(FIXTURE_DIR, `${id}.json`), 'utf8')) as RecordedLandscape;
+
+/** The 4 km gently bending course `realMapLayerBudgets.test.ts` lays the dense fixture along. */
+const DENSE_COURSE = Array.from({ length: 41 }, (_, i) => [5.1 + Math.sin(i / 8) * 0.004, 52.2 + i * 0.0009]);
+
+/** What the engine and the landscape port publish about the real-map layers. */
+interface RealMapReading {
+  landscape?: { elevation: { source: string }; landCover: { source: string }; built: { source: string } };
+  landCover?: { treelineInstances: number; woodlandTrees: number; maskBytes: number } | null;
+  relief?: { placed: number } | null;
+  buildings?: { near: number; mid: number; skylineInstances: number; landmarks: number; pool: number };
+  /**
+   * #885 FR6 — the budgets the plans held each layer to (`tierCaps` and the
+   * plan modules), published beside the counts so this spec reads the one
+   * source rather than a copy of it.
+   */
+  budgets?: {
+    treelines: number;
+    woodlandTrees: number;
+    reliefPer4Km: number;
+    skylines: number;
+    landmarks: number;
+    buildingsPerKm: number;
+    maskBytes: number;
+  } | null;
+  /** The course line's length (`__ROWER3D_ROUTE.curveLength`), which the per-km budgets are counted over. */
+  courseMetres: number;
+  residentMeshBytes: number;
+  /** This frame's triangles by what drew them (#737 FR2), for the annotation. */
+  groups?: Record<string, { draws: number; triangles: number }>;
+}
+const readRealMap = (page: Page): Promise<RealMapReading> =>
+  page.evaluate(() => {
+    const w = window as unknown as {
+      __ROWER3D_LANDSCAPE?: RealMapReading['landscape'];
+      __ROWER3D_SCENERY?: Pick<RealMapReading, 'landCover' | 'relief'> & { layerBudgets?: RealMapReading['budgets'] };
+      __ROWER3D_BUILDINGS?: RealMapReading['buildings'];
+      __ROWER3D_ROUTE?: { curveLength: number };
+      __ROWER3D_RENDER_STATS?: { residentMeshBytes: number; groups?: RealMapReading['groups'] };
+    };
+    return {
+      landscape: w.__ROWER3D_LANDSCAPE,
+      landCover: w.__ROWER3D_SCENERY?.landCover,
+      relief: w.__ROWER3D_SCENERY?.relief,
+      buildings: w.__ROWER3D_BUILDINGS,
+      budgets: w.__ROWER3D_SCENERY?.layerBudgets,
+      courseMetres: w.__ROWER3D_ROUTE?.curveLength ?? 0,
+      residentMeshBytes: w.__ROWER3D_RENDER_STATS?.residentMeshBytes ?? 0,
+      groups: w.__ROWER3D_RENDER_STATS?.groups,
+    };
+  });
+
+/** Signed in as in `webgpu-route-rebuild.spec.ts`, with the landscape port handed `fixture`. */
+async function signInWithLandscape(page: Page, fixture: unknown): Promise<void> {
+  await page.addInitScript(
+    ({ athlete, landscape }) => {
+      const w = window as unknown as { __AUTH_USER?: unknown; __E2E_LANDSCAPE_FIXTURE?: unknown };
+      w.__AUTH_USER = athlete;
+      sessionStorage.setItem('vr_auth_user', JSON.stringify(athlete));
+      sessionStorage.setItem('vr_auth_refresh_token', 'e2e-refresh-token');
+      w.__E2E_LANDSCAPE_FIXTURE = landscape;
+    },
+    { athlete: ATHLETE, landscape: fixture },
+  );
+  await page.route('**/proxy/api/oauth/token**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ access_token: 'e2e-access-token', expires_in: 3600, token_type: 'Bearer', athlete_id: 12345 }),
+    }),
+  );
+}
+
+/** Row `coordinates` signed in with `fixture` as its landscape; null when the engine declined. */
+async function rowWithLandscape(
+  page: Page,
+  tier: 'basic' | 'medium',
+  name: string,
+  coordinates: number[][],
+  fixture: unknown,
+): Promise<RealMapReading | null> {
+  await pinTier(page, tier);
+  await signInWithLandscape(page, fixture);
+  if ((await rowGeneratedCourse(page, name, coordinates)) !== 'ready') {
+    await declined(page);
+    return null;
+  }
+  // The landscape lands beside the enrichment; the scene is laid out again
+  // once it has (#753 FR5). Draw until the layers stop changing.
+  let previous = '';
+  await expect
+    .poll(
+      async () => {
+        await forceRender(page);
+        const reading = await readRealMap(page);
+        const now = JSON.stringify([reading.landCover, reading.relief, reading.buildings, reading.residentMeshBytes]);
+        const settled = reading.landscape?.elevation.source === 'cache' && reading.residentMeshBytes > 0 && now === previous;
+        previous = now;
+        return settled;
+      },
+      { timeout: 90_000, intervals: [2_000] },
+    )
+    .toBe(true);
+  return readRealMap(page);
+}
+
+/** #885 FR5 — the GPU frame time with every layer present, median of 30 frames. */
+async function gpuMedian(page: Page): Promise<number | null> {
+  const samples: number[] = [];
+  for (let i = 0; i < 35; i += 1) {
+    await forceRender(page);
+    await page.waitForTimeout(50);
+    const gpuMs = await page.evaluate(() => (window as unknown as { __ROWER3D_FRAME_STATS?: { gpuMs: number } }).__ROWER3D_FRAME_STATS?.gpuMs ?? 0);
+    if (i >= 5 && gpuMs > 0) samples.push(gpuMs);
+  }
+  return samples.length > 0 ? median(samples) : null;
+}
+
+/** Each layer's count against the budget the plans read (#885 FR2, FR3, FR4, FR6). */
+function expectWithinLayerBudgets(reading: RealMapReading): NonNullable<RealMapReading['budgets']> {
+  const budgets = reading.budgets;
+  expect(budgets, 'the scene published its layer budgets').toBeTruthy();
+  const km = reading.courseMetres / 1000;
+  const reliefWindows = Math.max(1, Math.ceil(reading.courseMetres / RELIEF_WINDOW_METRES));
+  expect(reading.landCover?.treelineInstances ?? 0, 'treelines').toBeLessThanOrEqual(budgets!.treelines);
+  expect(reading.landCover?.woodlandTrees ?? 0, 'kit trees in woods').toBeLessThanOrEqual(budgets!.woodlandTrees);
+  expect(reading.relief?.placed ?? 0, 'horizon landforms').toBeLessThanOrEqual(budgets!.reliefPer4Km * reliefWindows);
+  expect(reading.buildings?.skylineInstances ?? 0, 'skylines').toBeLessThanOrEqual(budgets!.skylines);
+  expect(reading.buildings?.landmarks ?? 0, 'landmarks').toBeLessThanOrEqual(budgets!.landmarks);
+  // The plan keeps every real footprint (near + mid); the engine draws the
+  // most visible of them up to the tier's per-km budget (#765 FR2), so the
+  // budget holds what is resident on the pool.
+  expect(reading.buildings?.pool ?? 0, 'buildings drawn').toBeLessThanOrEqual(Math.ceil(budgets!.buildingsPerKm * km));
+  expect(budgets!.maskBytes, 'the mask budget is the 4 MB ceiling').toBeLessThanOrEqual(MASK_CAP_BYTES);
+  expect(reading.landCover?.maskBytes ?? 0, 'land-cover mask').toBeLessThanOrEqual(budgets!.maskBytes);
+  expect(reading.residentMeshBytes, 'kit geometry resident').toBeLessThanOrEqual(GEOMETRY_BUDGET_BYTES);
+  return budgets!;
+}
+
+const annotate = (testInfo: { annotations: { type: string; description?: string }[] }, label: string, r: RealMapReading, gpu: number | null) =>
+  testInfo.annotations.push({
+    type: 'real-map-layers',
+    description:
+      `${label}: ${(r.courseMetres / 1000).toFixed(1)} km, treelines ${r.landCover?.treelineInstances ?? 0}, ` +
+      `wood trees ${r.landCover?.woodlandTrees ?? 0}, landforms ${r.relief?.placed ?? 0}, ` +
+      `skylines ${r.buildings?.skylineInstances ?? 0}, landmarks ${r.buildings?.landmarks ?? 0}, ` +
+      `footprints ${(r.buildings?.near ?? 0) + (r.buildings?.mid ?? 0)} (${r.buildings?.pool ?? 0} drawn), mask ${((r.landCover?.maskBytes ?? 0) / 1024).toFixed(0)} KB, ` +
+      `resident ${(r.residentMeshBytes / 1024 / 1024).toFixed(1)} MB, gpuMs ${gpu?.toFixed(2) ?? 'n/a'}; ` +
+      Object.entries(r.groups ?? {})
+        .map(([group, g]) => `${group} ${g.draws} draws / ${(g.triangles / 1000).toFixed(0)}k tris`)
+        .join(', '),
+  });
+
+for (const tier of ['basic', 'medium'] as const) {
+  test(`the real-map layers stay inside their budgets at ${tier} (#885 FR1-FR6)`, async ({ page }, testInfo) => {
+    testInfo.setTimeout(240_000);
+    const glbBytes: number[] = [];
+    page.on('response', async (response) => {
+      if (!isGlb(response.url())) return;
+      try {
+        glbBytes.push((await response.body()).byteLength);
+      } catch {
+        // A body that has already gone says nothing about its size.
+      }
+    });
+    const reading = await rowWithLandscape(page, tier, `Real Map Budget ${tier}`, DENSE_COURSE, 'dense');
+    if (!reading) return;
+    const gpu = await gpuMedian(page);
+    annotate(testInfo, `dense ${tier}`, reading, gpu);
+
+    expect(reading.landscape?.landCover.source, 'the dense fixture reached the scene').toBe('cache');
+    const budgets = expectWithinLayerBudgets(reading);
+    if (tier === 'basic') {
+      // #885 AC "Basic draws no far layer".
+      expect(reading.relief?.placed ?? 0).toBe(0);
+      expect(reading.buildings?.skylineInstances ?? 0).toBe(0);
+      expect(reading.buildings?.landmarks ?? 0).toBe(0);
+      expect(reading.landCover?.woodlandTrees ?? 0).toBe(0);
+    } else {
+      // The fixture exceeds every budget, so the caps are what stop each layer.
+      expect(reading.landCover?.treelineInstances).toBe(budgets.treelines);
+      expect(reading.landCover?.woodlandTrees).toBe(budgets.woodlandTrees);
+      expect(reading.buildings?.skylineInstances).toBe(budgets.skylines);
+      expect(reading.buildings?.landmarks).toBe(budgets.landmarks);
+      expect(reading.relief?.placed ?? 0).toBeGreaterThan(0);
+    }
+    const downloaded = glbBytes.reduce((sum, bytes) => sum + bytes, 0);
+    expect(downloaded, `the row pulled ${(downloaded / 1024 / 1024).toFixed(2)} MB of scenery`).toBeLessThanOrEqual(GLB_BYTES_BUDGET);
+    if (gpu !== null) expect(gpu, `gpuMs median with every layer present`).toBeLessThanOrEqual(GPU_MS_BUDGET[tier]);
+  });
+}
+
+for (const id of ['180', '277']) {
+  test(`recorded terrain ${id} keeps its landforms inside the medium budget (#885 FR7)`, async ({ page }, testInfo) => {
+    testInfo.setTimeout(240_000);
+    const fixture = recorded(id);
+    const course = fixture.route.map(({ lat, lng }) => [lng, lat]);
+    const reading = await rowWithLandscape(page, 'medium', fixture.name, course, fixture);
+    if (!reading) return;
+    const gpu = await gpuMedian(page);
+    annotate(testInfo, `${id} medium`, reading, gpu);
+
+    expect(reading.landscape?.elevation.source, 'the recorded terrain reached the scene').toBe('cache');
+    expectWithinLayerBudgets(reading);
+    if (gpu !== null) expect(gpu, `gpuMs median on ${fixture.name}`).toBeLessThanOrEqual(GPU_MS_BUDGET.medium);
+  });
+}

@@ -27,25 +27,9 @@ import {
   startDemoRide,
   waitForRideOutcome,
 } from './helpers/engineRide';
+import { GPU_MS_BUDGET, median } from './helpers/gpuBudget';
 
 test.use({ launchOptions: GPU_RIDE_LAUNCH_OPTIONS });
-
-/**
- * Absolute `gpuMs` caps per tier (D9-b). Chosen with headroom over the T4
- * baseline so a non-regression PR never trips; a cap that regularly fails
- * is a cap that gets ignored. A real regression pushes gpuMs by double
- * digits (see #549's 272 B → 256 B replica in the issue scenarios), well
- * above the headroom here.
- *
- * To update after a deliberate pass-tree change: run this spec against
- * the GPU runner, read the recorded medians from the `::notice::` lines,
- * and bump the cap by one notch — never silently retire a failure.
- */
-const GPU_MS_BUDGET: Record<'basic' | 'medium' | 'extra-high', number> = {
-  basic: 6,
-  medium: 12,
-  'extra-high': 24,
-};
 
 /** Minimum draw calls per tier — a scene that drew nothing is a scene
  * whose budget doesn't mean anything. Mirrors #648 AC11's "zero draws is
@@ -60,12 +44,6 @@ const MIN_DRAW_CALLS: Record<'basic' | 'medium' | 'extra-high', number> = {
  * drop the one-off compile + first-draw outlier. */
 const SAMPLE_FRAMES = 30;
 const WARMUP_FRAMES = 5;
-
-const median = (xs: readonly number[]): number => {
-  const sorted = [...xs].sort((a, b) => a - b);
-  const mid = sorted.length >> 1;
-  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
-};
 
 for (const tier of ['basic', 'medium', 'extra-high'] as const) {
   test(`perf-budget: ${tier} gpuMs ≤ ${GPU_MS_BUDGET[tier]} (#588 FR10)`, async ({ page }, testInfo) => {

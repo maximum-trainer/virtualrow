@@ -47,9 +47,9 @@ import {
 import { DEFAULT_WATER_WIDTH_METERS } from '../scenery/waterHalfWidth';
 import { distanceBetweenLatLng, latLngToMeters } from '../utils/geoUtils';
 import type { Landscape } from '../services/landscapeService';
-import type { LandCoverMask } from '../scenery/landCoverMask';
-import { coastLandSide, landscapeScenery, type LandCoverSummary } from '../scenery/landscapeScenery';
-import { heightAt, landformSurfaceAt, planHorizonRelief, type ReliefPlan } from '../scenery/horizonRelief';
+import { LAND_COVER_MAX_TEXELS, type LandCoverMask } from '../scenery/landCoverMask';
+import { TREELINE_BUDGET, coastLandSide, landscapeScenery, type LandCoverSummary } from '../scenery/landscapeScenery';
+import { RELIEF_BUDGET, heightAt, landformSurfaceAt, planHorizonRelief, type ReliefPlan } from '../scenery/horizonRelief';
 import { liftTreesOverLandforms } from '../scenery/groundTrees';
 import { WOODLAND_TREE_BUDGET, planWoodlandTrees } from '../scenery/woodlandTreePlan';
 import { SKYLINE_MODEL_ID, planBuiltForm, type BuiltFormPlan } from '../scenery/builtFormPlan';
@@ -172,6 +172,16 @@ export interface EngineRoute {
   reliefSummary?: ReliefPlan['summary'];
   /** #765 FR10 — what the map's built form put in the scene. */
   builtSummary?: BuiltFormPlan['summary'] & { source: 'network' | 'cache' | 'unavailable' };
+  /** #885 FR6 — the tier budget each real-map layer was planned to. */
+  layerBudgets?: {
+    treelines: number;
+    woodlandTrees: number;
+    reliefPer4Km: number;
+    skylines: number;
+    landmarks: number;
+    buildingsPerKm: number;
+    maskBytes: number;
+  };
   /** World-space boat/ghost curve; omitted when the route has too few points. */
   curvePoints?: [number, number, number][];
   /** Real route length in metres, matching the shell's finish detection. */
@@ -614,6 +624,17 @@ export const toEngineRoute = (
       ? { landCover: fromLandscape.landCover, landCoverSummary: { ...fromLandscape.summary, woodlandTrees } }
       : {}),
     ...(relief ? { reliefSummary: relief.summary } : {}),
+    // #885 FR6 — the budgets above, so a browser spec holds each layer to
+    // the number the plan used rather than a copy of it.
+    layerBudgets: {
+      treelines: TREELINE_BUDGET[tier],
+      woodlandTrees: WOODLAND_TREE_BUDGET[tier],
+      reliefPer4Km: RELIEF_BUDGET[tier],
+      skylines: caps.maxSkylineInstances,
+      landmarks: caps.maxLandmarks,
+      buildingsPerKm: caps.maxBuildingsPerKm,
+      maskBytes: LAND_COVER_MAX_TEXELS * LAND_COVER_MAX_TEXELS,
+    },
     ...(built && landscape ? { builtSummary: { ...built.summary, source: landscape.built.source } } : {}),
     pools,
     ...(buildings.length > 0 ? { buildings } : {}),

@@ -822,19 +822,45 @@ const layerTelemetry = ({ source, ms, count }: LandscapeLayer<unknown>) => ({ so
  * FR10 — the port under Playwright: no request, every layer unavailable, and
  * the telemetry published as the real service would. A spec that sets
  * `window.__E2E_LANDSCAPE_FIXTURE = 'dense'` gets #885's budget fixture laid
- * along its course instead, still without a request.
+ * along its course instead, still without a request. One that hands it a
+ * recorded fixture (`src/__tests__/fixtures/landscape/<id>.json`, whose
+ * heights are JSON with null for unknown) gets that course's real terrain.
  */
+interface RecordedLandscapeFixture {
+  elevation: Omit<ElevationGrid, 'heights'> & { heights: ReadonlyArray<number | null> };
+}
+
+const recordedLandscape = (
+  recorded: RecordedLandscapeFixture,
+  origin: Coordinate | null,
+  key: string,
+): Landscape => {
+  const heights = Float32Array.from(recorded.elevation.heights, (h) => h ?? NaN);
+  return {
+    origin,
+    key,
+    elevation: { source: 'cache', ms: 0, count: heights.length, data: { ...recorded.elevation, heights } },
+    landCover: unavailable(),
+    built: unavailable(),
+  };
+};
+
 export const offlineLandscapeService = {
   load: async (routeCoordinates: Coordinate[]): Promise<Landscape> => {
     const key = landscapeKey(routeFrame(routeCoordinates ?? []));
-    const wantsFixture =
-      typeof window !== 'undefined' &&
-      (window as unknown as { __E2E_LANDSCAPE_FIXTURE?: string }).__E2E_LANDSCAPE_FIXTURE === 'dense';
-    const fixture = wantsFixture
-      ? (await import('./denseLandscapeFixture')).denseLandscapeFixture(routeCoordinates ?? [], key)
-      : null;
+    const origin = routeCoordinates?.[0] ?? null;
+    const requested =
+      typeof window !== 'undefined'
+        ? (window as unknown as { __E2E_LANDSCAPE_FIXTURE?: unknown }).__E2E_LANDSCAPE_FIXTURE
+        : undefined;
+    const fixture =
+      requested === 'dense'
+        ? (await import('./denseLandscapeFixture')).denseLandscapeFixture(routeCoordinates ?? [], key)
+        : typeof requested === 'object' && requested !== null && 'elevation' in requested
+          ? recordedLandscape(requested as RecordedLandscapeFixture, origin, key)
+          : null;
     const landscape: Landscape = fixture ?? {
-      origin: routeCoordinates?.[0] ?? null,
+      origin,
       key,
       elevation: unavailable(),
       landCover: unavailable(),
