@@ -511,4 +511,29 @@ describe('the test-mode port (FR10)', () => {
       delete flag.__E2E_LANDSCAPE_FIXTURE;
     }
   });
+
+  it('serves a recorded landscape a spec hands it, still with no request (#885 FR7)', async () => {
+    const { offlineLandscapeService } = await import('../lib/services/landscapeService');
+    const flag = window as unknown as { __E2E_LANDSCAPE_FIXTURE?: unknown };
+    const elevation = { originX: -100, originZ: 100, stepX: 100, stepZ: -100, spacingM: 100, cols: 2, rows: 2, heights: [0, 12.5, null, 3], complete: true };
+    flag.__E2E_LANDSCAPE_FIXTURE = { courseId: '277', route: COURSE, elevation };
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    try {
+      const landscape = await offlineLandscapeService.load(COURSE);
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(landscape.key).toBe(landscapeKey(FRAME));
+      expect(landscape.origin).toEqual(COURSE[0]);
+      expect(landscape.elevation.source).toBe('cache');
+      expect(landscape.elevation.count).toBe(4);
+      const grid = landscape.elevation.data!;
+      expect(grid.heights).toBeInstanceOf(Float32Array);
+      expect(Array.from(grid.heights.slice(0, 2))).toEqual([0, 12.5]);
+      expect(Number.isNaN(grid.heights[2])).toBe(true);
+      expect({ ...grid, heights: undefined }).toEqual({ ...elevation, heights: undefined });
+      expect([landscape.landCover.source, landscape.built.source]).toEqual(['unavailable', 'unavailable']);
+    } finally {
+      fetchSpy.mockRestore();
+      delete flag.__E2E_LANDSCAPE_FIXTURE;
+    }
+  });
 });

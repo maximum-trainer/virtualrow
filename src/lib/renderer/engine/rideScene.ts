@@ -239,6 +239,8 @@ export interface SceneryRoute {
   reliefSummary?: Rower3DScenery['relief'];
   /** #765 FR10 — what the map's built form put in the scene, for `__ROWER3D_BUILDINGS`. */
   builtSummary?: Pick<Rower3DBuildings, 'near' | 'mid' | 'skylineInstances' | 'landmarks' | 'source'>;
+  /** #885 FR6 — the tier budget each real-map layer was planned to, for `__ROWER3D_SCENERY.layerBudgets`. */
+  layerBudgets?: Rower3DScenery['layerBudgets'];
   /**
    * Extruded OSM building footprints to draw as prisms (#566 FR1). Absent
    * on a route with no mapped buildings — the engine then skips the
@@ -729,6 +731,7 @@ export const createRideScene = async (
   telemetry.scenery.registeredAtFirstFrame = null;
   telemetry.scenery.landCover = isSceneryRoute(opts.route) ? (opts.route.landCoverSummary ?? null) : null;
   telemetry.scenery.relief = isSceneryRoute(opts.route) ? (opts.route.reliefSummary ?? null) : null;
+  telemetry.scenery.layerBudgets = isSceneryRoute(opts.route) ? (opts.route.layerBudgets ?? null) : null;
   const scenePools: InstancePool[] = sceneryPoolInputs.map((input) => createInstancePool(device, input));
 
   // #566 P6 — buildings pool. Per D5-b we skip the pool entirely when the

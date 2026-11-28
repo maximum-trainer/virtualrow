@@ -15,7 +15,7 @@ type WithTest = {
   _telemetry: {
     frameStats: { frame: number };
     renderStats: { draws: number; sceneryDraws: number; sceneryDispatch: number };
-    scenery: { pools: { kind: string; instanceCount: number }[]; dispatchCount: number; drawCount: number; foliageDraws?: number; landCover?: unknown; relief?: unknown };
+    scenery: { pools: { kind: string; instanceCount: number }[]; dispatchCount: number; drawCount: number; foliageDraws?: number; landCover?: unknown; relief?: unknown; layerBudgets?: unknown };
     buildings?: Record<string, unknown>;
     foliage: { trees: number; meshes: number; drawn: number; draws: number };
     contextState: { kind: string; backend: string };
@@ -137,17 +137,21 @@ describe('attach', () => {
     const landCoverSummary = { classesPresent: [3, 10], woodlandPolygons: 2, treelineInstances: 7, hedgeMetres: 120 };
     const reliefSummary = { runs: 5, placed: 3, maxElevationDeg: 8.5 };
     const builtSummary = { near: 40, mid: 6, skylineInstances: 9, landmarks: 2, source: 'cache' as const };
+    const layerBudgets = { treelines: 300, woodlandTrees: 250, reliefPer4Km: 24, skylines: 40, landmarks: 12, buildingsPerKm: 320, maskBytes: 4194304 };
     const withData = (await attach(makeMockCanvas(), {
       testMode: true,
-      route: { pools, landCoverSummary, reliefSummary, builtSummary },
+      route: { pools, landCoverSummary, reliefSummary, builtSummary, layerBudgets },
     })) as unknown as WithTest;
     expect(withData._telemetry.scenery.landCover).toEqual(landCoverSummary);
+    // #885 FR6 — the budgets the plans held each layer to, beside the counts.
+    expect(withData._telemetry.scenery.layerBudgets).toEqual(layerBudgets);
     expect(withData._telemetry.scenery.relief).toEqual(reliefSummary);
     expect(withData._telemetry.buildings).toMatchObject(builtSummary);
     withData.dispose();
     const without = (await attach(makeMockCanvas(), { testMode: true, route: { pools } })) as unknown as WithTest;
     expect(without._telemetry.scenery.landCover).toBeNull();
     expect(without._telemetry.scenery.relief).toBeNull();
+    expect(without._telemetry.scenery.layerBudgets).toBeNull();
     expect(without._telemetry.buildings).toMatchObject({ near: 0, mid: 0, skylineInstances: 0, landmarks: 0, source: 'unavailable' });
     without.dispose();
   });

@@ -93,6 +93,18 @@ describe.each(TIERS)('real-map layer budgets at %s (#885 FR2, FR3)', (tier) => {
     expect(scene.reliefSummary?.placed ?? 0).toBeLessThanOrEqual(RELIEF_BUDGET[tier]);
   });
 
+  it('hands the engine the budgets it held each layer to (#885 FR6)', () => {
+    expect(scene.layerBudgets).toEqual({
+      treelines: TREELINE_BUDGET[tier],
+      woodlandTrees: WOODLAND_TREE_BUDGET[tier],
+      reliefPer4Km: RELIEF_BUDGET[tier],
+      skylines: caps.maxSkylineInstances,
+      landmarks: caps.maxLandmarks,
+      buildingsPerKm: caps.maxBuildingsPerKm,
+      maskBytes: MASK_CAP_BYTES,
+    });
+  });
+
   it('keeps skylines and landmarks within the tier caps', () => {
     expect(scene.builtSummary?.skylineInstances ?? 0).toBeLessThanOrEqual(caps.maxSkylineInstances);
     expect(scene.builtSummary?.landmarks ?? 0).toBeLessThanOrEqual(caps.maxLandmarks);
