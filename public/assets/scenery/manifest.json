@@ -1,5 +1,5 @@
 {
-  "totalBytes": 7070172,
+  "totalBytes": 8168868,
   "models": {
     "a01-buoy-lane-sphere": {
       "path": "assets/scenery/tier-a/a01-buoy-lane-sphere.glb",
@@ -2793,7 +2793,7 @@
     },
     "r-1-quinsig-riprap-shore": {
       "path": "assets/scenery/tier-r/1/r-1-quinsig-riprap-shore.glb",
-      "bytes": 4060,
+      "bytes": 9708,
       "triangles": 516,
       "compressed": true,
       "footprint": {
@@ -2810,7 +2810,7 @@
     },
     "r-1-route-9-arch-bridge": {
       "path": "assets/scenery/tier-r/1/r-1-route-9-arch-bridge.glb",
-      "bytes": 4584,
+      "bytes": 9512,
       "triangles": 412,
       "compressed": true,
       "footprint": {
@@ -2833,7 +2833,7 @@
     },
     "r-1-south-cove-gazebo": {
       "path": "assets/scenery/tier-r/1/r-1-south-cove-gazebo.glb",
-      "bytes": 4696,
+      "bytes": 10076,
       "triangles": 440,
       "compressed": true,
       "footprint": {
@@ -2850,7 +2850,7 @@
     },
     "r-102-fish-creek-cattail-margin": {
       "path": "assets/scenery/tier-r/102/r-102-fish-creek-cattail-margin.glb",
-      "bytes": 12908,
+      "bytes": 43028,
       "triangles": 2892,
       "compressed": true,
       "footprint": {
@@ -2866,13 +2866,13 @@
       },
       "lod1": {
         "path": "assets/scenery/tier-r/102/r-102-fish-creek-cattail-margin.lod1.glb",
-        "bytes": 6820,
+        "bytes": 20196,
         "triangles": 916
       }
     },
     "r-102-fish-creek-rowing-boathouse": {
       "path": "assets/scenery/tier-r/102/r-102-fish-creek-rowing-boathouse.glb",
-      "bytes": 8152,
+      "bytes": 21048,
       "triangles": 992,
       "compressed": true,
       "footprint": {
@@ -2889,7 +2889,7 @@
     },
     "r-102-saratoga-mixed-treeline": {
       "path": "assets/scenery/tier-r/102/r-102-saratoga-mixed-treeline.glb",
-      "bytes": 10504,
+      "bytes": 41164,
       "triangles": 2068,
       "compressed": true,
       "footprint": {
@@ -2905,13 +2905,13 @@
       },
       "lod1": {
         "path": "assets/scenery/tier-r/102/r-102-saratoga-mixed-treeline.lod1.glb",
-        "bytes": 5876,
+        "bytes": 17476,
         "triangles": 650
       }
     },
     "r-104-seekonk-boat-club-boathouse": {
       "path": "assets/scenery/tier-r/104/r-104-seekonk-boat-club-boathouse.glb",
-      "bytes": 9224,
+      "bytes": 20024,
       "triangles": 808,
       "compressed": true,
       "footprint": {
@@ -2928,7 +2928,7 @@
     },
     "r-104-seekonk-granite-seawall": {
       "path": "assets/scenery/tier-r/104/r-104-seekonk-granite-seawall.glb",
-      "bytes": 4720,
+      "bytes": 13540,
       "triangles": 742,
       "compressed": true,
       "footprint": {
@@ -2945,7 +2945,7 @@
     },
     "r-104-seekonk-park-woods": {
       "path": "assets/scenery/tier-r/104/r-104-seekonk-park-woods.glb",
-      "bytes": 9080,
+      "bytes": 38620,
       "triangles": 1752,
       "compressed": true,
       "footprint": {
@@ -2961,13 +2961,13 @@
       },
       "lod1": {
         "path": "assets/scenery/tier-r/104/r-104-seekonk-park-woods.lod1.glb",
-        "bytes": 5016,
+        "bytes": 16724,
         "triangles": 610
       }
     },
     "r-106-crook-point-bascule-bridge": {
       "path": "assets/scenery/tier-r/106/r-106-crook-point-bascule-bridge.glb",
-      "bytes": 12120,
+      "bytes": 41580,
       "triangles": 2480,
       "compressed": true,
       "footprint": {
@@ -2995,13 +2995,13 @@
       },
       "lod1": {
         "path": "assets/scenery/tier-r/106/r-106-crook-point-bascule-bridge.lod1.glb",
-        "bytes": 6728,
+        "bytes": 19000,
         "triangles": 836
       }
     },
     "r-106-narragansett-boat-club": {
       "path": "assets/scenery/tier-r/106/r-106-narragansett-boat-club.glb",
-      "bytes": 5340,
+      "bytes": 8552,
       "triangles": 140,
       "compressed": true,
       "footprint": {
@@ -3018,7 +3018,7 @@
     },
     "r-106-seekonk-granite-riprap": {
       "path": "assets/scenery/tier-r/106/r-106-seekonk-granite-riprap.glb",
-      "bytes": 6868,
+      "bytes": 22196,
       "triangles": 1216,
       "compressed": true,
       "footprint": {
@@ -3035,7 +3035,7 @@
     },
     "r-107-fairmount-park-woods": {
       "path": "assets/scenery/tier-r/107/r-107-fairmount-park-woods.glb",
-      "bytes": 13012,
+      "bytes": 56340,
       "triangles": 2730,
       "compressed": true,
       "footprint": {
@@ -3051,13 +3051,13 @@
       },
       "lod1": {
         "path": "assets/scenery/tier-r/107/r-107-fairmount-park-woods.lod1.glb",
-        "bytes": 6764,
+        "bytes": 23428,
         "triangles": 866
       }
     },
     "r-107-kelly-drive-stone-wall": {
       "path": "assets/scenery/tier-r/107/r-107-kelly-drive-stone-wall.glb",
-      "bytes": 3744,
+      "bytes": 6532,
       "triangles": 190,
       "compressed": true,
       "footprint": {
@@ -3074,7 +3074,7 @@
     },
     "r-107-strawberry-mansion-bridge": {
       "path": "assets/scenery/tier-r/107/r-107-strawberry-mansion-bridge.glb",
-      "bytes": 7228,
+      "bytes": 22644,
       "triangles": 1206,
       "compressed": true,
       "footprint": {
@@ -3097,7 +3097,7 @@
     },
     "r-109-narragansett-boat-club": {
       "path": "assets/scenery/tier-r/109/r-109-narragansett-boat-club.glb",
-      "bytes": 7832,
+      "bytes": 15976,
       "triangles": 664,
       "compressed": true,
       "footprint": {
@@ -3114,7 +3114,7 @@
     },
     "r-109-seekonk-riprap-bank": {
       "path": "assets/scenery/tier-r/109/r-109-seekonk-riprap-bank.glb",
-      "bytes": 3040,
+      "bytes": 6420,
       "triangles": 194,
       "compressed": true,
       "footprint": {
@@ -3131,7 +3131,7 @@
     },
     "r-109-swan-point-wooded-bluff": {
       "path": "assets/scenery/tier-r/109/r-109-swan-point-wooded-bluff.glb",
-      "bytes": 12192,
+      "bytes": 54928,
       "triangles": 2790,
       "compressed": true,
       "footprint": {
@@ -3147,13 +3147,13 @@
       },
       "lod1": {
         "path": "assets/scenery/tier-r/109/r-109-swan-point-wooded-bluff.lod1.glb",
-        "bytes": 5844,
+        "bytes": 21580,
         "triangles": 878
       }
     },
     "r-11-brno-dam-wall": {
       "path": "assets/scenery/tier-r/11/r-11-brno-dam-wall.glb",
-      "bytes": 5928,
+      "bytes": 10672,
       "triangles": 300,
       "compressed": true,
       "footprint": {
@@ -3170,7 +3170,7 @@
     },
     "r-11-bystrc-forested-ridge": {
       "path": "assets/scenery/tier-r/11/r-11-bystrc-forested-ridge.glb",
-      "bytes": 12788,
+      "bytes": 56648,
       "triangles": 2640,
       "compressed": true,
       "footprint": {
@@ -3186,13 +3186,13 @@
       },
       "lod1": {
         "path": "assets/scenery/tier-r/11/r-11-bystrc-forested-ridge.lod1.glb",
-        "bytes": 6636,
+        "bytes": 22488,
         "triangles": 836
       }
     },
     "r-11-prygl-rocky-wooded-shore": {
       "path": "assets/scenery/tier-r/11/r-11-prygl-rocky-wooded-shore.glb",
-      "bytes": 6324,
+      "bytes": 15020,
       "triangles": 568,
       "compressed": true,
       "footprint": {
@@ -3209,7 +3209,7 @@
     },
     "r-114-cuyahoga-vertical-lift-bridge": {
       "path": "assets/scenery/tier-r/114/r-114-cuyahoga-vertical-lift-bridge.glb",
-      "bytes": 9968,
+      "bytes": 29360,
       "triangles": 2126,
       "compressed": true,
       "footprint": {
@@ -3231,13 +3231,13 @@
       },
       "lod1": {
         "path": "assets/scenery/tier-r/114/r-114-cuyahoga-vertical-lift-bridge.lod1.glb",
-        "bytes": 5548,
+        "bytes": 14260,
         "triangles": 740
       }
     },
     "r-114-flats-cement-silos": {
       "path": "assets/scenery/tier-r/114/r-114-flats-cement-silos.glb",
-      "bytes": 5732,
+      "bytes": 13412,
       "triangles": 724,
       "compressed": true,
       "footprint": {
@@ -3254,7 +3254,7 @@
     },
     "r-114-flats-steel-bulkhead": {
       "path": "assets/scenery/tier-r/114/r-114-flats-steel-bulkhead.glb",
-      "bytes": 8940,
+      "bytes": 26876,
       "triangles": 1440,
       "compressed": true,
       "footprint": {
@@ -3271,7 +3271,7 @@
     },
     "r-115-donahue-rowing-center": {
       "path": "assets/scenery/tier-r/115/r-115-donahue-rowing-center.glb",
-      "bytes": 7108,
+      "bytes": 13040,
       "triangles": 388,
       "compressed": true,
       "footprint": {
@@ -3288,7 +3288,7 @@
     },
     "r-115-quinsigamond-granite-riprap": {
       "path": "assets/scenery/tier-r/115/r-115-quinsigamond-granite-riprap.glb",
-      "bytes": 8676,
+      "bytes": 32132,
       "triangles": 1880,
       "compressed": true,
       "footprint": {
@@ -3304,13 +3304,13 @@
       },
       "lod1": {
         "path": "assets/scenery/tier-r/115/r-115-quinsigamond-granite-riprap.lod1.glb",
-        "bytes": 4432,
+        "bytes": 15852,
         "triangles": 596
       }
     },
     "r-115-wooded-turning-island": {
       "path": "assets/scenery/tier-r/115/r-115-wooded-turning-island.glb",
-      "bytes": 15564,
+      "bytes": 63696,
       "triangles": 3186,
       "compressed": true,
       "footprint": {
@@ -3326,13 +3326,13 @@
       },
       "lod1": {
         "path": "assets/scenery/tier-r/115/r-115-wooded-turning-island.lod1.glb",
-        "bytes": 8260,
+        "bytes": 26052,
         "triangles": 1008
       }
     },
     "r-116-i290-lake-bridge": {
       "path": "assets/scenery/tier-r/116/r-116-i290-lake-bridge.glb",
-      "bytes": 3944,
+      "bytes": 9800,
       "triangles": 476,
       "compressed": true,
       "footprint": {
@@ -3355,7 +3355,7 @@
     },
     "r-116-quinsigamond-granite-riprap": {
       "path": "assets/scenery/tier-r/116/r-116-quinsigamond-granite-riprap.glb",
-      "bytes": 10784,
+      "bytes": 36696,
       "triangles": 1438,
       "compressed": true,
       "footprint": {
@@ -3372,7 +3372,7 @@
     },
     "r-116-regatta-point-finish-tower": {
       "path": "assets/scenery/tier-r/116/r-116-regatta-point-finish-tower.glb",
-      "bytes": 7260,
+      "bytes": 12068,
       "triangles": 268,
       "compressed": true,
       "footprint": {
@@ -3389,7 +3389,7 @@
     },
     "r-117-donahue-rowing-center": {
       "path": "assets/scenery/tier-r/117/r-117-donahue-rowing-center.glb",
-      "bytes": 5356,
+      "bytes": 8684,
       "triangles": 140,
       "compressed": true,
       "footprint": {
@@ -3406,7 +3406,7 @@
     },
     "r-117-drc-floating-docks": {
       "path": "assets/scenery/tier-r/117/r-117-drc-floating-docks.glb",
-      "bytes": 4404,
+      "bytes": 11572,
       "triangles": 664,
       "compressed": true,
       "footprint": {
@@ -3423,7 +3423,7 @@
     },
     "r-117-start-gazebo": {
       "path": "assets/scenery/tier-r/117/r-117-start-gazebo.glb",
-      "bytes": 5604,
+      "bytes": 15116,
       "triangles": 672,
       "compressed": true,
       "footprint": {
@@ -3440,7 +3440,7 @@
     },
     "r-12-bystrc-ferry-pier-with-steamer": {
       "path": "assets/scenery/tier-r/12/r-12-bystrc-ferry-pier-with-steamer.glb",
-      "bytes": 7660,
+      "bytes": 14972,
       "triangles": 550,
       "compressed": true,
       "footprint": {
@@ -3457,7 +3457,7 @@
     },
     "r-12-bystrc-wooded-ridge": {
       "path": "assets/scenery/tier-r/12/r-12-bystrc-wooded-ridge.glb",
-      "bytes": 17868,
+      "bytes": 78916,
       "triangles": 4138,
       "compressed": true,
       "footprint": {
@@ -3473,13 +3473,13 @@
       },
       "lod1": {
         "path": "assets/scenery/tier-r/12/r-12-bystrc-wooded-ridge.lod1.glb",
-        "bytes": 8404,
+        "bytes": 29944,
         "triangles": 1308
       }
     },
     "r-12-prygl-granite-rocky-shore": {
       "path": "assets/scenery/tier-r/12/r-12-prygl-granite-rocky-shore.glb",
-      "bytes": 4552,
+      "bytes": 10440,
       "triangles": 300,
       "compressed": true,
       "footprint": {
@@ -3496,7 +3496,7 @@
     },
     "r-123-alster-brick-quay-lawn": {
       "path": "assets/scenery/tier-r/123/r-123-alster-brick-quay-lawn.glb",
-      "bytes": 3040,
+      "bytes": 3624,
       "triangles": 36,
       "compressed": true,
       "footprint": {
@@ -3513,7 +3513,7 @@
     },
     "r-123-krugkoppel-bridge": {
       "path": "assets/scenery/tier-r/123/r-123-krugkoppel-bridge.glb",
-      "bytes": 5040,
+      "bytes": 9648,
       "triangles": 328,
       "compressed": true,
       "footprint": {
@@ -3536,7 +3536,7 @@
     },
     "r-123-white-alster-villa": {
       "path": "assets/scenery/tier-r/123/r-123-white-alster-villa.glb",
-      "bytes": 4508,
+      "bytes": 7356,
       "triangles": 140,
       "compressed": true,
       "footprint": {
@@ -3553,7 +3553,7 @@
     },
     "r-124-alster-brick-arch-bridge": {
       "path": "assets/scenery/tier-r/124/r-124-alster-brick-arch-bridge.glb",
-      "bytes": 6088,
+      "bytes": 15780,
       "triangles": 894,
       "compressed": true,
       "footprint": {
@@ -3576,7 +3576,7 @@
     },
     "r-124-alster-quay-wall-jetty": {
       "path": "assets/scenery/tier-r/124/r-124-alster-quay-wall-jetty.glb",
-      "bytes": 7204,
+      "bytes": 20724,
       "triangles": 996,
       "compressed": true,
       "footprint": {
@@ -3593,7 +3593,7 @@
     },
     "r-124-white-alster-villa": {
       "path": "assets/scenery/tier-r/124/r-124-white-alster-villa.glb",
-      "bytes": 4508,
+      "bytes": 7340,
       "triangles": 140,
       "compressed": true,
       "footprint": {
@@ -3610,7 +3610,7 @@
     },
     "r-125-charles-brick-arch-bridge": {
       "path": "assets/scenery/tier-r/125/r-125-charles-brick-arch-bridge.glb",
-      "bytes": 3380,
+      "bytes": 6748,
       "triangles": 280,
       "compressed": true,
       "footprint": {
@@ -3633,7 +3633,7 @@
     },
     "r-125-charles-granite-seawall": {
       "path": "assets/scenery/tier-r/125/r-125-charles-granite-seawall.glb",
-      "bytes": 3180,
+      "bytes": 4200,
       "triangles": 36,
       "compressed": true,
       "footprint": {
@@ -3650,7 +3650,7 @@
     },
     "r-125-harvard-house-bell-tower": {
       "path": "assets/scenery/tier-r/125/r-125-harvard-house-bell-tower.glb",
-      "bytes": 5780,
+      "bytes": 12300,
       "triangles": 494,
       "compressed": true,
       "footprint": {
@@ -3667,7 +3667,7 @@
     },
     "r-126-cape-cod-shingled-boathouse": {
       "path": "assets/scenery/tier-r/126/r-126-cape-cod-shingled-boathouse.glb",
-      "bytes": 9500,
+      "bytes": 18700,
       "triangles": 716,
       "compressed": true,
       "footprint": {
@@ -3684,7 +3684,7 @@
     },
     "r-126-kettle-pond-sand-beach-boulders": {
       "path": "assets/scenery/tier-r/126/r-126-kettle-pond-sand-beach-boulders.glb",
-      "bytes": 4268,
+      "bytes": 8144,
       "triangles": 240,
       "compressed": true,
       "footprint": {
@@ -3701,7 +3701,7 @@
     },
     "r-126-pitch-pine-treeline": {
       "path": "assets/scenery/tier-r/126/r-126-pitch-pine-treeline.glb",
-      "bytes": 9336,
+      "bytes": 36320,
       "triangles": 2002,
       "compressed": true,
       "footprint": {
@@ -3717,13 +3717,13 @@
       },
       "lod1": {
         "path": "assets/scenery/tier-r/126/r-126-pitch-pine-treeline.lod1.glb",
-        "bytes": 4812,
+        "bytes": 14888,
         "triangles": 626
       }
     },
     "r-13-prygl-granite-outcrops": {
       "path": "assets/scenery/tier-r/13/r-13-prygl-granite-outcrops.glb",
-      "bytes": 3856,
+      "bytes": 7420,
       "triangles": 166,
       "compressed": true,
       "footprint": {
@@ -3740,7 +3740,7 @@
     },
     "r-13-prygl-passenger-pier": {
       "path": "assets/scenery/tier-r/13/r-13-prygl-passenger-pier.glb",
-      "bytes": 12304,
+      "bytes": 28424,
       "triangles": 1254,
       "compressed": true,
       "footprint": {
@@ -3757,7 +3757,7 @@
     },
     "r-13-prygl-wooded-ridge": {
       "path": "assets/scenery/tier-r/13/r-13-prygl-wooded-ridge.glb",
-      "bytes": 13416,
+      "bytes": 58792,
       "triangles": 2914,
       "compressed": true,
       "footprint": {
@@ -3773,13 +3773,13 @@
       },
       "lod1": {
         "path": "assets/scenery/tier-r/13/r-13-prygl-wooded-ridge.lod1.glb",
-        "bytes": 6840,
+        "bytes": 23024,
         "triangles": 930
       }
     },
     "r-14-vltava-granite-quay": {
       "path": "assets/scenery/tier-r/14/r-14-vltava-granite-quay.glb",
-      "bytes": 5540,
+      "bytes": 13692,
       "triangles": 740,
       "compressed": true,
       "footprint": {
@@ -3796,7 +3796,7 @@
     },
     "r-14-vysehrad-basilica-on-rock": {
       "path": "assets/scenery/tier-r/14/r-14-vysehrad-basilica-on-rock.glb",
-      "bytes": 3560,
+      "bytes": 5848,
       "triangles": 112,
       "compressed": true,
       "footprint": {
@@ -3813,7 +3813,7 @@
     },
     "r-14-vysehrad-railway-bridge": {
       "path": "assets/scenery/tier-r/14/r-14-vysehrad-railway-bridge.glb",
-      "bytes": 6696,
+      "bytes": 19020,
       "triangles": 1032,
       "compressed": true,
       "footprint": {
@@ -3836,7 +3836,7 @@
     },
     "r-140-aarkanaal-lift-bridge": {
       "path": "assets/scenery/tier-r/140/r-140-aarkanaal-lift-bridge.glb",
-      "bytes": 4968,
+      "bytes": 11012,
       "triangles": 556,
       "compressed": true,
       "footprint": {
@@ -3859,7 +3859,7 @@
     },
     "r-140-aarlanderveen-polder-mill": {
       "path": "assets/scenery/tier-r/140/r-140-aarlanderveen-polder-mill.glb",
-      "bytes": 5164,
+      "bytes": 8068,
       "triangles": 124,
       "compressed": true,
       "footprint": {
@@ -3876,7 +3876,7 @@
     },
     "r-140-timber-beschoeiing-bank": {
       "path": "assets/scenery/tier-r/140/r-140-timber-beschoeiing-bank.glb",
-      "bytes": 7320,
+      "bytes": 24188,
       "triangles": 1284,
       "compressed": true,
       "footprint": {
@@ -3893,7 +3893,7 @@
     },
     "r-141-marietta-stepped-levee": {
       "path": "assets/scenery/tier-r/141/r-141-marietta-stepped-levee.glb",
-      "bytes": 4568,
+      "bytes": 9756,
       "triangles": 424,
       "compressed": true,
       "footprint": {
@@ -3910,7 +3910,7 @@
     },
     "r-142-charles-granite-edge-grass-bank": {
       "path": "assets/scenery/tier-r/142/r-142-charles-granite-edge-grass-bank.glb",
-      "bytes": 3200,
+      "bytes": 6776,
       "triangles": 264,
       "compressed": true,
       "footprint": {
@@ -3927,7 +3927,7 @@
     },
     "r-142-dunster-house-tower": {
       "path": "assets/scenery/tier-r/142/r-142-dunster-house-tower.glb",
-      "bytes": 7252,
+      "bytes": 19232,
       "triangles": 874,
       "compressed": true,
       "footprint": {
@@ -3944,7 +3944,7 @@
     },
     "r-142-weeks-footbridge": {
       "path": "assets/scenery/tier-r/142/r-142-weeks-footbridge.glb",
-      "bytes": 4408,
+      "bytes": 11096,
       "triangles": 634,
       "compressed": true,
       "footprint": {
@@ -3967,7 +3967,7 @@
     },
     "r-143-champlain-canal-riprap-bank": {
       "path": "assets/scenery/tier-r/143/r-143-champlain-canal-riprap-bank.glb",
-      "bytes": 5724,
+      "bytes": 20012,
       "triangles": 898,
       "compressed": true,
       "footprint": {
@@ -3984,7 +3984,7 @@
     },
     "r-143-route-29-schuylerville-bridge": {
       "path": "assets/scenery/tier-r/143/r-143-route-29-schuylerville-bridge.glb",
-      "bytes": 10928,
+      "bytes": 31376,
       "triangles": 2520,
       "compressed": true,
       "footprint": {
@@ -4006,13 +4006,13 @@
       },
       "lod1": {
         "path": "assets/scenery/tier-r/143/r-143-route-29-schuylerville-bridge.lod1.glb",
-        "bytes": 6568,
+        "bytes": 17164,
         "triangles": 866
       }
     },
     "r-143-saratoga-monument": {
       "path": "assets/scenery/tier-r/143/r-143-saratoga-monument.glb",
-      "bytes": 2852,
+      "bytes": 5184,
       "triangles": 144,
       "compressed": true,
       "footprint": {
@@ -4029,7 +4029,7 @@
     },
     "r-146-thyro-boathouse": {
       "path": "assets/scenery/tier-r/146/r-146-thyro-boathouse.glb",
-      "bytes": 6128,
+      "bytes": 9188,
       "triangles": 120,
       "compressed": true,
       "footprint": {
@@ -4046,7 +4046,7 @@
     },
     "r-146-twente-poplar-row": {
       "path": "assets/scenery/tier-r/146/r-146-twente-poplar-row.glb",
-      "bytes": 6888,
+      "bytes": 22596,
       "triangles": 1348,
       "compressed": true,
       "footprint": {
@@ -4063,7 +4063,7 @@
     },
     "r-146-twentekanaal-riprap-bank": {
       "path": "assets/scenery/tier-r/146/r-146-twentekanaal-riprap-bank.glb",
-      "bytes": 5616,
+      "bytes": 13932,
       "triangles": 606,
       "compressed": true,
       "footprint": {
@@ -4080,7 +4080,7 @@
     },
     "r-147-canal-basalt-riprap-bank": {
       "path": "assets/scenery/tier-r/147/r-147-canal-basalt-riprap-bank.glb",
-      "bytes": 3880,
+      "bytes": 9988,
       "triangles": 412,
       "compressed": true,
       "footprint": {
@@ -4097,7 +4097,7 @@
     },
     "r-147-twente-poplar-row": {
       "path": "assets/scenery/tier-r/147/r-147-twente-poplar-row.glb",
-      "bytes": 8520,
+      "bytes": 31480,
       "triangles": 1802,
       "compressed": true,
       "footprint": {
@@ -4113,13 +4113,13 @@
       },
       "lod1": {
         "path": "assets/scenery/tier-r/147/r-147-twente-poplar-row.lod1.glb",
-        "bytes": 4476,
+        "bytes": 13024,
         "triangles": 566
       }
     },
     "r-147-twentekanaal-bowstring-bridge": {
       "path": "assets/scenery/tier-r/147/r-147-twentekanaal-bowstring-bridge.glb",
-      "bytes": 6216,
+      "bytes": 16732,
       "triangles": 956,
       "compressed": true,
       "footprint": {
@@ -4142,7 +4142,7 @@
     },
     "r-149-canal-riprap-revetment": {
       "path": "assets/scenery/tier-r/149/r-149-canal-riprap-revetment.glb",
-      "bytes": 3264,
+      "bytes": 4684,
       "triangles": 36,
       "compressed": true,
       "footprint": {
@@ -4159,7 +4159,7 @@
     },
     "r-149-thyro-boathouse": {
       "path": "assets/scenery/tier-r/149/r-149-thyro-boathouse.glb",
-      "bytes": 5228,
+      "bytes": 8212,
       "triangles": 144,
       "compressed": true,
       "footprint": {
@@ -4176,7 +4176,7 @@
     },
     "r-149-twente-poplar-row": {
       "path": "assets/scenery/tier-r/149/r-149-twente-poplar-row.glb",
-      "bytes": 8720,
+      "bytes": 32896,
       "triangles": 1832,
       "compressed": true,
       "footprint": {
@@ -4192,13 +4192,13 @@
       },
       "lod1": {
         "path": "assets/scenery/tier-r/149/r-149-twente-poplar-row.lod1.glb",
-        "bytes": 4656,
+        "bytes": 13448,
         "triangles": 574
       }
     },
     "r-15-canal-towpath-stone-wall": {
       "path": "assets/scenery/tier-r/15/r-15-canal-towpath-stone-wall.glb",
-      "bytes": 4436,
+      "bytes": 7220,
       "triangles": 160,
       "compressed": true,
       "footprint": {
@@ -4215,7 +4215,7 @@
     },
     "r-15-lambertville-riverfront-rowhouses": {
       "path": "assets/scenery/tier-r/15/r-15-lambertville-riverfront-rowhouses.glb",
-      "bytes": 5880,
+      "bytes": 12716,
       "triangles": 516,
       "compressed": true,
       "footprint": {
@@ -4232,7 +4232,7 @@
     },
     "r-15-new-hope-lambertville-truss-bridge": {
       "path": "assets/scenery/tier-r/15/r-15-new-hope-lambertville-truss-bridge.glb",
-      "bytes": 6392,
+      "bytes": 19568,
       "triangles": 1026,
       "compressed": true,
       "footprint": {
@@ -4255,7 +4255,7 @@
     },
     "r-150-thyro-boathouse-vlot": {
       "path": "assets/scenery/tier-r/150/r-150-thyro-boathouse-vlot.glb",
-      "bytes": 6716,
+      "bytes": 12000,
       "triangles": 288,
       "compressed": true,
       "footprint": {
@@ -4272,7 +4272,7 @@
     },
     "r-150-twente-poplar-row": {
       "path": "assets/scenery/tier-r/150/r-150-twente-poplar-row.glb",
-      "bytes": 5436,
+      "bytes": 15044,
       "triangles": 918,
       "compressed": true,
       "footprint": {
@@ -4289,7 +4289,7 @@
     },
     "r-150-twentekanaal-riprap-bank": {
       "path": "assets/scenery/tier-r/150/r-150-twentekanaal-riprap-bank.glb",
-      "bytes": 4592,
+      "bytes": 10468,
       "triangles": 424,
       "compressed": true,
       "footprint": {
@@ -4306,7 +4306,7 @@
     },
     "r-153-charles-granite-seawall": {
       "path": "assets/scenery/tier-r/153/r-153-charles-granite-seawall.glb",
-      "bytes": 3084,
+      "bytes": 6288,
       "triangles": 256,
       "compressed": true,
       "footprint": {
@@ -4323,7 +4323,7 @@
     },
     "r-153-harvard-house-tower": {
       "path": "assets/scenery/tier-r/153/r-153-harvard-house-tower.glb",
-      "bytes": 5784,
+      "bytes": 11860,
       "triangles": 496,
       "compressed": true,
       "footprint": {
@@ -4340,7 +4340,7 @@
     },
     "r-153-newell-boathouse": {
       "path": "assets/scenery/tier-r/153/r-153-newell-boathouse.glb",
-      "bytes": 6584,
+      "bytes": 13736,
       "triangles": 484,
       "compressed": true,
       "footprint": {
@@ -4357,7 +4357,7 @@
     },
     "r-154-bay-riprap-marsh-levee": {
       "path": "assets/scenery/tier-r/154/r-154-bay-riprap-marsh-levee.glb",
-      "bytes": 5108,
+      "bytes": 15456,
       "triangles": 734,
       "compressed": true,
       "footprint": {
@@ -4374,7 +4374,7 @@
     },
     "r-154-cargill-salt-piles": {
       "path": "assets/scenery/tier-r/154/r-154-cargill-salt-piles.glb",
-      "bytes": 3108,
+      "bytes": 6148,
       "triangles": 170,
       "compressed": true,
       "footprint": {
@@ -4391,7 +4391,7 @@
     },
     "r-154-redwood-city-cement-silos": {
       "path": "assets/scenery/tier-r/154/r-154-redwood-city-cement-silos.glb",
-      "bytes": 11568,
+      "bytes": 38256,
       "triangles": 2028,
       "compressed": true,
       "footprint": {
@@ -4407,13 +4407,13 @@
       },
       "lod1": {
         "path": "assets/scenery/tier-r/154/r-154-redwood-city-cement-silos.lod1.glb",
-        "bytes": 7536,
+        "bytes": 18424,
         "triangles": 700
       }
     },
     "r-156-bay-levee-riprap": {
       "path": "assets/scenery/tier-r/156/r-156-bay-levee-riprap.glb",
-      "bytes": 7032,
+      "bytes": 19596,
       "triangles": 704,
       "compressed": true,
       "footprint": {
@@ -4430,7 +4430,7 @@
     },
     "r-156-redwood-city-salt-pile": {
       "path": "assets/scenery/tier-r/156/r-156-redwood-city-salt-pile.glb",
-      "bytes": 3888,
+      "bytes": 7280,
       "triangles": 166,
       "compressed": true,
       "footprint": {
@@ -4447,7 +4447,7 @@
     },
     "r-156-redwood-creek-marina-houseboats": {
       "path": "assets/scenery/tier-r/156/r-156-redwood-creek-marina-houseboats.glb",
-      "bytes": 8604,
+      "bytes": 19588,
       "triangles": 948,
       "compressed": true,
       "footprint": {

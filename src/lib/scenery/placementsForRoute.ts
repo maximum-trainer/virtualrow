@@ -62,6 +62,12 @@ export interface ComposedPlacement {
 export interface ComposePlacementsInput {
   readonly routeId: string | null | undefined;
   readonly routeMeters: number;
+  /**
+   * #449 AC9 — the rownative course id the tier-r registry is keyed by. Not
+   * the app route id: an imported course gets its own id, and the Willowbrook
+   * demo's app id ('1') is also a rownative course id. Absent → no tier-r.
+   */
+  readonly courseId?: string | null;
   /** Parsed tier-r registry, from `route-placements.json`. */
   readonly tierR?: RoutePlacementsRegistry | null;
   /**
@@ -106,10 +112,10 @@ const furnitureToComposed = (f: Furniture): ComposedPlacement => ({
 export const composePlacementsForRoute = (
   input: ComposePlacementsInput,
 ): readonly ComposedPlacement[] => {
-  const { routeId, routeMeters, tierR, handAuthored, synthetic } = input;
+  const { courseId, routeMeters, tierR, handAuthored, synthetic } = input;
 
-  const tierRList = tierR
-    ? tierRPlacementsForRoute(tierR, routeId).map((p) => tierRToComposed(p, routeMeters))
+  const tierRList = tierR && courseId
+    ? tierRPlacementsForRoute(tierR, courseId).map((p) => tierRToComposed(p, routeMeters))
     : [];
   if (tierRList.length > 0) return tierRList;
 

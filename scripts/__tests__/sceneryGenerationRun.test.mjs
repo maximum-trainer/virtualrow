@@ -108,6 +108,21 @@ describe('scenery-generation run (#449)', () => {
     expect(o.error).toBeNull();
   });
 
+  it('gives an admitted model the indices and normals llm-cad leaves out (FR5, AC9)', async () => {
+    const { Document, NodeIO } = await import('@gltf-transform/core');
+    const doc = new Document();
+    const buffer = doc.createBuffer();
+    const position = doc.createAccessor().setType('VEC3').setBuffer(buffer).setArray(new Float32Array([0, 0, 0, 1, 0, 0, 0, 0, 1]));
+    doc.createNode().setMesh(doc.createMesh().addPrimitive(doc.createPrimitive().setAttribute('POSITION', position)));
+    const io = new NodeIO();
+    const generate = fakeGenerate({ glbs: { 'shed.glb': await io.writeBinary(doc) }, placements: [placement('shed.glb')] });
+    const o = await processCourse({ courseId: '7', generate, fetchFn: okFetch('course'), workRoot: root });
+    const admitted = await io.readBinary(o.admitted[0].bytes);
+    const primitive = admitted.getRoot().listMeshes()[0].listPrimitives()[0];
+    expect(primitive.getAttribute('NORMAL')).not.toBeNull();
+    expect(primitive.getIndices()).not.toBeNull();
+  });
+
   it('skips a course rownative cannot serve, without aborting (FR3)', async () => {
     const notFound = async () => ({ ok: false, status: 404, text: async () => '' });
     const o = await processCourse({ courseId: '9', generate: fakeGenerate({}), fetchFn: notFound, workRoot: root });
