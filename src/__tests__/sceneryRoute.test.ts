@@ -422,6 +422,43 @@ describe('hills from the real terrain in the engine route (#763)', () => {
     expect(reliefIds.size).toBeGreaterThan(0);
   });
 
+  it('keeps the hills on the land side of a coastal course (#886 FR1)', () => {
+    // Ridges 800 m off both banks; the course runs east, so its left bank is z < 0.
+    const both = new Float32Array(cols * cols);
+    for (let r = 0; r < cols; r += 1) {
+      for (let c = 0; c < cols; c += 1) {
+        const z = 3000 - r * 50;
+        both[r * cols + c] = 120 * Math.exp(-(((Math.abs(z) - 800) / 150) ** 2));
+      }
+    }
+    const twoRidges = {
+      ...(withElevation('network') as object),
+      elevation: {
+        source: 'network',
+        ms: 0,
+        count: cols * cols,
+        data: { originX: -3000, originZ: 3000, stepX: 50, stepZ: -50, spacingM: 50, cols, rows: cols, heights: both, complete: true },
+      },
+    } as never;
+    const landforms = (r: ReturnType<typeof toEngineRoute>) =>
+      (r?.sceneryGlbs ?? []).filter((g) => LANDFORM_IDS.has(g.id)).flatMap((g) => g.instances);
+    const open = landforms(toEngineRoute(makeRoute(), null, 'medium', twoRidges));
+    expect(open.some((i) => i.position[2] > 0) && open.some((i) => i.position[2] < 0)).toBe(true);
+    const coastal = landforms(toEngineRoute(makeRoute({ tags: ['coastal'] }), null, 'medium', twoRidges));
+    expect(coastal.length).toBeGreaterThan(0);
+    for (const i of coastal) expect(i.position[2]).toBeLessThan(0);
+  });
+
+  it('reports how every landform and kit tree sits against the hills (#886 FR5, FR6)', () => {
+    const route = toEngineRoute(makeRoute(), null, 'medium', withElevation('network'))!;
+    const g = route.groundingSummary!;
+    expect(g.landforms).toBe(route.reliefSummary!.placed);
+    expect(g.minLandformClearanceM).toBeGreaterThanOrEqual(0);
+    expect(g.trees).toBeGreaterThan(0);
+    expect(g.treesInsideLandforms).toBe(0);
+    expect(toEngineRoute(makeRoute(), null, 'medium', withElevation('unavailable'))!.groundingSummary).toBeUndefined();
+  });
+
   it('is unchanged without elevation data (FR8)', () => {
     const route = toEngineRoute(makeRoute(), null, 'medium', withElevation('unavailable'))!;
     expect(route.reliefSummary).toBeUndefined();

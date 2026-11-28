@@ -37,6 +37,8 @@ export const RELIEF_FAR_M = 1200;
 const RELIEF_STEEP_SLOPE = 0.35;
 /** FR6 — the nearest a landform's footprint comes to the course, metres. */
 export const RELIEF_WATER_CLEAR_M = 80;
+/** #886 FR2 — and how far beyond the water's own edge it stays, metres. */
+export const RELIEF_BANK_MARGIN_M = 40;
 /** FR7 — landforms resident at once, `medium` being the issue's 24; none at `basic`. */
 export const RELIEF_BUDGET: Record<PerformanceMode, number> = {
   basic: 0,
@@ -169,16 +171,31 @@ export const ridgeRuns = (profile: readonly HorizonSample[]): HorizonSample[][] 
   return runs;
 };
 
-const distanceToPolyline = (course: readonly ScenePoint[], x: number, z: number): number => {
-  let best = Infinity;
+/**
+ * #886 — the course point nearest (x, z): how far it is, how far along the
+ * course, and which bank (x, z) is on. The left bank is where the bank
+ * strip's perp (-tz, tx) is negative, as in `sceneryRoute.ts`.
+ */
+const nearestOnCourse = (
+  course: readonly ScenePoint[],
+  x: number,
+  z: number,
+): { distance: number; along: number; side: 'left' | 'right' } => {
+  let best = { distance: Infinity, along: 0, side: 'left' as 'left' | 'right' };
+  let along = 0;
   for (let k = 1; k < course.length; k += 1) {
     const [x0, z0] = course[k - 1];
     const [x1, z1] = course[k];
     const dx = x1 - x0;
     const dz = z1 - z0;
-    const len2 = dx * dx + dz * dz;
-    const t = len2 > 0 ? Math.max(0, Math.min(1, ((x - x0) * dx + (z - z0) * dz) / len2)) : 0;
-    best = Math.min(best, Math.hypot(x - x0 - t * dx, z - z0 - t * dz));
+    const len = Math.hypot(dx, dz);
+    const t = len > 0 ? Math.max(0, Math.min(1, ((x - x0) * dx + (z - z0) * dz) / (len * len))) : 0;
+    const distance = Math.hypot(x - x0 - t * dx, z - z0 - t * dz);
+    if (distance < best.distance) {
+      const s = len > 0 ? ((x - x0) * -dz + (z - z0) * dx) / len : 0;
+      best = { distance, along: along + t * len, side: s < 0 ? 'left' : 'right' };
+    }
+    along += len;
   }
   return best;
 };
@@ -232,6 +249,32 @@ export const reliefFootprint = (p: Pick<ReliefPlacement, 'id' | 'x' | 'z' | 'yaw
   return corners;
 };
 
+/**
+ * #886 FR1, FR2 — how far a landform's footprint stays clear of the water:
+ * the nearest corner's distance to the course, less the clearance its bank
+ * needs (`RELIEF_WATER_CLEAR_M`, or the water's half-width there plus
+ * `RELIEF_BANK_MARGIN_M`). Negative is too close; -Infinity is a corner
+ * across the water from a one-sided course's land.
+ */
+export const reliefClearanceMargin = (
+  p: Pick<ReliefPlacement, 'id' | 'x' | 'z' | 'yaw' | 'scale'>,
+  {
+    course,
+    landSide,
+    halfWidthAt,
+  }: Pick<HorizonReliefInput, 'course' | 'landSide' | 'halfWidthAt'>,
+): number => {
+  const centre = nearestOnCourse(course, p.x, p.z);
+  const clear = Math.max(RELIEF_WATER_CLEAR_M, (halfWidthAt?.(centre.along, centre.side) ?? 0) + RELIEF_BANK_MARGIN_M);
+  let margin = Infinity;
+  for (const [x, z] of reliefFootprint(p)) {
+    const near = nearestOnCourse(course, x, z);
+    if (landSide !== undefined && near.side !== landSide) return -Infinity;
+    margin = Math.min(margin, near.distance - clear);
+  }
+  return margin;
+};
+
 export interface HorizonReliefInput {
   grid: ElevationGrid | null | undefined;
   course: readonly ScenePoint[];
@@ -239,18 +282,35 @@ export interface HorizonReliefInput {
   landCover?: LandCoverMask | null;
   /** Lakes and other water areas, world XZ. */
   water?: readonly ScenePoint[][];
+  /** #886 FR1 — the bank that is land on a coastal or one-sided course; landforms stand only there. */
+  landSide?: 'left' | 'right';
+  /**
+   * #886 FR2 — the water's half-width (metres) on `side` at `along` metres down
+   * the course. A landform stays this plus `RELIEF_BANK_MARGIN_M` back, so a
+   * canal keeps its hills close and a lake pushes them out to the horizon.
+   */
+  halfWidthAt?: (along: number, side: 'left' | 'right') => number;
 }
 
 /** FR1-FR4, FR6, FR7 — the landforms the route's horizon calls for; null with no elevation data (FR8). */
-export const planHorizonRelief = ({ grid, course, tier, landCover = null, water = [] }: HorizonReliefInput): ReliefPlan | null => {
+export const planHorizonRelief = ({
+  grid,
+  course,
+  tier,
+  landCover = null,
+  water = [],
+  landSide,
+  halfWidthAt,
+}: HorizonReliefInput): ReliefPlan | null => {
   if (!grid || course.length < 2) return null;
   const candidates: ReliefPlacement[] = [];
   let runs = 0;
   let maxElevationDeg = 0;
+  const clearance = { course, landSide, halfWidthAt };
   const onWater = (p: ReliefPlacement): boolean =>
+    reliefClearanceMargin(p, clearance) < 0 ||
     reliefFootprint(p).some(
       ([x, z]) =>
-        distanceToPolyline(course, x, z) < RELIEF_WATER_CLEAR_M ||
         water.some((ring) => insideRing(ring, x, z)) ||
         (landCover !== null &&
           [LandCoverClass.water, LandCoverClass.sea].includes(classAt(landCover, x, z) as 9 | 11)),

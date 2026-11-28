@@ -20,6 +20,8 @@
  * #885 adds the real-map layers (#763-#765): a signed-in row on a course whose
  * landscape comes from a fixture through the landscape port's test seam
  * (never the network), held to each layer's tier budget as the plans read it.
+ * The same rows hold #886's grounding: no landform in the view across the
+ * water (FR5), no kit tree inside a hill (FR6).
  */
 import { test, expect, type Page } from '../fixtures/crash-watch';
 import {
@@ -293,6 +295,8 @@ interface RealMapReading {
   /** The course line's length (`__ROWER3D_ROUTE.curveLength`), which the per-km budgets are counted over. */
   courseMetres: number;
   residentMeshBytes: number;
+  /** #886 FR5, FR6 — how the landforms and kit trees sit against the hills. */
+  grounding?: { landforms: number; minLandformClearanceM: number | null; trees: number; treesInsideLandforms: number } | null;
   /** This frame's triangles by what drew them (#737 FR2), for the annotation. */
   groups?: Record<string, { draws: number; triangles: number }>;
 }
@@ -300,7 +304,7 @@ const readRealMap = (page: Page): Promise<RealMapReading> =>
   page.evaluate(() => {
     const w = window as unknown as {
       __ROWER3D_LANDSCAPE?: RealMapReading['landscape'];
-      __ROWER3D_SCENERY?: Pick<RealMapReading, 'landCover' | 'relief'> & { layerBudgets?: RealMapReading['budgets'] };
+      __ROWER3D_SCENERY?: Pick<RealMapReading, 'landCover' | 'relief' | 'grounding'> & { layerBudgets?: RealMapReading['budgets'] };
       __ROWER3D_BUILDINGS?: RealMapReading['buildings'];
       __ROWER3D_ROUTE?: { curveLength: number };
       __ROWER3D_RENDER_STATS?: { residentMeshBytes: number; groups?: RealMapReading['groups'] };
@@ -311,6 +315,7 @@ const readRealMap = (page: Page): Promise<RealMapReading> =>
       relief: w.__ROWER3D_SCENERY?.relief,
       buildings: w.__ROWER3D_BUILDINGS,
       budgets: w.__ROWER3D_SCENERY?.layerBudgets,
+      grounding: w.__ROWER3D_SCENERY?.grounding,
       courseMetres: w.__ROWER3D_ROUTE?.curveLength ?? 0,
       residentMeshBytes: w.__ROWER3D_RENDER_STATS?.residentMeshBytes ?? 0,
       groups: w.__ROWER3D_RENDER_STATS?.groups,
@@ -401,6 +406,12 @@ function expectWithinLayerBudgets(reading: RealMapReading): NonNullable<RealMapR
   expect(budgets!.maskBytes, 'the mask budget is the 4 MB ceiling').toBeLessThanOrEqual(MASK_CAP_BYTES);
   expect(reading.landCover?.maskBytes ?? 0, 'land-cover mask').toBeLessThanOrEqual(budgets!.maskBytes);
   expect(reading.residentMeshBytes, 'kit geometry resident').toBeLessThanOrEqual(GEOMETRY_BUDGET_BYTES);
+  // #886 FR5 — no landform across the water or in the view along it; FR6 —
+  // no kit tree standing inside a hill.
+  if (reading.grounding && reading.grounding.landforms > 0) {
+    expect(reading.grounding.minLandformClearanceM ?? -1, 'a landform reaches into the view of the water').toBeGreaterThanOrEqual(0);
+  }
+  expect(reading.grounding?.treesInsideLandforms ?? 0, 'kit trees inside a hill').toBe(0);
   return budgets!;
 }
 
@@ -412,7 +423,8 @@ const annotate = (testInfo: { annotations: { type: string; description?: string 
       `wood trees ${r.landCover?.woodlandTrees ?? 0}, landforms ${r.relief?.placed ?? 0}, ` +
       `skylines ${r.buildings?.skylineInstances ?? 0}, landmarks ${r.buildings?.landmarks ?? 0}, ` +
       `footprints ${(r.buildings?.near ?? 0) + (r.buildings?.mid ?? 0)} (${r.buildings?.pool ?? 0} drawn), mask ${((r.landCover?.maskBytes ?? 0) / 1024).toFixed(0)} KB, ` +
-      `resident ${(r.residentMeshBytes / 1024 / 1024).toFixed(1)} MB, gpuMs ${gpu?.toFixed(2) ?? 'n/a'}; ` +
+      `resident ${(r.residentMeshBytes / 1024 / 1024).toFixed(1)} MB, gpuMs ${gpu?.toFixed(2) ?? 'n/a'}, ` +
+      `landform clearance ${r.grounding?.minLandformClearanceM ?? 'n/a'} m, trees in hills ${r.grounding?.treesInsideLandforms ?? 'n/a'}/${r.grounding?.trees ?? 0}; ` +
       Object.entries(r.groups ?? {})
         .map(([group, g]) => `${group} ${g.draws} draws / ${(g.triangles / 1000).toFixed(0)}k tris`)
         .join(', '),
