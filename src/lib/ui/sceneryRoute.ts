@@ -182,6 +182,8 @@ export interface EngineRoute {
     buildingsPerKm: number;
     maskBytes: number;
   };
+  /** #449 AC9 — the rownative course id the tier-r placement registry is keyed by; absent for other routes. */
+  courseId?: string;
   /** World-space boat/ghost curve; omitted when the route has too few points. */
   curvePoints?: [number, number, number][];
   /** Real route length in metres, matching the shell's finish detection. */
@@ -635,6 +637,7 @@ export const toEngineRoute = (
       buildingsPerKm: caps.maxBuildingsPerKm,
       maskBytes: LAND_COVER_MAX_TEXELS * LAND_COVER_MAX_TEXELS,
     },
+    ...(route.source === 'rownative' && route.externalId ? { courseId: route.externalId } : {}),
     ...(built && landscape ? { builtSummary: { ...built.summary, source: landscape.built.source } } : {}),
     pools,
     ...(buildings.length > 0 ? { buildings } : {}),

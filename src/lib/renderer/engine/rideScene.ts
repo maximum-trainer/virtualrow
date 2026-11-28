@@ -17,6 +17,7 @@
 
 /// <reference types="@webgpu/types" />
 
+import { sceneryFolderFor } from './sceneryFolder';
 import { frozenClock, frozenProgress, frozenStrokeCycle, frozenVelocity, readSceneFreeze } from './sceneFreeze';
 import { CAMERA_FAR_M, CAMERA_NEAR_M } from './cameraRange';
 import {
@@ -241,6 +242,8 @@ export interface SceneryRoute {
   builtSummary?: Pick<Rower3DBuildings, 'near' | 'mid' | 'skylineInstances' | 'landmarks' | 'source'>;
   /** #885 FR6 — the tier budget each real-map layer was planned to, for `__ROWER3D_SCENERY.layerBudgets`. */
   layerBudgets?: Rower3DScenery['layerBudgets'];
+  /** #449 AC9 — the rownative course id the tier-r placement registry is keyed by. */
+  courseId?: string;
   /**
    * Extruded OSM building footprints to draw as prisms (#566 FR1). Absent
    * on a route with no mapped buildings — the engine then skips the
@@ -970,11 +973,6 @@ export const createRideScene = async (
   ];
   const sceneryGlbList = isSceneryRoute(opts.route) ? opts.route.sceneryGlbs ?? [] : [];
   const COURSE_FURNITURE_MAX_INSTANCES = 1024;
-  const tierFolderFor = (id: string): string => {
-    const prefix = id[0]?.toLowerCase() ?? 'a';
-    const tier = 'abcdefgl'.includes(prefix) ? prefix : 'a';
-    return `tier-${tier}`;
-  };
   // The fetch + GLB decode + primitive merge all run off-thread in a Worker
   // pool so the main thread only pays for the final GPU buffer upload. On a
   // tier-E tree the decode step was taking long enough to drop a frame each
@@ -1111,8 +1109,8 @@ export const createRideScene = async (
    * buffers) happens later, one model per frame (#726 FR5).
    */
   const loadSceneryModel = async (id: string): Promise<DecodedScenery & { lod1?: DecodedScenery }> => {
-    const url = assetUrl(`/assets/scenery/${tierFolderFor(id)}/${id}.glb`);
-    const applyVegetationGain = tierFolderFor(id) === 'tier-e';
+    const url = assetUrl(`/assets/scenery/${sceneryFolderFor(id)}/${id}.glb`);
+    const applyVegetationGain = sceneryFolderFor(id) === 'tier-e';
     // Decode + merge off-thread. Tier-E vegetation is lifted inside the
     // worker via `VEGETATION_ALBEDO_GAIN` so the main thread never touches
     // the raw colour buffer; buildings (tier-D) pass through unchanged.
@@ -1123,7 +1121,7 @@ export const createRideScene = async (
       decoderPool.decode(id, url, applyVegetationGain),
       hasLod
         ? decoderPool
-            .decode(`${id}.lod1`, assetUrl(`/assets/scenery/${tierFolderFor(id)}/${id}.lod1.glb`), applyVegetationGain)
+            .decode(`${id}.lod1`, assetUrl(`/assets/scenery/${sceneryFolderFor(id)}/${id}.lod1.glb`), applyVegetationGain)
             .catch(() => undefined)
         : undefined,
     ]);
@@ -1510,6 +1508,7 @@ export const createRideScene = async (
   const handAuthoredExtras = routeExtras(opts.routeId);
   const composed = composePlacementsForRoute({
     routeId: opts.routeId,
+    courseId: isSceneryRoute(opts.route) ? opts.route.courseId : undefined,
     routeMeters: totalDistanceMeters,
     tierR: placementsRegistry,
     handAuthored: handAuthoredExtras,
@@ -1565,7 +1564,14 @@ export const createRideScene = async (
     t[13] = place.position[1];
     t[14] = place.position[2];
     mat4Multiply(trs, t, rot);
-    byModel.get(place.id)?.push(trs);
+    // #449 AC9 — a generated tier-r model is not in the course-furniture
+    // list; it gets its own entry rather than being dropped.
+    let placed = byModel.get(place.id);
+    if (!placed) {
+      placed = [];
+      byModel.set(place.id, placed);
+    }
+    placed.push(trs);
   }
   // #753 FR1 — a turn buoy at each stake, at water level, the same scale as
   // the lane buoys. It sits off the racing line: the line is an arc round it.
@@ -1584,10 +1590,7 @@ export const createRideScene = async (
   // overwritten — before, `.set` here silently wiped the finish tower,
   // boathouse and distance posts whenever a route group for the same id
   // came in through `composePlacementsForRoute`.
-  const courseFurnitureInstanceMats = new Map<string, Mat4[]>();
-  for (const model of COURSE_FURNITURE_MODELS) {
-    courseFurnitureInstanceMats.set(model, byModel.get(model) ?? []);
-  }
+  const courseFurnitureInstanceMats = new Map<string, Mat4[]>(byModel);
   const routeGlbInstanceMats = new Map<string, Mat4[]>();
   for (const group of sceneryGlbList) {
     const mats: Mat4[] = [];

@@ -51,6 +51,12 @@ describe('toEngineRoute (#570 AC2)', () => {
     }
   });
 
+  it('carries a rownative course id for the tier-r registry, and none for other routes (#449 AC9)', () => {
+    expect(toEngineRoute(makeRoute({ id: '1795854383630', source: 'rownative', externalId: '114' }))?.courseId).toBe('114');
+    expect(toEngineRoute(makeRoute({ id: '1' }))?.courseId).toBeUndefined();
+    expect(toEngineRoute(makeRoute({ source: 'imported', externalId: 'x' }))?.courseId).toBeUndefined();
+  });
+
   it('leaves pools empty when the route has too few coordinates to form a curve', () => {
     const route = toEngineRoute(makeRoute({ coordinates: [{ lat: 1, lng: 1 }] }));
     expect(route?.pools).toHaveLength(0);

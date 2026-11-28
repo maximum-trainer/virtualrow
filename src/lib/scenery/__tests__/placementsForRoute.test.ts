@@ -41,8 +41,9 @@ describe('#692 composePlacementsForRoute — precedence', () => {
   it('prefers tier-r when it has entries for the route', () => {
     const out = composePlacementsForRoute({
       routeId: 'willowbrook',
+      courseId: '901',
       routeMeters: 6_000,
-      tierR: tierR('willowbrook', [{ distanceAlongRouteMeters: 3_000 }]),
+      tierR: tierR('901', [{ distanceAlongRouteMeters: 3_000 }]),
       handAuthored: hand([{ progress: 0.7 }]),
       synthetic: [{ modelId: 'syn', progress: 0.9, bankSide: 'right', scale: 1, source: 'synthetic' }],
     });
@@ -80,6 +81,26 @@ describe('#692 composePlacementsForRoute — precedence', () => {
     expect(out.every((p) => p.source === 'synthetic')).toBe(true);
   });
 
+  it('keys tier-r on the rownative course id, never the app route id (#449 AC9)', () => {
+    // The Willowbrook demo's app id is '1', and so is rownative course 1
+    // (Lake Quinsigamond): the demo keeps its own extras.
+    const registry = tierR('1', [{ distanceAlongRouteMeters: 40 }]);
+    const demo = composePlacementsForRoute({
+      routeId: '1',
+      routeMeters: 6_000,
+      tierR: registry,
+      handAuthored: hand([{ progress: 0.02 }]),
+    });
+    expect(demo.map((p) => p.source)).toEqual(['hand-authored']);
+    const imported = composePlacementsForRoute({
+      routeId: '1795854383630',
+      courseId: '1',
+      routeMeters: 3_000,
+      tierR: registry,
+    });
+    expect(imported.map((p) => p.source)).toEqual(['tier-r']);
+  });
+
   it('returns an empty list when every source is empty', () => {
     expect(
       composePlacementsForRoute({ routeId: 'x', routeMeters: 1_000 }),
@@ -89,8 +110,9 @@ describe('#692 composePlacementsForRoute — precedence', () => {
   it('respects a tier-r populated route id with no handAuthored or synthetic supplied', () => {
     const out = composePlacementsForRoute({
       routeId: 'r1',
+      courseId: 'c1',
       routeMeters: 2_000,
-      tierR: tierR('r1', [{ distanceAlongRouteMeters: 500, orientationDegrees: 90, scale: 2 }]),
+      tierR: tierR('c1', [{ distanceAlongRouteMeters: 500, orientationDegrees: 90, scale: 2 }]),
     });
     expect(out).toHaveLength(1);
     expect(out[0].progress).toBeCloseTo(0.25, 5);
@@ -101,8 +123,9 @@ describe('#692 composePlacementsForRoute — precedence', () => {
   it('carries castsShadow through tier-r → composed', () => {
     const out = composePlacementsForRoute({
       routeId: 'r1',
+      courseId: 'c1',
       routeMeters: 1_000,
-      tierR: tierR('r1', [
+      tierR: tierR('c1', [
         { distanceAlongRouteMeters: 100, castsShadow: false },
         { distanceAlongRouteMeters: 200 }, // undefined falls through
       ]),

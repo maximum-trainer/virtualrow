@@ -113,3 +113,26 @@ describe('asset licences (#890 AC11, #891 AC3)', () => {
     ]);
   });
 });
+
+/** The JSON chunk of a GLB: what a primitive carries is listed there even when the buffers are meshopt-compressed. */
+const glbJson = (file: string): { meshes?: { primitives: { attributes: Record<string, number>; indices?: number }[] }[] } => {
+  const bytes = fs.readFileSync(path.join(PUBLIC, file));
+  const length = bytes.readUInt32LE(12);
+  return JSON.parse(bytes.subarray(20, 20 + length).toString('utf8'));
+};
+
+describe('scenery geometry the engine can draw (#449 FR5, AC9)', () => {
+  it('gives every primitive of every shipped GLB indices, a position and a normal', () => {
+    // The mesh decoder refuses a primitive without them, so a model missing
+    // one fails to load on the ride rather than here.
+    const missing = glbsOnDisk().filter((file) =>
+      (glbJson(file).meshes ?? []).some((mesh) =>
+        mesh.primitives.some(
+          (primitive) =>
+            primitive.indices === undefined || !('POSITION' in primitive.attributes) || !('NORMAL' in primitive.attributes),
+        ),
+      ),
+    );
+    expect(missing).toEqual([]);
+  });
+});

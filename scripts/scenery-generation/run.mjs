@@ -33,6 +33,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { COURSE_ID_PATTERN, ROWNATIVE_COURSE_BASE_URL } from './plan.mjs';
+import { ensureDrawable } from '../scenery-drawable.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, '..', '..');
@@ -186,7 +187,8 @@ export const processCourse = async ({ courseId, generate, fetchFn = fetch, workR
       outcome.rejected.push({ filename: String(p.filename), reason: 'missing or badly named GLB' });
       continue;
     }
-    const bytes = new Uint8Array(await readFile(join(outDir, p.filename)));
+    // AC9 — llm-cad writes unindexed positions only; the engine needs indices and normals.
+    const bytes = await ensureDrawable(new Uint8Array(await readFile(join(outDir, p.filename))));
     const problem = sizeProblem(bytes);
     if (problem) {
       outcome.rejected.push({ filename: p.filename, reason: problem });
