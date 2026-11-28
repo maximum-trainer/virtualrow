@@ -6,6 +6,7 @@ import {
   heightAt,
   horizonProfile,
   planHorizonRelief,
+  reliefClearanceMargin,
   reliefFootprint,
   ridgeRuns,
   type HorizonSample,
@@ -172,6 +173,57 @@ describe('planHorizonRelief (#763)', () => {
         expect(inLake(corner)).toBe(false);
       }
     }
+  });
+
+  // #886 — the course runs south along x = 0, so its left bank is west (x < 0).
+  const valley = grid((x) => Math.min(600, Math.max(0, (Math.abs(x) - 300) * 0.4)));
+  const minToCourse = (p: Parameters<typeof reliefFootprint>[0]) =>
+    Math.min(...reliefFootprint(p).map(([x, z]) => (z >= -2000 && z <= 2000 ? Math.abs(x) : Math.hypot(x, Math.abs(z) - 2000))));
+
+  it('keeps every landform on the land side when the course has one (#886 FR1, D1 a)', () => {
+    const both = planHorizonRelief({ grid: valley, course: COURSE, tier: 'medium' })!;
+    expect(both.placements.some((p) => p.x > 0)).toBe(true);
+    const left = planHorizonRelief({ grid: valley, course: COURSE, tier: 'medium', landSide: 'left' })!;
+    expect(left.placements.length).toBeGreaterThan(0);
+    for (const p of left.placements) for (const [x] of reliefFootprint(p)) expect(x).toBeLessThan(0);
+    const right = planHorizonRelief({ grid: valley, course: COURSE, tier: 'medium', landSide: 'right' })!;
+    expect(right.placements.length).toBeGreaterThan(0);
+    for (const p of right.placements) for (const [x] of reliefFootprint(p)) expect(x).toBeGreaterThan(0);
+  });
+
+  it('keeps landforms back by the half-width of the water plus 40 m (#886 FR2, D3 c)', () => {
+    // A ridge 500 m out on both banks: inside an 80 m clearance, but not
+    // behind a 480 m-wide reach of water.
+    const ridges = grid((x) => 150 * Math.exp(-(((Math.abs(x) - 500) / 120) ** 2)));
+    const narrow = planHorizonRelief({ grid: ridges, course: COURSE, tier: 'medium', halfWidthAt: () => 15 })!;
+    expect(narrow.placements.length).toBeGreaterThan(0);
+    for (const p of narrow.placements) expect(minToCourse(p)).toBeGreaterThanOrEqual(RELIEF_WATER_CLEAR_M);
+    const wide = planHorizonRelief({ grid: ridges, course: COURSE, tier: 'medium', halfWidthAt: () => 240 })!;
+    for (const p of wide.placements) expect(minToCourse(p)).toBeGreaterThanOrEqual(240 + 40);
+    expect(Math.min(...wide.placements.map(minToCourse))).toBeGreaterThan(Math.min(...narrow.placements.map(minToCourse)));
+  });
+
+  it('measures each landform against the clearance its bank needs (#886 FR1, FR2)', () => {
+    const hill = { id: 'f10-ridge-rolling-meadow' as const, x: -400, z: 0, yaw: Math.PI / 2, scale: 1 };
+    // Length 68 m along z (yaw 90 degrees), depth 44 m across: nearest corner 378 m out.
+    expect(reliefClearanceMargin(hill, { course: COURSE })).toBeCloseTo(378 - RELIEF_WATER_CLEAR_M, 0);
+    expect(reliefClearanceMargin(hill, { course: COURSE, halfWidthAt: () => 300 })).toBeCloseTo(378 - 340, 0);
+    expect(reliefClearanceMargin(hill, { course: COURSE, landSide: 'left' })).toBeGreaterThan(0);
+    expect(reliefClearanceMargin(hill, { course: COURSE, landSide: 'right' })).toBe(-Infinity);
+  });
+
+  it('reads the half-width of the bank each landform stands on (#886 FR2)', () => {
+    const sides: string[] = [];
+    planHorizonRelief({
+      grid: valley,
+      course: COURSE,
+      tier: 'medium',
+      halfWidthAt: (_along, side) => {
+        sides.push(side);
+        return 20;
+      },
+    });
+    expect(new Set(sides)).toEqual(new Set(['left', 'right']));
   });
 
   it('holds the tier budget, none at basic (FR7)', () => {

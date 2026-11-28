@@ -49,7 +49,15 @@ import { distanceBetweenLatLng, latLngToMeters } from '../utils/geoUtils';
 import type { Landscape } from '../services/landscapeService';
 import { LAND_COVER_MAX_TEXELS, type LandCoverMask } from '../scenery/landCoverMask';
 import { TREELINE_BUDGET, coastLandSide, landscapeScenery, type LandCoverSummary } from '../scenery/landscapeScenery';
-import { RELIEF_BUDGET, heightAt, landformSurfaceAt, planHorizonRelief, type ReliefPlan } from '../scenery/horizonRelief';
+import {
+  RELIEF_BUDGET,
+  heightAt,
+  landformSurfaceAt,
+  planHorizonRelief,
+  reliefClearanceMargin,
+  type HorizonReliefInput,
+  type ReliefPlan,
+} from '../scenery/horizonRelief';
 import { liftTreesOverLandforms } from '../scenery/groundTrees';
 import { WOODLAND_TREE_BUDGET, planWoodlandTrees } from '../scenery/woodlandTreePlan';
 import { SKYLINE_MODEL_ID, planBuiltForm, type BuiltFormPlan } from '../scenery/builtFormPlan';
@@ -184,6 +192,13 @@ export interface EngineRoute {
   };
   /** #449 AC9 — the rownative course id the tier-r placement registry is keyed by; absent for other routes. */
   courseId?: string;
+  /** #886 FR5, FR6 — how the landforms and kit trees sit against the hills; absent without elevation data. */
+  groundingSummary?: {
+    landforms: number;
+    minLandformClearanceM: number | null;
+    trees: number;
+    treesInsideLandforms: number;
+  };
   /** World-space boat/ghost curve; omitted when the route has too few points. */
   curvePoints?: [number, number, number][];
   /** Real route length in metres, matching the shell's finish detection. */
@@ -548,14 +563,26 @@ export const toEngineRoute = (
   }
   // #763 — hills on the horizon where the real terrain has them (none without
   // elevation data, FR8).
+  let courseLengthM = 0;
+  for (let k = 1; k < curvePoints.length; k += 1) {
+    courseLengthM += Math.hypot(curvePoints[k][0] - curvePoints[k - 1][0], curvePoints[k][2] - curvePoints[k - 1][2]);
+  }
+  // #886 FR1, FR2 — hills only on a one-sided course's land, and back from
+  // the water by its own half-width on that bank.
+  const reliefClearance: Pick<HorizonReliefInput, 'course' | 'landSide' | 'halfWidthAt'> = {
+    course: curvePoints.map(([x, , z]) => [x, z] as [number, number]),
+    ...(landSide ? { landSide } : {}),
+    halfWidthAt: (along: number, side: 'left' | 'right') =>
+      waterEdgesForProgress(courseLengthM > 0 ? Math.min(1, along / courseLengthM) : 0)[side] / SCENE_SCALE,
+  };
   const relief =
     landscape?.elevation.source !== 'unavailable' && landscape?.elevation.data && !routeTrack
       ? planHorizonRelief({
           grid: landscape.elevation.data,
-          course: curvePoints.map(([x, , z]) => [x, z] as [number, number]),
           tier,
           landCover: fromLandscape?.landCover ?? null,
           water: lakePolygons.map((lake) => lake.outer.map(({ x, z }) => [x, z] as [number, number])),
+          ...reliefClearance,
         })
       : null;
   const addKit = (id: string, instance: SceneryInstance) => {
@@ -621,6 +648,21 @@ export const toEngineRoute = (
   if (relief?.placements.length) {
     sceneryGlbsResult = liftTreesOverLandforms(sceneryGlbsResult, relief.placements, KIT_TREE_IDS);
   }
+  // #886 FR5, FR6 — what a browser spec checks the scene against.
+  const groundingSummary = relief
+    ? (() => {
+        const trees = sceneryGlbsResult.filter((g) => KIT_TREE_IDS.has(g.id)).flatMap((g) => g.instances);
+        const margins = relief.placements.map((p) => reliefClearanceMargin(p, reliefClearance));
+        return {
+          landforms: relief.placements.length,
+          minLandformClearanceM: margins.length > 0 ? Math.round(Math.min(...margins) * 10) / 10 : null,
+          trees: trees.length,
+          treesInsideLandforms: trees.filter(
+            (t) => t.position[1] < landformSurfaceAt(relief.placements, t.position[0], t.position[2]) - 0.2,
+          ).length,
+        };
+      })()
+    : null;
   return {
     ...(fromLandscape
       ? { landCover: fromLandscape.landCover, landCoverSummary: { ...fromLandscape.summary, woodlandTrees } }
@@ -638,6 +680,7 @@ export const toEngineRoute = (
       maskBytes: LAND_COVER_MAX_TEXELS * LAND_COVER_MAX_TEXELS,
     },
     ...(route.source === 'rownative' && route.externalId ? { courseId: route.externalId } : {}),
+    ...(groundingSummary ? { groundingSummary } : {}),
     ...(built && landscape ? { builtSummary: { ...built.summary, source: landscape.built.source } } : {}),
     pools,
     ...(buildings.length > 0 ? { buildings } : {}),

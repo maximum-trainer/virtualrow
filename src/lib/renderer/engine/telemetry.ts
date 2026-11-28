@@ -245,6 +245,18 @@ export interface Rower3DScenery {
   relief?: { runs: number; placed: number; maxElevationDeg: number } | null;
   /** #885 FR6 — the tier budget each real-map layer was planned to; null without a scenery route. */
   layerBudgets?: Rower3DLayerBudgets | null;
+  /** #886 FR5, FR6 — how the landforms and kit trees sit against the hills; null without elevation data. */
+  grounding?: Rower3DGrounding | null;
+}
+
+/** #886 FR5, FR6 — `__ROWER3D_SCENERY.grounding`. */
+export interface Rower3DGrounding {
+  landforms: number;
+  /** The smallest margin by which a landform clears the water its bank needs (metres); negative breaks FR1/FR2. */
+  minLandformClearanceM: number | null;
+  trees: number;
+  /** Kit trees standing more than 0.2 m below the landform surface at their (x, z) (FR3, FR4). */
+  treesInsideLandforms: number;
 }
 
 /** #885 FR6 — the per-tier budgets the real-map layer plans read (`tierCaps` and the plan modules). */
