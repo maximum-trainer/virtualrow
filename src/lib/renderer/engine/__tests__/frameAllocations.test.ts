@@ -112,7 +112,9 @@ describe('frame loop allocations (#736)', () => {
 
     expect({ mat4: counts.mat4, vec3: counts.vec3, sets, arrays }).toEqual({ mat4: 0, vec3: 0, sets: 0, arrays: 0 });
     renderer.dispose();
-  });
+    // 660 frames plus a stack capture per Set: ~1.5 s alone, past the 5 s
+    // default under the full parallel pre-push suite.
+  }, 30_000);
 
   it('uploads the scull in at most two writes a frame', async () => {
     const renderer = await attachRowing();
